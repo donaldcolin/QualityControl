@@ -1,0 +1,18 @@
+{
+  "file": "1eb91c9d-82af-11f1-bd10-0a70299d455d.mp3",
+  "language": "hi",
+  "speaker_turns": [
+    {
+      "start": 0.03096875,
+      "end": 1.11096875,
+      "speaker": "SPEAKER_00",
+      "text": "ह"
+    },
+    {
+      "start": 1.3134687500000002,
+      "end": 1.93784375,
+      "speaker": "SPEAKER_00",
+      "text": "हेलो"
+    }
+  ]
+}

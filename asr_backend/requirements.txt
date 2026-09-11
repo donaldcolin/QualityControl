@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+transformers
+torchaudio
+torch
+onnxruntime
+onnx
+pyannote.audio
+huggingface_hub
+imageio-ffmpeg
+python-dotenv
+supabase
+speechbrain==0.5.16
