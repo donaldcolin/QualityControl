@@ -40,8 +40,8 @@ _device = None
 def _get_device():
     if torch.cuda.is_available():
         return "cuda"
-    # MPS can work but IndicTrans2 is seq2seq (encoder-decoder) and small
-    # enough that CPU is fine and avoids MPS edge-case bugs.
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
     return "cpu"
 
 
@@ -57,7 +57,9 @@ def _ensure_loaded():
 
     _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
     _model = AutoModelForSeq2SeqLM.from_pretrained(
-        MODEL_NAME, trust_remote_code=True
+        MODEL_NAME, 
+        trust_remote_code=True,
+        torch_dtype=torch.float16
     ).to(_device)
     _model.eval()
 
@@ -130,7 +132,8 @@ def translate_batch(sentences: list[str], src_lang: str) -> list[str]:
     protected_sentences, entity_mappings = _protect_entities(sentences)
 
     # Process in smaller chunks to avoid CPU memory blowup and massive slowdowns
-    CHUNK_SIZE = 4
+    # Batch process
+    CHUNK_SIZE = 8
     translations = []
     
     for i in range(0, len(protected_sentences), CHUNK_SIZE):
@@ -152,13 +155,13 @@ def translate_batch(sentences: list[str], src_lang: str) -> list[str]:
         ).to(_device)
 
         # Generate
-        with torch.no_grad():
+        with torch.inference_mode():
             generated = _model.generate(
                 **inputs,
-                use_cache=False,
+                use_cache=True,
                 min_length=0,
                 max_length=256,
-                num_beams=5,
+                num_beams=2,
                 num_return_sequences=1,
             )
 
@@ -175,5 +178,12 @@ def translate_batch(sentences: list[str], src_lang: str) -> list[str]:
 
     # Restore entity names
     translations = _restore_entities(translations, entity_mappings)
+
+    import gc
+    gc.collect()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    elif torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     return translations

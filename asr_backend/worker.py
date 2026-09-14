@@ -96,7 +96,10 @@ def process_queue_item(queue_id: str):
         
         def _status_cb(msg):
             logger.info(f"[{queue_id}] {msg}")
-            supabase.table("callizer_queue").update({"status": msg}).eq("id", queue_id).execute()
+            try:
+                supabase.table("callizer_queue").update({"status": msg}).eq("id", queue_id).execute()
+            except Exception as e:
+                logger.warning(f"Failed to update status for {queue_id} (non-fatal): {e}")
 
         result = pipeline.process_file(model, device, local_audio_path, language, hf_token, out_dir, status_callback=_status_cb)
         
@@ -191,3 +194,12 @@ def process_queue_item(queue_id: str):
                 "status": "failed", 
                 "errors": json.dumps([str(e)])
             }).eq("id", queue_id).execute()
+    finally:
+        # Free up memory
+        import gc
+        gc.collect()
+        import torch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()

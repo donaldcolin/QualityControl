@@ -46,9 +46,10 @@ router.get('/queue/:queue_id', async (req, res) => {
       .from('callizer_queue')
       .select('*')
       .eq('id', req.params.queue_id)
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
+    if (!data) return res.status(404).json({ error: "Queue item not found" });
 
     if (data.status === 'completed' && data.audio_url) {
       const { data: callData } = await supabase
@@ -110,7 +111,7 @@ router.post('/queue/:queue_id/bump', async (req, res) => {
 router.post('/queue/:queue_id/send_to_qc', async (req, res) => {
   try {
     const queue_id = req.params.queue_id;
-    const { data: row, error: fetchErr } = await supabase.from('callizer_queue').select('status').eq('id', queue_id).single();
+    const { data: row, error: fetchErr } = await supabase.from('callizer_queue').select('status').eq('id', queue_id).maybeSingle();
     if (fetchErr || !row) return res.status(404).json({ error: "Not found" });
     if (row.status !== 'pending_manual_review' && row.status !== 'pending') return res.status(400).json({ error: `Invalid status: ${row.status}` });
 

@@ -72,13 +72,22 @@ def convert_to_16k_wav(input_path: Path, tmp_path: Path) -> None:
     )
 
 
+_cached_model = None
+_cached_device = None
+
 def load_model(device: str):
     """Load IndicConformer and move to device, falling back to CPU if needed."""
+    global _cached_model, _cached_device
+    if _cached_model is not None:
+        return _cached_model, _cached_device
+
+    import torch
     from transformers import AutoModel
     model = AutoModel.from_pretrained(
         "ai4bharat/indic-conformer-600m-multilingual", 
         trust_remote_code=True,
-        local_files_only=True
+        local_files_only=True,
+        torch_dtype=torch.float16
     )
     try:
         model = model.to(device)
@@ -86,21 +95,18 @@ def load_model(device: str):
         device = "cpu"
         model = model.to(device)
     model.eval()
+    
+    _cached_model = model
+    _cached_device = device
     return model, device
 
 
-def transcribe(model, device: str, wav_path: Path, lang: str,
+def transcribe(model, device: str, wav, sr: int, lang: str,
                start: float = None, end: float = None) -> str:
     """
-    Transcribe a wav file (or a time-slice of it) using CTC decoding.
-
-    If start/end are provided, only the audio between those timestamps
-    (in seconds) is transcribed — this is how we do per-segment transcription
-    after diarization.
+    Transcribe a pre-loaded wav tensor (or a time-slice of it) using CTC decoding.
     """
     import torch
-    import torchaudio
-
     # Map from frontend names to IndicConformer 2-letter codes
     lang_map = {
         "Hindi": "hi",
@@ -111,12 +117,6 @@ def transcribe(model, device: str, wav_path: Path, lang: str,
     }
     lang_code = lang_map.get(lang, lang)
 
-    wav, sr = torchaudio.load(str(wav_path))
-    wav = torch.mean(wav, dim=0, keepdim=True)  # force mono
-    if sr != 16000:
-        wav = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)(wav)
-        sr = 16000
-
     # Slice to segment boundaries if provided
     if start is not None and end is not None:
         start_sample = int(start * sr)
@@ -126,29 +126,35 @@ def transcribe(model, device: str, wav_path: Path, lang: str,
     wav = wav.to(device)
 
     try:
-        with torch.no_grad():
+        with torch.inference_mode():
             # The model uses the lang code for CTC decoding
             return model(wav, lang_code, "ctc")
     except NotImplementedError:
         # Some ops aren't implemented for MPS yet -- fall back to CPU for this
         # one file rather than crashing the whole batch.
         model_cpu = model.to("cpu")
-        with torch.no_grad():
+        with torch.inference_mode():
             result = model_cpu(wav.to("cpu"), lang_code, "ctc")
         # Move model back to original device for next call
         model.to(device)
         return result
 
 
+_cached_diarization_pipeline = None
+
 def diarize(wav_path: Path, hf_token: str, device: str = "cpu", num_speakers: int = 2):
     """Run pyannote speaker diarization and return a list of speaker turns."""
+    global _cached_diarization_pipeline
     import torch
     from pyannote.audio import Pipeline as DiarizationPipeline
-    pipeline = DiarizationPipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1", use_auth_token=hf_token if hf_token else True
-    )
-    pipeline.to(torch.device(device))
-    diarization = pipeline(str(wav_path), num_speakers=num_speakers)
+    
+    if _cached_diarization_pipeline is None:
+        _cached_diarization_pipeline = DiarizationPipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1", use_auth_token=hf_token if hf_token else True
+        )
+        _cached_diarization_pipeline.to(torch.device(device))
+        
+    diarization = _cached_diarization_pipeline(str(wav_path), num_speakers=num_speakers)
     return [
         {"start": turn.start, "end": turn.end, "speaker": speaker}
         for turn, _, speaker in diarization.itertracks(yield_label=True)
@@ -184,12 +190,20 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
                 speaker_map[raw_label] = f"Speaker_{len(speaker_map) + 1}"
         turn["speaker"] = speaker_map[raw_label]
 
-    # Transcribe each speaker turn individually — IndicConformer CTC returns a
-    # plain string with no word-level timestamps, so a whole-file transcript
-    # can't be reliably split after the fact.
+    import torch
+    import torchaudio
+    
+    _update("Loading audio into memory for fast slicing...")
+    wav, sr = torchaudio.load(str(tmp_wav))
+    wav = torch.mean(wav, dim=0, keepdim=True)  # force mono
+    if sr != 16000:
+        wav = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)(wav)
+        sr = 16000
+
+    # Transcribe each speaker turn individually — slicing directly from memory!
     for i, turn in enumerate(speakers):
         _update(f"Transcribing segment {i+1}/{total} ({turn.get('speaker', '?')})...")
-        turn["text"] = transcribe(model, device, tmp_wav, lang,
+        turn["text"] = transcribe(model, device, wav, sr, lang,
                                   start=turn["start"], end=turn["end"])
 
     result = {

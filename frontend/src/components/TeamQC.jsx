@@ -267,7 +267,7 @@ export default function TeamQC({ onPushToQueue }) {
         
         {/* Panel 1: Associates Sidebar */}
         <Card className={cn(
-          "flex-shrink-0 flex flex-col transition-all duration-300 relative shadow-sm",
+          "flex-shrink-0 flex flex-col min-h-0 transition-all duration-300 relative shadow-sm",
           sidebarOpen ? "w-full md:w-[320px]" : "w-full md:w-[80px] items-center"
         )}>
           {/* Toggle Button */}
@@ -438,7 +438,7 @@ export default function TeamQC({ onPushToQueue }) {
         </Card>
 
         {/* Panel 2: Leads for selected Associate */}
-        <Card className="w-full md:w-[320px] flex-shrink-0 flex flex-col shadow-sm">
+        <Card className="w-full md:w-[320px] flex-shrink-0 flex flex-col min-h-0 shadow-sm">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
               <Users className="w-5 h-5 text-primary" />
@@ -449,8 +449,8 @@ export default function TeamQC({ onPushToQueue }) {
             </CardDescription>
           </CardHeader>
 
-          <CardContent className="flex-1 min-h-0 overflow-hidden flex flex-col p-4 pt-0">
-            <ScrollArea className="flex-1 -mx-4 px-4">
+          <CardContent className="flex-1 min-h-0 p-4 pt-0">
+            <ScrollArea className="h-full -mx-4 px-4">
               <div className="space-y-2 pb-4">
                 {loadingLeads ? (
                   <div className="flex justify-center py-12">
@@ -492,7 +492,7 @@ export default function TeamQC({ onPushToQueue }) {
         </Card>
 
         {/* Panel 3: Activities for selected Lead */}
-        <Card className="flex-1 flex flex-col overflow-hidden shadow-sm">
+        <Card className="flex-1 flex flex-col min-h-0 overflow-hidden shadow-sm">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
               <PhoneCall className="w-5 h-5 text-primary" />
