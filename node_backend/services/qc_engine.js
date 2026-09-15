@@ -24,33 +24,319 @@ try {
   console.warn("WARNING: knowledge_base.json not found or invalid in config/. Lead Intelligence will lack historical grounding.");
 }
 
-async function getParametersForSource(source) {
-  const { data: dbParams, error } = await supabase
+// ═══════════════════════════════════════════════════════════════
+//  Fetch dynamic configurations from DB
+// ═══════════════════════════════════════════════════════════════
+
+async function getQCParameters(source) {
+  const { data, error } = await supabase
     .from('qc_parameters')
     .select('*')
     .eq('source', source);
-
-  if (error) {
-    console.error("Error fetching QC parameters from DB:", error);
-    throw new Error("Failed to fetch QC parameters");
-  }
-  
-  // Map database columns to the expected format (capitalized keys to match old CSV parsing)
-  const mappedParams = dbParams.map(p => ({
+  if (error) throw new Error("Failed to fetch QC parameters: " + error.message);
+  return data.map(p => ({
     Parameter: p.parameter,
     Category: p.category,
     Description: p.description
   }));
+}
 
+async function getQualityChecks(source) {
+  const { data, error } = await supabase
+    .from('qc_parameters')
+    .select('*')
+    .eq('source', source)
+    .order('sort_order', { ascending: true });
+  if (error) throw new Error("Failed to fetch quality checks: " + error.message);
+  return data;
+}
+
+async function getDataCaptureQuestions(source) {
+  const { data, error } = await supabase
+    .from('data_capture_questions')
+    .select('*')
+    .eq('source', source)
+    .order('sort_order', { ascending: true });
+  if (error) throw new Error("Failed to fetch data capture questions: " + error.message);
+  return data;
+}
+
+async function getPastCalls(prospectId) {
+  if (!prospectId) return [];
+  const { data, error } = await supabase
+    .from('calls')
+    .select('filename, language, duration_sec, segments, summary_data, insights_data, quality_data, call_quality_score, source, created_at')
+    .eq('prospect_id', prospectId)
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error("Failed to fetch past calls:", error.message);
+    return [];
+  }
+  return data || [];
+}
+
+async function getLeadState(prospectId) {
+  if (!prospectId) return null;
+  const { data, error } = await supabase
+    .from('leads')
+    .select('journey_summary, intent_score, bant_insights, data_capture')
+    .eq('id', prospectId)
+    .single();
+  if (error) return null;
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INSIGHTS Schema & Prompt (Summary + Insights tabs)
+// ═══════════════════════════════════════════════════════════════
+
+function getInsightsSchema(dataCaptureQuestions) {
+  // Build dynamic data_capture properties from the questions
+  const dataCaptureProps = {};
+  dataCaptureQuestions.forEach(q => {
+    dataCaptureProps[q.label] = {
+      type: 'object',
+      properties: {
+        answer: { type: 'string', description: `Answer to: ${q.question}` },
+        evidence: { type: 'string', description: 'Evidence from the transcript supporting this answer' }
+      }
+    };
+  });
+
+  return {
+    type: 'object',
+    properties: {
+      insights: {
+        type: 'object',
+        properties: {
+          intent_score: { type: 'number', description: 'Buying intent score 0-100' },
+          high_intent_factors: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific positive signals showing high buying intent, with evidence from transcript'
+          },
+          low_intent_factors: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific negative signals or hesitations showing low intent, with evidence'
+          },
+          objections: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                category: { type: 'string', description: 'Category tag for the objection (e.g., "Exam Difficulty and Admission Barriers")' },
+                objection: { type: 'string', description: 'What the customer said / their concern' },
+                how_handled: { type: 'string', description: 'How the salesperson addressed this objection' },
+                customer_satisfied: { type: 'boolean', description: 'Was the customer satisfied with the response?' }
+              }
+            },
+            description: 'All objections raised by the customer during the call'
+          },
+          bant: {
+            type: 'object',
+            properties: {
+              budget: { type: 'string', description: 'What was discussed about budget/financial constraints' },
+              authority: { type: 'string', description: 'Who is the decision maker and their role' },
+              needs: { type: 'string', description: 'What are the customer/student needs and requirements' },
+              timeline: { type: 'string', description: 'What is the timeline for making a decision' }
+            },
+            description: 'BANT analysis extracted from the conversation'
+          },
+          data_capture: {
+            type: 'object',
+            properties: dataCaptureProps,
+            description: 'Answers to specific data capture questions'
+          },
+          conversation_topics: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Key topics discussed during the conversation (e.g., "K-NET Exam", "Program Curriculum")'
+          }
+        },
+        required: ['intent_score', 'high_intent_factors', 'low_intent_factors', 'objections', 'bant', 'data_capture', 'conversation_topics']
+      },
+      summary: {
+        type: 'object',
+        properties: {
+          call_summary: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Bullet points summarizing the discussion'
+          },
+          key_points: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Critical facts extracted (e.g., student grade, chosen stream, interests)'
+          },
+          main_takeaways: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Conclusions and outcomes of the conversation'
+          },
+          journey_summary: {
+            type: 'string',
+            description: 'Updated rolling summary of the prospect journey across ALL calls including this one'
+          }
+        },
+        required: ['call_summary', 'key_points', 'main_takeaways', 'journey_summary']
+      },
+      next_steps: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Short action title' },
+            description: { type: 'string', description: 'Detailed description of the action' },
+            suggested_say: { type: 'string', description: 'Suggested script/dialogue for the agent to use' },
+            due_by: { type: 'string', description: 'Suggested due date in ISO format (YYYY-MM-DD)' }
+          }
+        },
+        description: 'Concrete next steps for the agent with suggested dialogue and due dates'
+      }
+    },
+    required: ['insights', 'summary', 'next_steps']
+  };
+}
+
+function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls, leadState) {
+  const role = source === 'google_meet' ? 'Expert Video Demo Analyst' : 'Expert Sales Call Analyst';
+  const context = source === 'google_meet'
+    ? 'a product demonstration meeting conducted via Google Meet'
+    : 'a sales counselling phone call for university admissions';
+
+  let prompt = `You are an ${role}. You are analyzing ${context}.\n\n`;
+
+  // Inject past call context if available
+  if (pastCalls && pastCalls.length > 0) {
+    prompt += `=== PREVIOUS CALLS FOR THIS PROSPECT (${pastCalls.length} calls) ===\n`;
+    pastCalls.forEach((pc, i) => {
+      const summary = pc.summary_data ? (typeof pc.summary_data === 'string' ? JSON.parse(pc.summary_data) : pc.summary_data) : null;
+      prompt += `--- Call ${i + 1} (${pc.source || 'phone_call'}, ${pc.created_at}) ---\n`;
+      if (summary && summary.call_summary) {
+        prompt += summary.call_summary.join('\n') + '\n';
+      }
+      prompt += '\n';
+    });
+  }
+
+  if (leadState && leadState.journey_summary) {
+    prompt += `=== PREVIOUS JOURNEY SUMMARY ===\n${leadState.journey_summary}\n\n`;
+  }
+
+  prompt += `=== CURRENT CALL TRANSCRIPT ===\n${transcript}\n\n`;
+
+  prompt += `=== YOUR TASKS ===\n`;
+  prompt += `1. Calculate an INTENT SCORE (0-100) based on the customer's buying signals.\n`;
+  prompt += `2. List specific HIGH INTENT FACTORS — things the customer said/did that show genuine interest.\n`;
+  prompt += `3. List specific LOW INTENT FACTORS — hesitations, concerns, red flags.\n`;
+  prompt += `4. Identify all OBJECTIONS raised by the customer. For each objection:\n`;
+  prompt += `   - Categorize it (e.g., "Exam Difficulty", "Parental Consent", "Alternative Career")\n`;
+  prompt += `   - Describe what the customer said\n`;
+  prompt += `   - Describe how the salesperson handled it\n`;
+  prompt += `   - Note if the customer was satisfied with the response\n`;
+  prompt += `5. Extract BANT (Budget, Authority, Needs, Timeline) from the conversation.\n`;
+  prompt += `6. Answer the following DATA CAPTURE QUESTIONS:\n`;
+  dataCaptureQuestions.forEach(q => {
+    prompt += `   - ${q.label}: ${q.question}\n`;
+  });
+  prompt += `7. Identify the main CONVERSATION TOPICS discussed.\n`;
+  prompt += `8. Write a comprehensive CALL SUMMARY with key points and main takeaways.\n`;
+  prompt += `9. Update the JOURNEY SUMMARY to include insights from all previous calls plus this one.\n`;
+  prompt += `10. Suggest concrete NEXT STEPS with suggested dialogue and due dates.\n\n`;
+
+  prompt += `Be specific and cite evidence from the transcript wherever possible.\n`;
+
+  return prompt;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  QUALITY Schema & Prompt (Quality tab)
+// ═══════════════════════════════════════════════════════════════
+
+function getQualitySchema(qualityChecks) {
+  const paramProperties = {};
+  qualityChecks.forEach(check => {
+    paramProperties[check.parameter] = {
+      type: 'object',
+      properties: {
+        score: { type: 'number', description: `Score awarded (0 to ${check.max_score || 10})` },
+        max_score: { type: 'number', description: `Maximum possible score: ${check.max_score || 10}` },
+        status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'], description: 'Evaluation status' },
+        reason: { type: 'string', description: 'Detailed justification based on the transcript' }
+      }
+    };
+  });
+
+  return {
+    type: 'object',
+    properties: {
+      quality: {
+        type: 'object',
+        properties: paramProperties,
+        description: 'Quality evaluation for each parameter'
+      }
+    },
+    required: ['quality']
+  };
+}
+
+function buildQualityPrompt(transcript, source, qualityChecks) {
+  const role = source === 'google_meet' ? 'Expert Video Demo Quality Auditor' : 'Expert Call Quality Auditor';
+  const context = source === 'google_meet'
+    ? 'a product demonstration meeting conducted via Google Meet'
+    : 'a sales counselling phone call for university admissions';
+
+  let prompt = `You are an ${role}. You are evaluating the quality of ${context}.\n\n`;
+  prompt += `=== TRANSCRIPT ===\n${transcript}\n\n`;
+
+  prompt += `=== QUALITY PARAMETERS TO EVALUATE ===\n`;
+  prompt += `For each parameter, assign a score (0 to max_score), a status, and a detailed reason.\n`;
+  prompt += `Statuses: Done (full marks), Partially Done (partial marks), Needs Improvement (low marks), Not Applicable.\n\n`;
+
+  // Group by category for clarity
+  const groups = {};
+  qualityChecks.forEach(check => {
+    const group = check.category || 'Other';
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(check);
+  });
+
+  for (const [group, checks] of Object.entries(groups)) {
+    prompt += `== ${group} ==\n`;
+    checks.forEach(check => {
+      prompt += `- ${check.parameter} (Max Score: ${check.max_score || 10})\n`;
+      if (check.check_question) {
+        prompt += `  Question: ${check.check_question}\n`;
+      }
+      prompt += `  Guidelines: ${check.description}\n`;
+      if (check.na_condition) {
+        prompt += `  Not Applicable When: ${check.na_condition}\n`;
+      }
+      prompt += `\n`;
+    });
+  }
+
+  prompt += `Be fair but rigorous. Cite specific evidence from the transcript for each evaluation.\n`;
+
+  return prompt;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LEGACY: Coaching Schema & Prompt (kept for backward compat)
+// ═══════════════════════════════════════════════════════════════
+
+async function getParametersForSource(source) {
+  const params = await getQCParameters(source);
   if (source === 'google_meet') {
     return {
-      params: mappedParams,
+      params,
       role: 'Expert Video Demo Coach',
       context: 'a product demonstration meeting conducted via Google Meet'
     };
   }
   return {
-    params: mappedParams,
+    params,
     role: 'Expert Counselling Coach',
     context: 'a sales counselling phone call for university admissions'
   };
@@ -144,7 +430,10 @@ function getCoachingSchema(parameters) {
 }
 
 function buildCoachingPrompt(transcript, source, parameters) {
-  const { role, context } = getParametersForSource(source);
+  const role = source === 'google_meet' ? 'Expert Video Demo Coach' : 'Expert Counselling Coach';
+  const context = source === 'google_meet'
+    ? 'a product demonstration meeting conducted via Google Meet'
+    : 'a sales counselling phone call for university admissions';
   const categories = groupByCategory(parameters);
 
   let prompt = `You are an ${role}. You are evaluating ${context}.\n\n`;
@@ -180,6 +469,10 @@ function buildCoachingPrompt(transcript, source, parameters) {
 
   return prompt;
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  Intelligence Schema (Lead Prediction)
+// ═══════════════════════════════════════════════════════════════
 
 function getIntelligenceSchema() {
   return {
@@ -222,6 +515,16 @@ function getIntelligenceSchema() {
 module.exports = {
   ai,
   knowledgeBase,
+  // New functions
+  getQualityChecks,
+  getDataCaptureQuestions,
+  getPastCalls,
+  getLeadState,
+  getInsightsSchema,
+  buildInsightsPrompt,
+  getQualitySchema,
+  buildQualityPrompt,
+  // Legacy functions
   getParametersForSource,
   getCoachingSchema,
   buildCoachingPrompt,

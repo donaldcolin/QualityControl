@@ -108,6 +108,25 @@ def process_queue_item(queue_id: str):
         segments = result.get("speaker_turns", [])
         duration = segments[-1]["end"] if segments else 0.0
         
+        # 2b. Compute talk-to-listen ratio from diarization segments
+        speaker_durations = {}
+        for seg in segments:
+            speaker = seg.get("speaker", "Unknown")
+            seg_duration = seg["end"] - seg["start"]
+            speaker_durations[speaker] = speaker_durations.get(speaker, 0.0) + seg_duration
+        
+        total_speaking = sum(speaker_durations.values()) or 1.0
+        participant_stats = {
+            speaker: round(dur / total_speaking * 100)
+            for speaker, dur in speaker_durations.items()
+        }
+        # Format as "71:29" (Agent:Customer) for display
+        agent_pct = participant_stats.get("Agent", 0)
+        customer_pct = participant_stats.get("Customer", 100 - agent_pct)
+        talk_to_listen_ratio = f"{agent_pct}:{customer_pct}"
+        
+        logger.info(f"[{queue_id}] Talk-to-Listen Ratio: {talk_to_listen_ratio} | Stats: {participant_stats}")
+        
         # 3. Translate to English (via translation microservice)
         logger.info("Translating segments to English...")
         supabase.table("callizer_queue").update({"status": "Translating to English..."}).eq("id", queue_id).execute()
@@ -138,7 +157,9 @@ def process_queue_item(queue_id: str):
             "segments": json.dumps(segments),
             "audio_url": audio_url,
             "prospect_id": prospect_id if prospect_id else None,
-            "source": "phone_call"
+            "source": "phone_call",
+            "talk_to_listen_ratio": talk_to_listen_ratio,
+            "participant_stats": json.dumps(participant_stats),
         }
         
         supabase.table("calls").insert(call_data).execute()
