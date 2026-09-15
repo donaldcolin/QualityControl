@@ -20,3 +20,6 @@ env/
 # Data/Models/Uploads
 asr_backend/local_models/
 */uploads/
+
+# Central Storage for Local Files
+storage/

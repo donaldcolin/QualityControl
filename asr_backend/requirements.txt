@@ -13,3 +13,5 @@ imageio-ffmpeg
 python-dotenv
 supabase
 speechbrain==0.5.16
+sentencepiece
+indictranstoolkit

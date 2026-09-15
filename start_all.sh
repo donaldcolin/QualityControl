@@ -22,20 +22,15 @@ cd frontend && npm run dev &
 VITE_PID=$!
 
 echo "Starting ASR Worker (port 8000)..."
-cd asr_backend && source venv/bin/activate && uvicorn main:app --reload --port 8000 &
+cd asr_backend && source venv/bin/activate && uvicorn api.api_webhook:app --reload --port 8000 &
 ASR_PID=$!
-
-echo "Starting Translation Service (port 8001)..."
-cd translation_service && source venv/bin/activate && uvicorn main:app --reload --port 8001 &
-TRANS_PID=$!
 
 echo ""
 echo "========================================================="
-echo "✅ All 4 services started successfully!"
+echo "✅ All 3 services started successfully!"
 echo "📡 Frontend is running at http://localhost:5173"
 echo "📡 Unified Node Backend: http://localhost:3000"
 echo "📡 ASR Worker:       http://localhost:8000"
-echo "📡 Translation:      http://localhost:8001"
 echo "Press Ctrl+C at any time to stop all services at once."
 echo "========================================================="
 echo ""
