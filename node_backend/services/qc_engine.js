@@ -65,9 +65,9 @@ async function getPastCalls(prospectId) {
   if (!prospectId) return [];
   const { data, error } = await supabase
     .from('calls')
-    .select('filename, language, duration_sec, segments, summary_data, insights_data, quality_data, call_quality_score, source, created_at')
+    .select('*')
     .eq('prospect_id', prospectId)
-    .order('created_at', { ascending: true });
+    .order('id', { ascending: true });
   if (error) {
     console.error("Failed to fetch past calls:", error.message);
     return [];
@@ -212,7 +212,7 @@ function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls
     prompt += `=== PREVIOUS CALLS FOR THIS PROSPECT (${pastCalls.length} calls) ===\n`;
     pastCalls.forEach((pc, i) => {
       const summary = pc.summary_data ? (typeof pc.summary_data === 'string' ? JSON.parse(pc.summary_data) : pc.summary_data) : null;
-      prompt += `--- Call ${i + 1} (${pc.source || 'phone_call'}, ${pc.created_at}) ---\n`;
+      prompt += `--- Call ${i + 1} (${pc.source || 'phone_call'}) ---\n`;
       if (summary && summary.call_summary) {
         prompt += summary.call_summary.join('\n') + '\n';
       }

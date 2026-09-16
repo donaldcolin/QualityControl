@@ -6,9 +6,29 @@ const { lsqUrl } = require('../config/lsq');
 
 // Get all leads (QC)
 router.get('/', async (req, res) => {
-  const { data, error } = await supabase.from('leads').select('*').order('updated_at', { ascending: false });
+  const { data: leads, error } = await supabase.from('leads').select('*').order('updated_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  
+  const { data: calls, error: callsError } = await supabase.from('calls').select('id, prospect_id, created_at').order('created_at', { ascending: true });
+  
+  const callsByProspect = {};
+  if (!callsError && calls) {
+    for (const c of calls) {
+      if (!callsByProspect[c.prospect_id]) callsByProspect[c.prospect_id] = [];
+      callsByProspect[c.prospect_id].push(c);
+    }
+  }
+
+  const leadsWithCounts = (leads || []).map(l => {
+    const prospectCalls = callsByProspect[l.id] || [];
+    return {
+      ...l,
+      calls: prospectCalls,
+      total_calls: prospectCalls.length
+    };
+  });
+  
+  res.json(leadsWithCounts);
 });
 
 // Get a lead with its calls (QC)
@@ -24,8 +44,8 @@ router.get('/:id', async (req, res) => {
   const { data: calls, error: callsError } = await supabase
     .from('calls')
     .select('*')
-    .eq('lead_id', req.params.id)
-    .order('call_number', { ascending: true });
+    .eq('prospect_id', req.params.id)
+    .order('id', { ascending: true });
 
   if (callsError) return res.status(500).json({ error: callsError.message });
 

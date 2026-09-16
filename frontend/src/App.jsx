@@ -6,17 +6,32 @@ import TeamQC from './components/TeamQC';
 import QueueView from './components/QueueView';
 import LeadsDashboard from './components/LeadsDashboard';
 import LeadDetails from './components/LeadDetails';
+import ConversationInsights from './components/ConversationInsights';
 import ParametersManager from './components/ParametersManager';
-import { Users, PlaySquare, LayoutDashboard, ListOrdered, Target, Settings, ChevronRight } from 'lucide-react';
+import Sidebar from './components/Sidebar';
+import { PlaySquare } from 'lucide-react';
 import { cn } from './lib/utils';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState('teamqc');
   const [selectedCall, setSelectedCall] = useState(null);
+  const [selectedOwner, setSelectedOwner] = useState(null);
   const [activeQueueId, setActiveQueueId] = useState(null);
   const [isRunPanelOpen, setIsRunPanelOpen] = useState(true);
+  const [isEmbedded, setIsEmbedded] = useState(false);
+  const [embeddedLeadId, setEmbeddedLeadId] = useState(null);
+
+  useEffect(() => {
+    // Check if we are embedded in an iframe (e.g., LeadSquared)
+    const urlParams = new URLSearchParams(window.location.search);
+    const leadIdParam = urlParams.get('leadId');
+    // If LeadSquared passes the ID, it might look like ?leadId=@Lead.Id
+    if (leadIdParam && !leadIdParam.startsWith('@')) {
+      setIsEmbedded(true);
+      setEmbeddedLeadId(leadIdParam);
+    }
+  }, []);
 
   const handleSelectCall = (id) => {
     setSelectedCall(id);
@@ -40,55 +55,41 @@ function AppContent() {
     </Button>
   );
 
+  // If embedded in an iframe (like LeadSquared), ONLY render the Lead Details view
+  if (isEmbedded && embeddedLeadId) {
+    return (
+      <div className="h-screen w-screen overflow-y-auto bg-background text-foreground font-sans">
+        <LeadDetails leadId={embeddedLeadId} onBack={() => {}} />
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex overflow-hidden bg-background text-foreground font-sans">
       
-      {/* LEFT SIDEBAR (Navigation) */}
-      <div className="w-[260px] flex-shrink-0 flex flex-col border-r bg-muted/20">
-        <div className="h-14 border-b flex items-center px-6">
-          <h1 className="text-lg font-bold tracking-tight">
-            QC <span className="text-primary">Bake-off</span>
-          </h1>
-        </div>
-        <div className="p-4 space-y-1.5 flex-1 overflow-y-auto">
-          <div className="text-xs font-semibold text-muted-foreground tracking-wider uppercase mb-3 px-2 mt-2">
-            Workspace
-          </div>
-          <NavButton id="teamqc" label="Team QC" icon={Users} />
-          <NavButton id="queue" label="Queue" icon={ListOrdered} />
-          <NavButton id="dashboard" label="Dashboard" icon={LayoutDashboard} />
-          
-          <Separator className="my-4" />
-          <div className="text-xs font-semibold text-muted-foreground tracking-wider uppercase mb-3 px-2">
-            Intelligence
-          </div>
-          <NavButton id="leads" label="Leads QC" icon={Target} />
-          
-          <Separator className="my-4" />
-          <div className="text-xs font-semibold text-muted-foreground tracking-wider uppercase mb-3 px-2">
-            Settings
-          </div>
-          <NavButton id="parameters" label="Parameters" icon={Settings} />
-        </div>
-      </div>
+      {/* LEFT SIDEBAR (Collapsible Component) */}
+      <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
 
       {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden bg-background relative">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden bg-muted/10 relative">
         {/* Top Header to Toggle Run Panel */}
-        <header className="h-14 border-b flex items-center justify-end px-4 flex-shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
+        <header className="h-16 border-b flex items-center justify-between px-6 flex-shrink-0 bg-background/80 backdrop-blur-md sticky top-0 z-10 shadow-sm">
+          <div className="text-sm font-medium text-muted-foreground">
+             {/* Simple breadcrumb or empty space */}
+          </div>
           <Button 
-            variant={isRunPanelOpen ? "secondary" : "ghost"}
+            variant={isRunPanelOpen ? "secondary" : "outline"}
             size="sm"
             onClick={() => setIsRunPanelOpen(!isRunPanelOpen)}
-            className="gap-2 h-9"
+            className="gap-2 h-9 shadow-sm transition-all"
           >
             <PlaySquare className={cn("w-4 h-4", isRunPanelOpen ? "text-primary" : "")} />
             {isRunPanelOpen ? "Hide Runner" : "Show Runner"}
           </Button>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-8">
-          <div className="max-w-6xl mx-auto pb-12 animate-in fade-in duration-500">
+        <main className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-thin">
+          <div className="max-w-7xl mx-auto pb-12 animate-in fade-in duration-500">
             {currentView === 'teamqc' && (
               <TeamQC 
                 onPushToQueue={(queueId) => {
@@ -106,8 +107,15 @@ function AppContent() {
               />
             )}
             {currentView === 'dashboard' && <Dashboard onSelectCall={handleSelectCall} />}
+            {currentView === 'insights_owners' && (
+              <ConversationInsights onSelectOwner={(owner) => { setSelectedOwner(owner); setCurrentView('leads'); }} />
+            )}
             {currentView === 'leads' && (
-              <LeadsDashboard onSelectLead={(id) => { setSelectedCall(id); setCurrentView('lead_details'); }} />
+              <LeadsDashboard 
+                owner={selectedOwner}
+                onSelectLead={(id) => { setSelectedCall(id); setCurrentView('lead_details'); }} 
+                onBack={() => setCurrentView('insights_owners')}
+              />
             )}
             {currentView === 'lead_details' && (
               <LeadDetails leadId={selectedCall} onBack={() => setCurrentView('leads')} />

@@ -189,3 +189,60 @@ export const pushCoachingToLSQ = async (prospect_id, coaching_report, source) =>
   return res.json();
 };
 
+// --- Dynamic Parameters (Lead-Centric Architecture) ---
+
+export const getQCParameters = async (source = 'phone_call') => {
+  const res = await fetch(`${QC_API_BASE}/quality_checks?source=${source}`);
+  return res.json();
+};
+
+export const createQCParameter = async (data) => {
+  const res = await fetch(`${QC_API_BASE}/quality_checks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+};
+
+export const updateQCParameter = async (id, data) => {
+  const res = await fetch(`${QC_API_BASE}/quality_checks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+};
+
+export const deleteQCParameter = async (id) => {
+  const res = await fetch(`${QC_API_BASE}/quality_checks/${id}`, { method: 'DELETE' });
+  return res.ok;
+};
+
+export const getDataCaptureQuestions = async (source = 'phone_call') => {
+  const res = await fetch(`${QC_API_BASE}/data_capture_questions?source=${source}`);
+  return res.json();
+};
+
+export const createDataCaptureQuestion = async (data) => {
+  const res = await fetch(`${QC_API_BASE}/data_capture_questions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+};
+
+export const updateDataCaptureQuestion = async (id, data) => {
+  const res = await fetch(`${QC_API_BASE}/data_capture_questions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+};
+
+export const deleteDataCaptureQuestion = async (id) => {
+  const res = await fetch(`${QC_API_BASE}/data_capture_questions/${id}`, { method: 'DELETE' });
+  return res.ok;
+};

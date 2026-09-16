@@ -23,6 +23,7 @@ ALTER TABLE leads ADD COLUMN IF NOT EXISTS data_capture JSONB;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS journey_summary TEXT;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS next_process_step TEXT;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS avg_call_quality_score REAL;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS kalvium_funnel_stage TEXT;
 
 -- 3. Add scoring columns to existing `qc_parameters` table
 -- ============================================================

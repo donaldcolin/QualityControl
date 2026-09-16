@@ -67,11 +67,9 @@ export default function Dashboard({ onSelectCall }) {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Button asChild variant="outline" className="gap-2">
-            <a href="http://localhost:8000/api/export.csv" target="_blank" rel="noreferrer">
-              <Download className="w-4 h-4" />
-              Export CSV
-            </a>
+          <Button variant="outline" className="gap-2" onClick={() => window.open('http://localhost:8000/api/export.csv', '_blank')}>
+            <Download className="w-4 h-4" />
+            Export CSV
           </Button>
         </div>
       </div>

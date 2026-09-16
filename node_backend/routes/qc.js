@@ -174,12 +174,30 @@ router.post('/qc/evaluate_call', async (req, res) => {
     }
 
     // 8. Update leads table with latest prospect state
-    if (prospect_id) {
+    let finalProspectId = prospect_id;
+
+    if (!finalProspectId) {
+      // Auto-create a lead for raw audio drops so it shows up in the dashboard
+      finalProspectId = uuidv4();
+      
+      // Update the call to link to this new prospect_id
+      await supabase.from('calls').update({ prospect_id: finalProspectId }).eq('id', callIdToUpdate);
+      
+      // Insert new lead
+      await supabase.from('leads').insert({
+        id: finalProspectId,
+        name: `Unknown Lead (${new Date().toLocaleDateString()})`,
+        owner: 'Unassigned',
+        updated_at: new Date().toISOString()
+      });
+    }
+
+    if (finalProspectId) {
       // Recompute avg_call_quality_score across all calls for this prospect
       const { data: allCalls } = await supabase
         .from('calls')
         .select('call_quality_score')
-        .eq('prospect_id', prospect_id)
+        .eq('prospect_id', finalProspectId)
         .not('call_quality_score', 'is', null);
 
       let avgQualityScore = callQualityScore;
@@ -202,16 +220,30 @@ router.post('/qc/evaluate_call', async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
-      await supabase
-        .from('leads')
-        .update(leadUpdate)
-        .eq('id', prospect_id);
+      // Check if lead exists
+      const { data: existingLead } = await supabase.from('leads').select('id').eq('id', finalProspectId).maybeSingle();
+
+      if (existingLead) {
+        await supabase
+          .from('leads')
+          .update(leadUpdate)
+          .eq('id', finalProspectId);
+      } else {
+        await supabase
+          .from('leads')
+          .insert({
+            id: finalProspectId,
+            name: 'LSQ Lead', // Fallback name
+            owner: 'Unassigned',
+            ...leadUpdate
+          });
+      }
     }
 
     // 9. Push to LeadSquared
-    if (prospect_id) {
+    if (finalProspectId && prospect_id) { // Only push if it was an actual LSQ prospect
       axios.post(`http://localhost:${process.env.PORT || 3000}/api/coaching/push_to_lsq`, {
-        prospect_id,
+        prospect_id: finalProspectId,
         coaching_report: coachingReport,
         source: effectiveSource
       }).catch(err => console.error("LSQ push failed:", err.message));
@@ -231,6 +263,189 @@ router.post('/qc/evaluate_call', async (req, res) => {
   } catch (err) {
     console.error("Evaluation Error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  LEADS CRUD & DEMO SEEDING
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/leads', async (req, res) => {
+  try {
+    const { data: leads, error } = await supabase
+      .from('leads')
+      .select('*')
+      .order('updated_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Fetch call counts separately to avoid missing foreign key errors
+    const { data: callsData } = await supabase
+      .from('calls')
+      .select('prospect_id');
+      
+    const callCounts = {};
+    if (callsData) {
+      callsData.forEach(c => {
+        if (!callCounts[c.prospect_id]) callCounts[c.prospect_id] = 0;
+        callCounts[c.prospect_id]++;
+      });
+    }
+    
+    // Add call count for the dashboard
+    const leadsWithCounts = leads.map(l => ({
+      ...l,
+      total_calls: callCounts[l.id] || 0
+    }));
+    
+    res.json(leadsWithCounts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/leads/:id', async (req, res) => {
+  try {
+    const { data: lead, error: leadError } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+      
+    if (leadError) throw leadError;
+    
+    const { data: calls, error: callsError } = await supabase
+      .from('calls')
+      .select('*')
+      .eq('prospect_id', req.params.id)
+      .order('id', { ascending: true });
+      
+    if (callsError) throw callsError;
+    
+    lead.calls = calls || [];
+    res.json(lead);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/demo/seed', async (req, res) => {
+  try {
+    // 0. Ensure the demo owner exists in qc_associates
+    const ownerName = 'Siva Sandhiya';
+    let ownerNumber = 'SIVA-001';
+    
+    // Check if she already exists to use her actual emp_number
+    const { data: existingOwners } = await supabase
+      .from('qc_associates')
+      .select('emp_number')
+      .ilike('emp_name', '%Siva Sandhiya%')
+      .limit(1);
+      
+    if (existingOwners && existingOwners.length > 0) {
+      ownerNumber = existingOwners[0].emp_number;
+    } else {
+      await supabase.from('qc_associates').upsert([{
+        emp_number: ownerNumber,
+        emp_name: ownerName,
+        emp_tags: 'Demo',
+        language: 'en'
+      }], { onConflict: 'emp_number' });
+    }
+
+    // 1. Create High Intent Demo Lead
+    const prospect_id_1 = uuidv4();
+    const { error: lead1Err } = await supabase.from('leads').insert({
+      id: prospect_id_1,
+      name: 'Farhaan (Demo - High Intent)',
+      phone: '+91 9876543210',
+      intent_score: 81,
+      avg_call_quality_score: 96,
+      kalvium_funnel_stage: 'PAC Paid',
+      next_process_step: '10 Sep \'26 - Provide WhatsApp Number',
+      journey_summary: 'The customer, Farhaan\'s parent, is extremely interested in Kalvium\'s computer science program...',
+      intent_factors: [
+        { type: 'high', factor: 'Customer continues to ask clarifying questions about program structure.' },
+        { type: 'high', factor: 'Customer agreed to the next steps immediately.' }
+      ],
+      bant_insights: {
+        budget: { status: 'Qualified', details: 'Agreed to the standard fee structure without hesitation.' },
+        authority: { status: 'Qualified', details: 'Father is the primary decision maker.' },
+        need: { status: 'Qualified', details: 'Looking for a strong CS program for son.' },
+        timeline: { status: 'Qualified', details: 'Wants to enroll for the upcoming academic year.' }
+      },
+      data_capture: {
+        extracted_fields: [
+          { field: 'Student Name', value: 'Aditya', confidence: 'High' },
+          { field: 'Current Grade', value: '12th', confidence: 'High' },
+          { field: 'Preferred City', value: 'Bangalore', confidence: 'Medium' }
+        ],
+        missing_mandatory_fields: ['10th Marks']
+      },
+      updated_at: new Date().toISOString()
+    });
+    
+    // Create call for High Intent Lead
+    const { error: call1Err } = await supabase.from('calls').insert({
+      id: uuidv4(),
+      prospect_id: prospect_id_1,
+      source: 'phone_call',
+      duration_sec: 660,
+      talk_to_listen_ratio: '71:29',
+      qc_status: 'evaluated',
+      call_quality_score: 95,
+      quality_data: { "Greeting": { score: 10, max_score: 10, status: 'Done', reason: 'Agent greeted properly.' } },
+      summary_data: { call_summary: ['Customer wants to know about admissions.', 'Agent explained K-NET.'], key_points: ['Consultation needed with son.'] },
+      insights_data: { objections: [{ category: 'Exam Difficulty', objection: 'Concerned about JEE.', how_handled: 'Clarified K-NET is aptitude-based.', customer_satisfied: true }] }
+    });
+
+    // 2. Create Low Intent Demo Lead
+    const prospect_id_2 = uuidv4();
+    const { error: lead2Err } = await supabase.from('leads').insert({
+      id: prospect_id_2,
+      name: 'Aditya (Demo - Low Intent)',
+      phone: '+91 9123456789',
+      intent_score: 35,
+      avg_call_quality_score: 55,
+      kalvium_funnel_stage: 'Exam Registered',
+      next_process_step: 'Follow up in 2 weeks',
+      journey_summary: 'Customer is hesitant due to the cost and prefers traditional colleges.',
+      intent_factors: [
+        { type: 'low', factor: 'Customer stated the fees are out of budget.' },
+        { type: 'low', factor: 'Customer prefers a local college nearby.' }
+      ],
+      bant_insights: {
+        budget: { status: 'Unqualified', details: 'Stated fees are too high.' },
+        authority: { status: 'Qualified', details: 'Student is making the decision with parents.' },
+        need: { status: 'Uncertain', details: 'Considering traditional colleges over Kalvium.' },
+        timeline: { status: 'Unqualified', details: 'No urgency to decide.' }
+      },
+      data_capture: {
+        extracted_fields: [
+          { field: 'Student Name', value: 'Aditya', confidence: 'High' }
+        ],
+        missing_mandatory_fields: ['Current Grade', 'Preferred City', '10th Marks']
+      },
+      updated_at: new Date().toISOString()
+    });
+    
+    // Create call for Low Intent Lead
+    const { error: call2Err } = await supabase.from('calls').insert({
+      id: uuidv4(),
+      prospect_id: prospect_id_2,
+      source: 'phone_call',
+      duration_sec: 420,
+      talk_to_listen_ratio: '90:10',
+      qc_status: 'evaluated',
+      call_quality_score: 55,
+      quality_data: { "Greeting": { score: 0, max_score: 10, status: 'Missed', reason: 'Agent did not greet.' } },
+      summary_data: { call_summary: ['Customer complained about pricing.', 'Agent failed to handle objection.'], key_points: ['Unlikely to convert.'] },
+      insights_data: { objections: [{ category: 'Cost', objection: 'Too expensive.', how_handled: 'Agent just repeated the price.', customer_satisfied: false }] }
+    });
+
+    res.json({ success: true, seeded_leads: [prospect_id_1, prospect_id_2] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

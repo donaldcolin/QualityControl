@@ -1,127 +1,156 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getQCLead, evaluateCall, evaluateLeadIntelligence, resendCallToASR } from '../api';
-import { ArrowLeft, Play, FileAudio, CheckCircle2, Clock, AlertCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Play, FileAudio, CheckCircle2, Clock, AlertCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// Grade color helper
-function gradeColor(grade) {
-  if (!grade) return 'text-muted-foreground';
-  const g = grade.toUpperCase();
-  if (g === 'A') return 'text-emerald-500';
-  if (g === 'B') return 'text-blue-500';
-  if (g === 'C') return 'text-amber-500';
-  if (g === 'D') return 'text-orange-500';
+// Helpers
+function scoreColor(score) {
+  if (score >= 80) return 'text-emerald-500';
+  if (score >= 60) return 'text-blue-500';
+  if (score >= 40) return 'text-amber-500';
   return 'text-destructive';
 }
 
-function gradeBackground(grade) {
-  if (!grade) return 'bg-muted/50 border-muted-foreground/20';
-  const g = grade.toUpperCase();
-  if (g === 'A') return 'bg-emerald-500/10 border-emerald-500/20';
-  if (g === 'B') return 'bg-blue-500/10 border-blue-500/20';
-  if (g === 'C') return 'bg-amber-500/10 border-amber-500/20';
-  if (g === 'D') return 'bg-orange-500/10 border-orange-500/20';
-  return 'bg-destructive/10 border-destructive/20';
+function scoreBgColor(score) {
+  if (score >= 80) return 'bg-emerald-500/15 text-emerald-700 border-transparent font-medium shadow-sm';
+  if (score >= 60) return 'bg-blue-500/15 text-blue-700 border-transparent font-medium shadow-sm';
+  if (score >= 40) return 'bg-amber-500/15 text-amber-700 border-transparent font-medium shadow-sm';
+  return 'bg-destructive/15 text-destructive border-transparent font-medium shadow-sm';
 }
 
-function scoreBarColor(score) {
-  if (score >= 80) return 'bg-emerald-500';
-  if (score >= 60) return 'bg-blue-500';
-  if (score >= 40) return 'bg-amber-500';
-  return 'bg-destructive';
+function formatDuration(seconds) {
+  if (!seconds) return '0 mins';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
 }
 
-// Circular score gauge
-function ScoreGauge({ score, grade, size = 100 }) {
-  const radius = (size - 12) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 100) * circumference;
+// Conversation Audio Player & Transcript Component
+function CallPlayer({ call }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef(null);
+  const segmentsContainerRef = useRef(null);
+  const activeSegmentRef = useRef(null);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      } else {
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            setIsPlaying(true);
+          }).catch(error => {
+            console.error("Audio playback failed:", error);
+            setIsPlaying(false);
+          });
+        } else {
+          setIsPlaying(true);
+        }
+      }
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+  };
+
+  const handleSegmentClick = (start) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = start;
+      if (!isPlaying) {
+        audioRef.current.play();
+        setIsPlaying(true);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (activeSegmentRef.current && segmentsContainerRef.current) {
+      activeSegmentRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentTime]);
+
+  const segments = typeof call.segments === 'string' ? JSON.parse(call.segments) : (call.segments || []);
+  const audioUrl = `http://localhost:3000/api/calls/${call.id}/audio`;
 
   return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius}
-          stroke="currentColor" className="text-muted/30" strokeWidth="6" fill="none" />
-        <circle cx={size / 2} cy={size / 2} r={radius}
-          stroke="currentColor" strokeWidth="6" fill="none"
-          strokeDasharray={circumference} strokeDashoffset={offset}
-          strokeLinecap="round"
-          className={cn("transition-all duration-1000", gradeColor(grade))}
-        />
-      </svg>
-      <div className="absolute flex flex-col items-center">
-        <span className={cn("text-2xl font-bold", gradeColor(grade))}>{score}</span>
-        <span className={cn("text-xs font-semibold uppercase", gradeColor(grade))}>{grade}</span>
+    <div className="flex flex-col gap-4 border rounded-lg p-4 bg-background">
+      <div className="flex items-center gap-4 bg-muted/30 p-3 rounded-lg">
+        <Button variant="outline" size="icon" onClick={togglePlay} className="h-10 w-10 shrink-0 rounded-full">
+          {isPlaying ? <PauseCircle className="h-6 w-6" /> : <PlayCircle className="h-6 w-6" />}
+        </Button>
+        <div className="flex-1">
+          <div className="text-sm font-medium mb-1">{call.filename || 'Audio Recording'}</div>
+          <audio 
+            ref={audioRef} 
+            src={audioUrl} 
+            onTimeUpdate={handleTimeUpdate}
+            onEnded={() => setIsPlaying(false)}
+            onPause={() => setIsPlaying(false)}
+            onPlay={() => setIsPlaying(true)}
+            className="w-full h-8"
+            controls
+          />
+        </div>
       </div>
+      
+      <ScrollArea className="h-[400px] pr-4" ref={segmentsContainerRef}>
+        <div className="space-y-4">
+          {segments.map((seg, idx) => {
+            const isActive = currentTime >= seg.start && currentTime < seg.end;
+            const isSpeaker0 = seg.speaker === 'SPEAKER_00';
+            
+            return (
+              <div 
+                key={idx} 
+                ref={isActive ? activeSegmentRef : null}
+                onClick={() => handleSegmentClick(seg.start)}
+                className={cn(
+                  "flex gap-3 text-sm transition-colors p-2 rounded-lg cursor-pointer",
+                  isActive ? "bg-primary/10 border-primary/20" : "hover:bg-muted/50",
+                  isSpeaker0 ? "pr-12" : "pl-12 flex-row-reverse"
+                )}
+              >
+                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0 text-xs font-semibold">
+                  {isSpeaker0 ? 'S0' : 'S1'}
+                </div>
+                <div className={cn("flex flex-col", isSpeaker0 ? "" : "items-end text-right")}>
+                  <div className="text-xs text-muted-foreground mb-1">
+                    {formatDuration(seg.start)}
+                  </div>
+                  <div className="bg-muted/40 p-3 rounded-2xl rounded-tl-sm text-foreground">
+                    {seg.text_en || seg.text}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {segments.length === 0 && (
+            <div className="text-center text-muted-foreground py-8">
+              No transcript segments available.
+            </div>
+          )}
+        </div>
+      </ScrollArea>
     </div>
   );
 }
 
-// Category coaching card
-function CategoryCard({ name, data }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className={cn("rounded-lg p-4 border transition-all duration-200", gradeBackground(data.grade))}>
-      <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpanded(!expanded)}>
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <span className={cn("text-lg font-bold", gradeColor(data.grade))}>{data.score}</span>
-          <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-sm truncate text-foreground">{name}</h4>
-            <div className="w-full bg-background rounded-full h-1.5 mt-1">
-              <div className={cn("h-1.5 rounded-full transition-all duration-700", scoreBarColor(data.score))}
-                style={{ width: `${data.score}%` }} />
-            </div>
-          </div>
-        </div>
-        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
-      </div>
-
-      {expanded && (
-        <div className="mt-4 space-y-3 animate-fade-in-up" style={{ animationDuration: '0.2s' }}>
-          {data.what_went_well && (
-            <div className="flex gap-2 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide mb-1">What went well</div>
-                <p className="text-sm text-muted-foreground">{data.what_went_well}</p>
-              </div>
-            </div>
-          )}
-          {data.what_went_wrong && (
-            <div className="flex gap-2 p-3 rounded-lg bg-destructive/5 border border-destructive/10">
-              <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
-              <div>
-                <div className="text-xs font-semibold text-destructive uppercase tracking-wide mb-1">What went wrong</div>
-                <p className="text-sm text-muted-foreground">{data.what_went_wrong}</p>
-              </div>
-            </div>
-          )}
-          {data.coach_tip && (
-            <div className="flex gap-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
-              <Lightbulb className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <div className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-1">Coach tip</div>
-                <p className="text-sm text-muted-foreground">{data.coach_tip}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function LeadDetails({ leadId, onBack }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [evaluatingCall, setEvaluatingCall] = useState(null);
-  const [evaluatingIntel, setEvaluatingIntel] = useState(false);
-  const [expandedScripts, setExpandedScripts] = useState(false);
 
   useEffect(() => {
     loadLeadDetails();
@@ -146,17 +175,6 @@ export default function LeadDetails({ leadId, onBack }) {
     setEvaluatingCall(null);
   };
 
-  const handleRunIntelligence = async () => {
-    setEvaluatingIntel(true);
-    try {
-      await evaluateLeadIntelligence(leadId);
-      await loadLeadDetails();
-    } catch (error) {
-      console.error("Intelligence evaluation failed", error);
-    }
-    setEvaluatingIntel(false);
-  };
-
   if (loading || !lead) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground">
@@ -166,300 +184,429 @@ export default function LeadDetails({ leadId, onBack }) {
     );
   }
 
+  // Aggregate metrics
+  const totalDuration = lead.calls?.reduce((acc, c) => acc + (c.duration_sec || 0), 0) || 0;
+  const intentScore = lead.intent_score || 0;
+  const avgQuality = lead.avg_call_quality_score || 0;
+  
+  // Calculate average talk-to-listen from calls that have it
+  const ttlCalls = lead.calls?.filter(c => c.talk_to_listen_ratio) || [];
+  let avgTtl = "0:0";
+  if (ttlCalls.length > 0) {
+    let repSum = 0, custSum = 0;
+    ttlCalls.forEach(c => {
+      const [rep, cust] = c.talk_to_listen_ratio.split(':').map(Number);
+      if (!isNaN(rep) && !isNaN(cust)) {
+        repSum += rep;
+        custSum += cust;
+      }
+    });
+    avgTtl = `${Math.round(repSum/ttlCalls.length)}:${Math.round(custSum/ttlCalls.length)}`;
+  }
+
   return (
-    <div className="flex flex-col h-full gap-6 max-w-5xl mx-auto w-full">
-      <Button
-        variant="ghost"
-        onClick={onBack}
-        className="w-fit -ml-4 gap-2 text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back to Leads
-      </Button>
-
-      {/* Lead Header */}
-      <Card className="border-l-4 border-l-primary shadow-sm overflow-hidden">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row md:justify-between items-start gap-4">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight">{lead.name}</h2>
-              <p className="text-muted-foreground mt-1 flex items-center gap-2">
-                <span className="font-mono text-sm">{lead.phone || 'No Phone'}</span>
-                <span>•</span>
-                <span>{lead.calls?.length || 0} Calls Logged</span>
-              </p>
-            </div>
-
-            <div className="flex flex-col items-end gap-3 w-full md:w-auto">
-               <div className={cn(
-                 "px-4 py-3 rounded-lg border flex flex-col items-end text-right min-w-[200px] w-full md:w-auto",
-                 lead.overall_prediction === true ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400" :
-                 lead.overall_prediction === false ? "bg-destructive/10 border-destructive/20 text-destructive" :
-                 "bg-muted/50 border-muted-foreground/20 text-muted-foreground"
-               )}>
-                 <div className="text-sm font-semibold uppercase tracking-wider opacity-80 mb-1">Overall Intelligence</div>
-                 <div className="text-lg font-bold">
-                   {lead.overall_prediction === true ? 'Will Pay' : lead.overall_prediction === false ? 'Unlikely to Pay' : 'Pending Evaluation'}
-                 </div>
-               </div>
-
-               <Button
-                 variant="outline"
-                 onClick={handleRunIntelligence}
-                 disabled={evaluatingIntel}
-                 className="gap-2 w-full md:w-auto"
-               >
-                 {evaluatingIntel ? (
-                    <><Loader2 className="w-4 h-4 animate-spin"/> Analyzing Journey...</>
-                 ) : (
-                    <><BrainCircuit className="w-4 h-4"/> Update Lead Intelligence</>
-                 )}
-               </Button>
+    <div className="flex flex-col h-full bg-background min-h-screen">
+      {/* Top Embedded Navigation/Header (Zipteams style) */}
+      <div className="border-b border-border/50 px-8 py-5 bg-background/80 backdrop-blur-md flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center gap-5">
+          <div className="w-14 h-14 bg-gradient-to-br from-amber-400 to-amber-600 text-white rounded-full flex items-center justify-center text-2xl font-bold shadow-md ring-2 ring-background">
+            {lead.name?.charAt(0).toUpperCase() || '?'}
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{lead.name}</h1>
+            <div className="flex gap-4 text-sm text-muted-foreground mt-1">
+              <span>{lead.phone || lead.email || 'No contact info'}</span>
+              <span>Owner: <span className="font-medium text-foreground">{lead.owner || 'Hemalatha.rajendran'}</span></span>
             </div>
           </div>
-          {lead.overall_reasoning && (
-            <div className="mt-6 p-4 bg-muted/50 rounded-lg text-sm border">
-              <strong className="text-foreground">AI Reasoning:</strong> <span className="text-muted-foreground ml-1">{lead.overall_reasoning}</span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </div>
 
-      <h3 className="text-xl font-bold mt-4 tracking-tight">Call History & Coaching</h3>
+        <div className="flex gap-8 items-center bg-muted/30 p-3.5 px-6 rounded-2xl border border-border/50 shadow-sm">
+          <div className="text-center">
+            <div className="text-xl font-extrabold text-foreground">{formatDuration(totalDuration)}</div>
+            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Total Duration</div>
+          </div>
+          <div className="w-px h-10 bg-border/50"></div>
+          <div className="text-center">
+            <div className="text-xl font-extrabold text-foreground">{avgTtl}</div>
+            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Talk/Listen</div>
+          </div>
+          <div className="w-px h-10 bg-border/50"></div>
+          <div className="text-center">
+            <div className={cn("text-xl font-extrabold", scoreColor(intentScore))}>{intentScore}/100</div>
+            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Intent Score</div>
+          </div>
+          <div className="w-px h-10 bg-border/50"></div>
+          <div className="text-center">
+            <div className={cn("text-xl font-extrabold", scoreColor(avgQuality))}>{avgQuality}%</div>
+            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Avg Quality</div>
+          </div>
+        </div>
+      </div>
 
-      {/* Call Cards */}
-      <div className="space-y-6">
-        {lead.calls?.map((call) => {
-          const report = call.coaching_report;
-          const hasCoaching = report && report.overall_score != null;
-          const sourceIcon = call.source === 'google_meet'
-            ? <Video className="w-3.5 h-3.5 text-purple-500" />
-            : <Phone className="w-3.5 h-3.5 text-blue-500" />;
-          const sourceLabel = call.source === 'google_meet' ? 'Video Demo' : 'Phone Call';
+      <div className="p-8">
+        <Tabs defaultValue="insights" className="w-full">
+          <TabsList className="mb-6 w-full justify-start border-b rounded-none h-12 bg-transparent p-0">
+            <TabsTrigger value="insights" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 h-full data-[state=active]:shadow-none">Insights</TabsTrigger>
+            <TabsTrigger value="conversations" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 h-full data-[state=active]:shadow-none">Conversations ({lead.calls?.length || 0})</TabsTrigger>
+          </TabsList>
 
-          return (
-            <Card key={call.id} className="overflow-hidden shadow-sm">
-              {/* Call Header */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between p-5 border-b bg-muted/30 gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="bg-background p-2.5 rounded-full border shadow-sm">
-                    <FileAudio className="w-5 h-5 text-muted-foreground" />
+          <TabsContent value="insights" className="mt-0">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              
+              {/* LEFT COLUMN: Buying Intent & Objections */}
+              <div className="lg:col-span-2 space-y-8">
+                
+                {/* Buying Intent Section */}
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Target className="w-5 h-5 text-emerald-500" />
+                    <h3 className="text-lg font-semibold">Buying Intent</h3>
                   </div>
-                  <div>
-                    <h4 className="font-semibold text-lg flex items-center gap-2">
-                      Call {call.call_number}
-                      <Badge variant="secondary" className="gap-1.5 font-medium">
-                        {sourceIcon} {sourceLabel}
-                      </Badge>
-                    </h4>
-                    <span className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <Clock className="w-3.5 h-3.5" /> {call.duration_sec}s
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                       await resendCallToASR(call.id);
-                       alert("Sent to ASR Queue. Check the Queue tab to process it.");
-                    }}
-                    className="gap-2 w-full md:w-auto"
-                    title="Send this call to the ASR model to re-transcribe"
-                  >
-                    <RefreshCw className="w-4 h-4" /> Send to ASR
-                  </Button>
                   
-                  {call.qc_status === 'pending' ? (
-                    <Button
-                      onClick={() => handleRunQC(call.id)}
-                      disabled={evaluatingCall === call.id}
-                      className="gap-2 w-full md:w-auto"
-                    >
-                      {evaluatingCall === call.id ? (
-                        <><Loader2 className="w-4 h-4 animate-spin"/> Evaluating...</>
-                      ) : (
-                        <><Play className="w-4 h-4 fill-current" /> Run Coaching QC</>
-                      )}
-                    </Button>
-                  ) : (
-                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 px-3 py-1.5 text-sm gap-1.5 font-medium h-auto w-full justify-center md:w-auto">
-                      <CheckCircle2 className="w-4 h-4" /> Evaluated
-                    </Badge>
-                  )}
-                </div>
+                  <Card className="shadow-md border-border/50 rounded-xl overflow-hidden">
+                    <div className="p-4 border-b border-border/50 bg-muted/30 flex items-center gap-3">
+                      <span className="font-semibold text-sm">Intent Level:</span>
+                      <Badge className={cn("rounded-full px-3 py-0.5", scoreBgColor(intentScore))} variant="outline">
+                        {intentScore >= 80 ? 'High Intent' : intentScore >= 50 ? 'Medium Intent' : 'Low Intent'} {intentScore}/100
+                      </Badge>
+                    </div>
+                    <CardContent className="p-6 space-y-6">
+                      
+                      {/* High Intent Factors */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mb-3">High Intent factors</h4>
+                        <ul className="space-y-3">
+                          {(lead.intent_factors || []).filter(f => f.type === 'high').map((factor, idx) => (
+                            <li key={idx} className="flex gap-3 text-sm">
+                              <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                              <span className="text-muted-foreground">{factor.factor}</span>
+                            </li>
+                          ))}
+                          {(!lead.intent_factors || lead.intent_factors.filter(f => f.type === 'high').length === 0) && (
+                            <li className="text-sm text-muted-foreground italic">No high intent factors identified yet.</li>
+                          )}
+                        </ul>
+                      </div>
+
+                      {/* Low Intent Factors */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-destructive mb-3">Low Intent factors</h4>
+                        <ul className="space-y-3">
+                          {(lead.intent_factors || []).filter(f => f.type === 'low').map((factor, idx) => (
+                            <li key={idx} className="flex gap-3 text-sm">
+                              <TrendingDown className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                              <span className="text-muted-foreground">{factor.factor}</span>
+                            </li>
+                          ))}
+                          {(!lead.intent_factors || lead.intent_factors.filter(f => f.type === 'low').length === 0) && (
+                            <li className="text-sm text-muted-foreground italic">No low intent factors identified yet.</li>
+                          )}
+                        </ul>
+                      </div>
+
+                    </CardContent>
+                  </Card>
+                </section>
+
+                {/* BANT Qualification Section */}
+                {lead.bant_insights && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Target className="w-5 h-5 text-blue-500" />
+                      <h3 className="text-lg font-semibold">BANT Qualification</h3>
+                    </div>
+                    <Card className="shadow-md border-border/50 rounded-xl overflow-hidden">
+                      <CardContent className="p-0">
+                        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border/50">
+                          {Object.entries(lead.bant_insights).map(([key, val]) => {
+                            let Icon = Target;
+                            if (key === 'budget') Icon = DollarSign;
+                            if (key === 'authority') Icon = UserCheck;
+                            if (key === 'timeline') Icon = CalendarClock;
+
+                            let statusColor = "text-muted-foreground bg-muted";
+                            if (val.status === 'Qualified') statusColor = "text-emerald-700 bg-emerald-500/15";
+                            if (val.status === 'Unqualified') statusColor = "text-destructive bg-destructive/15";
+                            if (val.status === 'Uncertain') statusColor = "text-amber-700 bg-amber-500/15";
+
+                            return (
+                              <div key={key} className="p-5 hover:bg-muted/20 transition-colors">
+                                <div className="flex justify-between items-start mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <Icon className="w-4 h-4 text-muted-foreground" />
+                                    <div className="text-xs uppercase font-bold text-muted-foreground tracking-wider">{key}</div>
+                                  </div>
+                                  <Badge className={cn("shadow-none border-transparent font-medium", statusColor)}>{val.status}</Badge>
+                                </div>
+                                <div className="text-sm mt-3 text-foreground leading-relaxed">{val.details}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </section>
+                )}
+
+                {/* Data Capture Section */}
+                {lead.data_capture && (
+                  <section>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Database className="w-5 h-5 text-indigo-500" />
+                      <h3 className="text-lg font-semibold">Captured Data</h3>
+                    </div>
+                    
+                    {lead.data_capture.missing_mandatory_fields?.length > 0 && (
+                      <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex gap-3 items-start">
+                        <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-bold text-destructive mb-1">Missing Mandatory Information</h4>
+                          <p className="text-sm text-destructive/80">
+                            The following required fields have not been captured yet: <span className="font-semibold">{lead.data_capture.missing_mandatory_fields.join(', ')}</span>
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <Card className="shadow-md border-border/50 rounded-xl overflow-hidden">
+                      <CardContent className="p-0">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-[1px] bg-border/50">
+                          {lead.data_capture.extracted_fields?.map((field, idx) => (
+                            <div key={idx} className="bg-card p-4">
+                              <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">{field.field}</div>
+                              <div className="text-sm font-semibold">{field.value}</div>
+                              <div className={cn("text-[10px] mt-2 font-medium", 
+                                field.confidence === 'High' ? 'text-emerald-500' : field.confidence === 'Medium' ? 'text-amber-500' : 'text-destructive'
+                              )}>
+                                {field.confidence} Confidence
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </section>
+                )}
+
+                {/* Objections Section */}
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <MessageSquare className="w-5 h-5 text-blue-500" />
+                    <h3 className="text-lg font-semibold">Objections</h3>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {lead.calls?.map(call => {
+                      const objections = call.insights_data?.objections || [];
+                      return objections.map((obj, idx) => (
+                        <Card key={`${call.id}-${idx}`} className="shadow-sm">
+                          <CardContent className="p-5">
+                            <div className="flex justify-between items-start mb-3">
+                               <div className="font-semibold text-sm">Objection</div>
+                               <Badge variant="outline" className="text-blue-600 bg-blue-500/10 border-blue-500/20">{obj.category || 'General'}</Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-4">{obj.objection}</p>
+                            
+                            <div className="font-semibold text-sm mb-1">How this objection was handled?</div>
+                            <p className="text-sm text-muted-foreground mb-4">{obj.how_handled}</p>
+                            
+                            <div className="font-semibold text-sm mb-1">Was the customer satisfied with the salesperson's response?</div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                {obj.customer_satisfied ? <CheckCircle2 className="w-4 h-4 text-emerald-500"/> : <AlertCircle className="w-4 h-4 text-amber-500"/>}
+                                {obj.customer_satisfied ? "Customer satisfied with response" : "Customer not fully convinced"}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ));
+                    })}
+                    {(!lead.calls || !lead.calls.some(c => c.insights_data?.objections?.length > 0)) && (
+                      <div className="text-center p-8 bg-muted/10 border border-dashed rounded-lg text-muted-foreground">
+                        No objections captured in the recent calls.
+                      </div>
+                    )}
+                  </div>
+                </section>
+
               </div>
 
-              {/* Coaching Report */}
-              {hasCoaching ? (
-                <CardContent className="p-5 space-y-6">
-                  {/* Scorecard Header */}
-                  <div className="flex flex-col md:flex-row items-start gap-6">
-                    <div className="mx-auto md:mx-0 shrink-0">
-                      <ScoreGauge score={report.overall_score} grade={report.overall_grade} />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-muted-foreground leading-relaxed">{report.summary}</p>
-
-                      {/* Quick Stats */}
-                      <div className="flex flex-wrap gap-3 mt-4">
-                        {report.top_strengths && (
-                          <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 gap-1.5 font-medium">
-                            <TrendingUp className="w-3 h-3" />
-                            {report.top_strengths.length} Strengths
-                          </Badge>
-                        )}
-                        {report.critical_improvements && (
-                          <Badge variant="secondary" className="bg-destructive/10 text-destructive hover:bg-destructive/20 gap-1.5 font-medium">
-                            <TrendingDown className="w-3 h-3" />
-                            {report.critical_improvements.length} To Improve
-                          </Badge>
-                        )}
-                        {call.prospect_id && (
-                          <Badge variant="secondary" className="bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 gap-1.5 font-medium">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Synced to LSQ
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
+              {/* RIGHT COLUMN: Path to Conversion */}
+              <div className="space-y-8">
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <BrainCircuit className="w-5 h-5 text-purple-500" />
+                    <h3 className="text-lg font-semibold">Path to Conversion</h3>
                   </div>
 
-                  {/* Strengths & Improvements */}
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {report.top_strengths && report.top_strengths.length > 0 && (
-                      <div className="p-4 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                        <h5 className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Top Strengths
-                        </h5>
-                        <ul className="space-y-2">
-                          {report.top_strengths.map((s, i) => (
-                            <li key={i} className="text-sm text-muted-foreground flex gap-2.5 items-start">
-                              <span className="text-emerald-500 mt-1 shrink-0 h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                              <span className="leading-snug">{s}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {report.critical_improvements && report.critical_improvements.length > 0 && (
-                      <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/10">
-                        <h5 className="text-xs font-semibold text-destructive uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                          <AlertCircle className="w-3.5 h-3.5" /> Must Improve
-                        </h5>
-                        <ul className="space-y-2">
-                          {report.critical_improvements.map((s, i) => (
-                            <li key={i} className="text-sm text-muted-foreground flex gap-2.5 items-start">
-                              <span className="text-destructive mt-1 shrink-0 h-1.5 w-1.5 rounded-full bg-destructive"></span>
-                              <span className="leading-snug">{s}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Category Scores */}
-                  {report.category_scores && (
-                    <div>
-                      <h5 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Category Breakdown</h5>
-                      <div className="grid md:grid-cols-2 gap-3">
-                        {Object.entries(report.category_scores).map(([cat, data]) => (
-                          <CategoryCard key={cat} name={cat} data={data} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Suggested Script Lines */}
-                  {report.suggested_script_lines && report.suggested_script_lines.length > 0 && (
-                    <div>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setExpandedScripts(!expandedScripts)}
-                        className="gap-2 text-primary hover:text-primary hover:bg-primary/5 -ml-4"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                        Suggested Responses ({report.suggested_script_lines.length})
-                        {expandedScripts ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />}
-                      </Button>
-                      {expandedScripts && (
-                        <div className="mt-3 space-y-3 animate-fade-in-up" style={{ animationDuration: '0.2s' }}>
-                          {report.suggested_script_lines.map((sl, i) => (
-                            <div key={i} className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/10">
-                              <div className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-1.5">When: {sl.situation}</div>
-                              <p className="text-sm text-muted-foreground italic leading-relaxed">"{sl.suggested_response}"</p>
-                            </div>
-                          ))}
-                        </div>
+                  <Card className="shadow-sm bg-purple-500/5 border-purple-500/10">
+                    <CardHeader className="pb-3 border-b border-purple-500/10">
+                      <CardTitle className="text-sm">Previous Conversation Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-5">
+                      {lead.journey_summary ? (
+                         <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                            {lead.journey_summary}
+                         </div>
+                      ) : (
+                         <div className="text-sm text-muted-foreground italic">No journey summary available yet. Run a call evaluation to generate one.</div>
                       )}
-                    </div>
-                  )}
+                    </CardContent>
+                  </Card>
 
-                  {/* Legacy Parameter Details (collapsible) */}
-                  {report.parameter_evaluations && (
-                    <details className="group mt-4">
-                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 py-2 w-fit">
-                        <ChevronDown className="w-3 h-3 group-open:rotate-180 transition-transform" />
-                        Detailed Parameter Results ({Object.keys(report.parameter_evaluations).length} params)
-                      </summary>
-                      <div className="mt-3 space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar border rounded-lg p-3 bg-muted/20">
-                        {Object.entries(report.parameter_evaluations).map(([param, evalData]) => (
-                          <div key={param} className="p-2 border-b last:border-0 flex flex-col gap-1.5">
-                            <div className="flex items-start justify-between gap-4">
-                              <span className="text-xs font-medium leading-tight">{param}</span>
-                              <Badge variant={
-                                evalData.status === 'Pass' ? 'outline' :
-                                evalData.status === 'Fail' ? 'destructive' :
-                                'secondary'
-                              } className={cn("text-[10px] h-5", evalData.status === 'Pass' && "bg-emerald-500/10 text-emerald-600 border-emerald-500/20")}>
-                                {evalData.status}
-                              </Badge>
-                            </div>
-                            <div className="text-[11px] text-muted-foreground">{evalData.reason}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                </CardContent>
-              ) : call.qc_status === 'pending' ? (
-                /* Pending state */
-                <CardContent className="p-8">
-                  <div className="flex flex-col items-center justify-center text-muted-foreground border-2 border-dashed rounded-xl p-8 text-center bg-muted/10">
-                    <AlertCircle className="w-12 h-12 mb-4 opacity-40 text-primary" />
-                    <p className="text-base font-medium text-foreground">Run Coaching QC to see the full coaching report</p>
-                    <p className="text-sm mt-1">Scores, strengths, improvements, and coach tips</p>
-                  </div>
-                </CardContent>
-              ) : (
-                /* Legacy flat results (old evaluations without coaching_report) */
-                <CardContent className="p-5">
-                  {call.qc_results && (
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-2 border rounded-lg p-3 bg-muted/20">
-                      {Object.entries(call.qc_results).map(([param, evalData]) => (
-                        <div key={param} className="p-2 border-b last:border-0 flex flex-col gap-1.5">
-                          <div className="flex items-start justify-between gap-4">
-                            <span className="text-sm font-medium leading-tight">{param}</span>
-                            <Badge variant={
-                              evalData.status === 'Pass' ? 'outline' :
-                              evalData.status === 'Fail' ? 'destructive' :
-                              'secondary'
-                            } className={cn("text-xs", evalData.status === 'Pass' && "bg-emerald-500/10 text-emerald-600 border-emerald-500/20")}>
-                              {evalData.status}
-                            </Badge>
-                          </div>
-                          <div className="text-xs text-muted-foreground">{evalData.reason}</div>
+                  <Card className="shadow-sm mt-6 border-blue-500/10">
+                    <CardHeader className="pb-3 border-b bg-blue-500/5">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4 text-blue-500" /> What to do next?
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {lead.next_process_step ? (
+                        <div className="p-5">
+                           <div className="font-semibold text-sm mb-4">{lead.next_process_step}</div>
+                           
+                           {/* Dig into the latest call's next_steps array to find the suggested script */}
+                           {lead.calls?.[lead.calls.length - 1]?.insights_data?.next_steps?.map((step, idx) => (
+                             <div key={idx} className="mb-4 last:mb-0">
+                                <div className="text-sm font-medium mb-2">{idx + 1}. {step.title}</div>
+                                {step.suggested_say && (
+                                    <div className="flex gap-3 bg-muted/30 p-3 rounded-lg border">
+                                        <MessageSquare className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                                        <div>
+                                            <div className="text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Say:</div>
+                                            <div className="text-sm italic">"{step.suggested_say}"</div>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="flex gap-2 mt-2 items-start text-sm">
+                                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                   <span className="text-muted-foreground">{step.description}</span>
+                                </div>
+                             </div>
+                           ))}
                         </div>
-                      ))}
+                      ) : (
+                         <div className="p-5 text-sm text-muted-foreground italic">No recommended next steps.</div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </section>
+              </div>
+
+            </div>
+          </TabsContent>
+
+          <TabsContent value="conversations" className="mt-0">
+            <div className="space-y-6 max-w-4xl">
+              {lead.calls?.map((call, index) => {
+                const sourceIcon = call.source === 'google_meet' ? <Video className="w-4 h-4 text-purple-500" /> : <Phone className="w-4 h-4 text-blue-500" />;
+                const sourceLabel = call.source === 'google_meet' ? 'Video Demo' : 'Phone Call';
+                
+                return (
+                  <Card key={call.id} className="shadow-sm overflow-hidden border-l-4 border-l-border focus-within:border-l-primary transition-colors">
+                    <div className="p-5 bg-muted/20 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                       <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-full bg-background border flex items-center justify-center shadow-sm">
+                             {sourceIcon}
+                          </div>
+                          <div>
+                             <h4 className="font-semibold text-base flex items-center gap-2">
+                               {sourceLabel} #{index + 1}
+                             </h4>
+                             <div className="text-sm text-muted-foreground flex items-center gap-3 mt-1">
+                                <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5"/> {formatDuration(call.duration_sec)}</span>
+                                {call.talk_to_listen_ratio && <span>• TTL: {call.talk_to_listen_ratio}</span>}
+                             </div>
+                          </div>
+                       </div>
+                       
+                       <div className="flex items-center gap-3">
+                          {call.call_quality_score != null && (
+                             <Badge className={scoreBgColor(call.call_quality_score)} variant="outline">
+                               Quality: {call.call_quality_score}%
+                             </Badge>
+                          )}
+                          {call.qc_status === 'pending' ? (
+                             <Button onClick={() => handleRunQC(call.id)} disabled={evaluatingCall === call.id} size="sm" variant="secondary" className="gap-2">
+                               {evaluatingCall === call.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Play className="w-3.5 h-3.5" />} Evaluate Call
+                             </Button>
+                          ) : (
+                             <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Evaluated</Badge>
+                          )}
+                       </div>
                     </div>
-                  )}
-                </CardContent>
+
+                    <CardContent className="p-0">
+                      <Tabs defaultValue="transcript" className="w-full">
+                        <TabsList className="w-full justify-start border-b rounded-none h-10 bg-transparent px-2">
+                          <TabsTrigger value="transcript" className="rounded-none data-[state=active]:bg-muted/50 data-[state=active]:shadow-none text-xs">Transcript & Audio</TabsTrigger>
+                          <TabsTrigger value="summary" className="rounded-none data-[state=active]:bg-muted/50 data-[state=active]:shadow-none text-xs">Call Summary</TabsTrigger>
+                          <TabsTrigger value="quality" className="rounded-none data-[state=active]:bg-muted/50 data-[state=active]:shadow-none text-xs">Quality Scores</TabsTrigger>
+                        </TabsList>
+
+                        <div className="p-5">
+                          <TabsContent value="transcript" className="mt-0">
+                             <CallPlayer call={call} />
+                          </TabsContent>
+                          
+                          <TabsContent value="summary" className="mt-0">
+                            {call.summary_data ? (
+                              <div className="space-y-6">
+                                <div>
+                                   <h5 className="font-semibold text-sm mb-2">Call Summary</h5>
+                                   <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+                                     {call.summary_data.call_summary?.map((pt, i) => <li key={i}>{pt}</li>)}
+                                   </ul>
+                                </div>
+                                <div>
+                                   <h5 className="font-semibold text-sm mb-2">Key Points</h5>
+                                   <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+                                     {call.summary_data.key_points?.map((pt, i) => <li key={i}>{pt}</li>)}
+                                   </ul>
+                                </div>
+                              </div>
+                            ) : (
+                               <div className="text-sm text-muted-foreground italic">No summary generated yet.</div>
+                            )}
+                          </TabsContent>
+
+                          <TabsContent value="quality" className="mt-0">
+                             {call.quality_data ? (
+                               <div className="space-y-4">
+                                  {Object.entries(call.quality_data).map(([paramName, data], idx) => (
+                                     <div key={idx} className="p-4 border rounded-lg bg-muted/10">
+                                        <div className="flex justify-between items-start mb-2">
+                                           <div className="font-semibold text-sm">{paramName}</div>
+                                           <div className="flex items-center gap-2">
+                                              <span className={cn("text-xs font-bold", data.score === data.max_score ? "text-emerald-500" : data.score > 0 ? "text-amber-500" : "text-destructive")}>
+                                                 {data.score} / {data.max_score}
+                                              </span>
+                                              <Badge variant="outline" className={data.status === 'Done' ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : data.status === 'Not Applicable' ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive border-destructive/20"}>
+                                                 {data.status}
+                                              </Badge>
+                                           </div>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground">{data.reason}</p>
+                                     </div>
+                                  ))}
+                               </div>
+                             ) : (
+                                <div className="text-sm text-muted-foreground italic">No quality scores generated yet.</div>
+                             )}
+                          </TabsContent>
+                        </div>
+                      </Tabs>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+              {(!lead.calls || lead.calls.length === 0) && (
+                 <div className="text-center p-12 bg-muted/10 border border-dashed rounded-lg text-muted-foreground">
+                    No calls recorded for this lead yet.
+                 </div>
               )}
-            </Card>
-          );
-        })}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
