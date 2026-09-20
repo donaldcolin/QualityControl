@@ -4,6 +4,14 @@ const path = require('path');
 const { GoogleGenAI } = require('@google/genai');
 const supabase = require('../config/supabase');
 
+// ── Active model — change here to switch globally ─────────────────────────────
+const GEMINI_MODEL = 'gemini-2.5-flash-002';
+
+// ── In-memory static prompt cache: keyed by source+paramHash ─────────────────
+// Avoids rebuilding the large QC parameter block on every single call.
+// Automatically invalidated when parameters change (new hash = new key).
+const _staticPromptCache = new Map();
+
 const geminiApiKey = process.env.GEMINI_API_KEY || '';
 let ai = null;
 if (geminiApiKey) {
@@ -323,6 +331,168 @@ function buildQualityPrompt(transcript, source, qualityChecks) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  MERGED: Combined Quality + Coaching (2 passes → 1 pass)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Builds the STATIC portion of the combined quality+coaching prompt.
+ * This part is identical across all calls for the same source+parameter set.
+ * Result is cached in memory so it is built at most once per unique config.
+ */
+function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters) {
+  // Hash key = source + all check IDs + all param names
+  const cacheKey = `${source}|${qualityChecks.map(q => q.id || q.parameter).join(',')}|${parameters.map(p => p.Parameter).join(',')}`;
+  if (_staticPromptCache.has(cacheKey)) return _staticPromptCache.get(cacheKey);
+
+  const role = source === 'google_meet'
+    ? 'Expert Video Demo Quality Auditor & Coach'
+    : 'Expert Sales Call Quality Auditor & Coach';
+  const context = source === 'google_meet'
+    ? 'a product demonstration meeting via Google Meet'
+    : 'a university admissions sales counselling call';
+
+  let block = `You are an ${role} evaluating ${context}.\n`;
+  block += `You must complete TWO tasks in one response.\n\n`;
+
+  // ── PART 1: Quality evaluation ──────────────────────────────────────────────
+  block += `=== PART 1: QUALITY SCORING ===\n`;
+  block += `For each parameter: assign a score (0 to max_score), a status, and a reason citing the transcript.\n`;
+  block += `Statuses: Done (full marks), Partially Done (partial), Needs Improvement (low), Not Applicable.\n\n`;
+
+  const qualityGroups = {};
+  qualityChecks.forEach(check => {
+    const group = check.category || 'Other';
+    if (!qualityGroups[group]) qualityGroups[group] = [];
+    qualityGroups[group].push(check);
+  });
+  for (const [group, checks] of Object.entries(qualityGroups)) {
+    block += `== ${group} ==\n`;
+    checks.forEach(check => {
+      block += `- ${check.parameter} (Max: ${check.max_score || 10})\n`;
+      if (check.check_question) block += `  Q: ${check.check_question}\n`;
+      block += `  Guide: ${check.description}\n`;
+      if (check.na_condition) block += `  N/A when: ${check.na_condition}\n`;
+    });
+    block += '\n';
+  }
+
+  // ── PART 2: Coaching report ─────────────────────────────────────────────────
+  block += `=== PART 2: COACHING REPORT ===\n`;
+  block += `You are a COACH, not a judge. For every category:\n`;
+  block += `1. Acknowledge what the associate did well (quote the transcript)\n`;
+  block += `2. Point out specifically what was missed or poorly done\n`;
+  block += `3. Give a concrete coaching tip with an example phrase they can say next time\n`;
+  block += `4. Suggest 1-2 actual script lines for moments they struggled\n\n`;
+  block += `Overall grade scale — A (90-100), B (75-89), C (60-74), D (40-59), F (0-39)\n\n`;
+
+  const categories = groupByCategory(parameters);
+  for (const [category, params] of Object.entries(categories)) {
+    block += `== ${category} ==\n`;
+    params.forEach(p => {
+      block += `- ${p.Parameter}: ${p.Description}\n`;
+    });
+    block += '\n';
+  }
+
+  _staticPromptCache.set(cacheKey, block);
+  return block;
+}
+
+/**
+ * Builds the full combined prompt — static block + dynamic transcript appended.
+ * The static block is served from the in-memory cache after first build.
+ */
+function buildCombinedQualityCoachingPrompt(transcript, source, qualityChecks, parameters) {
+  const staticBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters);
+  return `${staticBlock}=== TRANSCRIPT ===\n${transcript}\n\nBe specific. Cite evidence from the transcript for every score and coaching point.`;
+}
+
+/**
+ * JSON schema for the combined quality + coaching single-pass response.
+ */
+function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
+  // Quality properties
+  const qualityParamProps = {};
+  qualityChecks.forEach(check => {
+    qualityParamProps[check.parameter] = {
+      type: 'object',
+      properties: {
+        score: { type: 'number', description: `Score (0 to ${check.max_score || 10})` },
+        max_score: { type: 'number', description: `Max score: ${check.max_score || 10}` },
+        status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'] },
+        reason: { type: 'string', description: 'Evidence-based justification' }
+      }
+    };
+  });
+
+  // Per-param coaching pass/fail
+  const coachingParamProps = {};
+  parameters.forEach(param => {
+    coachingParamProps[param.Parameter] = {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
+        reason: { type: 'string' }
+      }
+    };
+  });
+
+  // Per-category coaching scores
+  const categories = groupByCategory(parameters);
+  const categoryScoreProps = {};
+  Object.keys(categories).forEach(cat => {
+    categoryScoreProps[cat] = {
+      type: 'object',
+      properties: {
+        score: { type: 'number', description: `Score 0-100 for ${cat}` },
+        grade: { type: 'string', description: 'A, B, C, D, or F' },
+        what_went_well: { type: 'string' },
+        what_went_wrong: { type: 'string' },
+        coach_tip: { type: 'string' }
+      }
+    };
+  });
+
+  return {
+    type: 'object',
+    properties: {
+      quality: {
+        type: 'object',
+        properties: qualityParamProps,
+        description: 'Per-parameter quality scores'
+      },
+      coaching_report: {
+        type: 'object',
+        properties: {
+          overall_score: { type: 'number', description: 'Overall score 0-100' },
+          overall_grade: { type: 'string', description: 'Letter grade A-F' },
+          summary: { type: 'string', description: 'One paragraph executive summary — top strength and top improvement area' },
+          category_scores: { type: 'object', properties: categoryScoreProps },
+          top_strengths: { type: 'array', items: { type: 'string' } },
+          critical_improvements: { type: 'array', items: { type: 'string' } },
+          suggested_script_lines: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                situation: { type: 'string' },
+                suggested_response: { type: 'string' }
+              }
+            }
+          },
+          parameter_evaluations: {
+            type: 'object',
+            properties: coachingParamProps
+          }
+        },
+        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'suggested_script_lines', 'parameter_evaluations']
+      }
+    },
+    required: ['quality', 'coaching_report']
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  LEGACY: Coaching Schema & Prompt (kept for backward compat)
 // ═══════════════════════════════════════════════════════════════
 
@@ -512,21 +682,67 @@ function getIntelligenceSchema() {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  CALL TRIAGE LOGIC
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Determines the evaluation tier (T0, T1, T2) based on basic call metrics.
+ * @param {Object} callData - The call metadata (duration, segments, etc.)
+ * @returns {Object} { tier: 'T0'|'T1'|'T2', reason: string, valid: boolean }
+ */
+function triageCall(callData) {
+  const { duration_sec, talk_to_listen_ratio, segments } = callData;
+  
+  // T0: Automatically fail calls that are clearly not genuine conversations
+  if (duration_sec < 30) {
+    return { tier: 'T0', valid: false, reason: 'Call duration under 30 seconds.' };
+  }
+  
+  if (talk_to_listen_ratio) {
+    const [agentPct, customerPct] = talk_to_listen_ratio.split(':').map(Number);
+    if (customerPct === 0) {
+      return { tier: 'T0', valid: false, reason: 'Talk-to-listen ratio is 100:0 (Monologue).' };
+    }
+  }
+
+  // Check for high-risk keywords in the transcript to bump to T2 (Real-time)
+  const highRiskKeywords = ['guarantee', '100% placement', 'police', 'scam', 'refund', 'court'];
+  if (segments && segments.length > 0) {
+    const transcriptText = segments.map(s => s.text || s.text_en || '').join(' ').toLowerCase();
+    const hasRisk = highRiskKeywords.some(kw => transcriptText.includes(kw));
+    if (hasRisk) {
+      return { tier: 'T2', valid: true, reason: 'High-risk keyword detected (Compliance Review Required).' };
+    }
+  }
+
+  // Default to T1 (Batch Evaluation)
+  return { tier: 'T1', valid: true, reason: 'Standard call profile.' };
+}
+
 module.exports = {
   ai,
+  GEMINI_MODEL,
   knowledgeBase,
-  // New functions
+  // Core fetch functions
   getQualityChecks,
   getDataCaptureQuestions,
   getPastCalls,
   getLeadState,
+  // Insights (Pass 1 — unchanged)
   getInsightsSchema,
   buildInsightsPrompt,
+  // Merged Quality + Coaching (Pass 2+3 combined)
+  buildCombinedQualityCoachingPrompt,
+  getCombinedQualityCoachingSchema,
+  // Legacy quality-only (kept for fallback)
   getQualitySchema,
   buildQualityPrompt,
-  // Legacy functions
+  // Legacy coaching-only (kept for backward compat)
   getParametersForSource,
   getCoachingSchema,
   buildCoachingPrompt,
-  getIntelligenceSchema
+  // Intelligence
+  getIntelligenceSchema,
+  triageCall
 };

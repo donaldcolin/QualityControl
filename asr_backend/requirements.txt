@@ -4,7 +4,7 @@ pydantic
 python-multipart
 transformers
 torchaudio
-torch
+torch==2.5.1
 onnxruntime
 onnx
 pyannote.audio
@@ -14,4 +14,6 @@ python-dotenv
 supabase
 speechbrain==0.5.16
 sentencepiece
-indictranstoolkit
+presidio-analyzer
+presidio-anonymizer
+spacy

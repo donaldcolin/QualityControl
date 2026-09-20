@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { requireAuth, requireRole } = require('../middleware/auth');
 const axios = require('axios');
 const supabase = require('../config/supabase');
 const qcEngine = require('../services/qc_engine');
@@ -11,7 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 //  EVALUATE CALL — Main endpoint (Summary + Insights + Quality)
 // ═══════════════════════════════════════════════════════════════
 
-router.post('/qc/evaluate_call', async (req, res) => {
+router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
   const { call_id, transcript, prospect_id, source } = req.body;
 
   if (!call_id && !transcript) {
@@ -19,10 +20,19 @@ router.post('/qc/evaluate_call', async (req, res) => {
   }
   if (!qcEngine.ai) return res.status(500).json({ error: 'Gemini not configured' });
 
-  try {
-    let transcriptText = transcript;
-    let callIdToUpdate = call_id;
-    const effectiveSource = source || 'phone_call';
+  // Return 202 Accepted immediately so the Python worker is not blocked for 3 minutes
+  res.status(202).json({
+    success: true,
+    status: 'Evaluation started in background',
+    call_id: call_id
+  });
+
+  // Execute heavy LLM operations in the background
+  Promise.resolve().then(async () => {
+    try {
+      let transcriptText = transcript;
+      let callIdToUpdate = call_id;
+      const effectiveSource = source || 'phone_call';
 
     // 1. Get transcript from call if not provided directly
     if (call_id && !transcript) {
@@ -40,6 +50,41 @@ router.post('/qc/evaluate_call', async (req, res) => {
       } else if (call.transcript) {
         transcriptText = call.transcript;
       }
+      
+      // -- TRIAGE PIPELINE --
+      const triage = qcEngine.triageCall(call);
+      
+      if (triage.tier === 'T0') {
+        // Auto-reject without burning any LLM tokens
+        console.log(`🛑 [Triage] Call ${call_id} rejected as T0: ${triage.reason}`);
+        await supabase.from('evaluation_runs').insert({
+          call_id: callIdToUpdate,
+          model_id: 'auto-triage',
+          input_snapshot: { source: effectiveSource },
+          results: { call_quality_score: 0, call_quality_raw: '0/0', reject_reason: triage.reason },
+          status: 'completed',
+          evaluation_tier: 'T0'
+        });
+        await supabase.from('calls').update({ qc_status: 'rejected', call_quality_score: 0 }).eq('id', callIdToUpdate);
+        return; // Abort processing
+      }
+      
+      if (triage.tier === 'T1') {
+        // Enqueue for nightly Gemini Batch API
+        console.log(`⏳ [Triage] Call ${call_id} routed to T1 Batch Queue.`);
+        await supabase.from('evaluation_runs').insert({
+          call_id: callIdToUpdate,
+          model_id: qcEngine.GEMINI_MODEL,
+          input_snapshot: { transcript_length: transcriptText.length, source: effectiveSource },
+          results: {},
+          status: 'pending',
+          evaluation_tier: 'T1_Batch'
+        });
+        return; // Abort real-time processing
+      }
+      
+      // If T2, continue down the real-time pipeline...
+      console.log(`🚨 [Triage] Call ${call_id} routed to T2 Real-Time Processing: ${triage.reason}`);
     }
 
     if (!transcriptText) throw new Error('No transcript content available');
@@ -63,7 +108,7 @@ router.post('/qc/evaluate_call', async (req, res) => {
     const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
 
     const insightsResponse = await qcEngine.ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: qcEngine.GEMINI_MODEL,
       contents: insightsPrompt,
       config: {
         responseMimeType: 'application/json',
@@ -74,103 +119,115 @@ router.post('/qc/evaluate_call', async (req, res) => {
 
     const insightsResult = JSON.parse(insightsResponse.text());
 
-    // 4. Run QUALITY evaluation (Quality tab scoring)
+    // 4. Run COMBINED Quality + Coaching evaluation (single API call, 2-in-1)
     let qualityResult = { quality: {} };
+    let coachingReport = null;
     if (filteredQualityChecks.length > 0) {
-      const qualitySchema = qcEngine.getQualitySchema(filteredQualityChecks);
-      const qualityPrompt = qcEngine.buildQualityPrompt(transcriptText, effectiveSource, filteredQualityChecks);
+      try {
+        const { params } = await qcEngine.getParametersForSource(effectiveSource);
+        if (params.length > 0) {
+          // MERGED: quality scoring + coaching report in ONE Gemini call
+          // Transcript is sent once instead of twice — saves ~33% input tokens
+          const combinedSchema = qcEngine.getCombinedQualityCoachingSchema(filteredQualityChecks, params);
+          const combinedPrompt = qcEngine.buildCombinedQualityCoachingPrompt(
+            transcriptText, effectiveSource, filteredQualityChecks, params
+          );
 
-      const qualityResponse = await qcEngine.ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: qualityPrompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: qualitySchema,
-          temperature: 0.15
+          const combinedResponse = await qcEngine.ai.models.generateContent({
+            model: qcEngine.GEMINI_MODEL,
+            contents: combinedPrompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: combinedSchema,
+              temperature: 0.15
+            }
+          });
+
+          const combinedResult = JSON.parse(combinedResponse.text());
+          qualityResult = { quality: combinedResult.quality || {} };
+          coachingReport = combinedResult.coaching_report || null;
+        } else {
+          // No coaching params yet — fall back to quality-only pass
+          const qualitySchema = qcEngine.getQualitySchema(filteredQualityChecks);
+          const qualityPrompt = qcEngine.buildQualityPrompt(transcriptText, effectiveSource, filteredQualityChecks);
+          const qualityResponse = await qcEngine.ai.models.generateContent({
+            model: qcEngine.GEMINI_MODEL,
+            contents: qualityPrompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: qualitySchema,
+              temperature: 0.15
+            }
+          });
+          qualityResult = JSON.parse(qualityResponse.text());
         }
-      });
-
-      qualityResult = JSON.parse(qualityResponse.text());
+      } catch (combinedErr) {
+        console.error('Combined quality+coaching evaluation failed (non-fatal):', combinedErr.message);
+      }
     }
 
-    // 5. Compute overall quality score
+    // 5. Compute overall quality score from merged result
     let totalScore = 0;
     let totalMaxScore = 0;
-    for (const [paramName, evaluation] of Object.entries(qualityResult.quality || {})) {
-      const score = evaluation.score || 0;
-      const maxScore = evaluation.max_score || 0;
-      totalScore += score;
-      totalMaxScore += maxScore;
+    for (const [, evaluation] of Object.entries(qualityResult.quality || {})) {
+      totalScore += evaluation.score || 0;
+      totalMaxScore += evaluation.max_score || 0;
     }
     const callQualityScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
     const callQualityRaw = `${totalScore}/${totalMaxScore}`;
 
-    // 6. Run LEGACY coaching evaluation (backward compat)
-    let coachingReport = null;
-    try {
-      const { params } = await qcEngine.getParametersForSource(effectiveSource);
-      if (params.length > 0) {
-        const coachingPrompt = qcEngine.buildCoachingPrompt(transcriptText, effectiveSource, params);
-        const coachingSchema = qcEngine.getCoachingSchema(params);
-
-        const coachingResponse = await qcEngine.ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: coachingPrompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: coachingSchema,
-            temperature: 0.15
-          }
-        });
-
-        const coachingResult = JSON.parse(coachingResponse.text());
-        coachingReport = coachingResult.coaching_report;
-      }
-    } catch (coachingErr) {
-      console.error("Legacy coaching evaluation failed (non-fatal):", coachingErr.message);
-    }
-
-    // 7. Save results to calls table
-    const updatePayload = {
-      qc_status: 'evaluated',
+    // 7. Save results to evaluation_runs (IMMUTABLE HISTORY) instead of mutating calls
+    const resultsPayload = {
       insights_data: insightsResult.insights,
       summary_data: insightsResult.summary,
       quality_data: qualityResult.quality,
       conversation_topics: insightsResult.insights?.conversation_topics || [],
       call_quality_score: callQualityScore,
       call_quality_raw: callQualityRaw,
-      prospect_id: prospect_id || null,
-      source: effectiveSource,
     };
 
-    // Include legacy coaching data if available
     if (coachingReport) {
-      updatePayload.qc_results = coachingReport.parameter_evaluations;
-      updatePayload.coaching_report = coachingReport;
-      updatePayload.overall_score = coachingReport.overall_score;
-      updatePayload.overall_grade = coachingReport.overall_grade;
+      resultsPayload.qc_results = coachingReport.parameter_evaluations;
+      resultsPayload.coaching_report = coachingReport;
+      resultsPayload.overall_score = coachingReport.overall_score;
+      resultsPayload.overall_grade = coachingReport.overall_grade;
     }
 
-    if (callIdToUpdate) {
-      await supabase
-        .from('calls')
-        .update(updatePayload)
-        .eq('id', callIdToUpdate);
-    } else if (transcript) {
-      // Create a new call row for direct transcript submissions
+    if (!callIdToUpdate && transcript) {
+      // Create a new call row for direct transcript submissions if needed
       const { data: newCall } = await supabase
         .from('calls')
         .insert({
-          ...updatePayload,
+          qc_status: 'evaluated',
           transcript: transcriptText,
           filename: `${effectiveSource}_transcript`,
           language: 'en',
-          duration_sec: 0
+          duration_sec: 0,
+          prospect_id: prospect_id || null,
+          source: effectiveSource
         })
         .select('id')
         .single();
 
       if (newCall) callIdToUpdate = newCall.id;
+    }
+
+    if (callIdToUpdate) {
+      // Create immutable evaluation run record
+      await supabase
+        .from('evaluation_runs')
+        .insert({
+          call_id: callIdToUpdate,
+          model_id: qcEngine.GEMINI_MODEL,
+          input_snapshot: { transcript_length: transcriptText.length, source: effectiveSource },
+          results: resultsPayload
+        });
+        
+      // Update the call pointer only
+      await supabase
+        .from('calls')
+        .update({ qc_status: 'evaluated', call_quality_score: callQualityScore })
+        .eq('id', callIdToUpdate);
     }
 
     // 8. Update leads table with latest prospect state
@@ -240,30 +297,29 @@ router.post('/qc/evaluate_call', async (req, res) => {
       }
     }
 
-    // 9. Push to LeadSquared
+    // 9. Push to LeadSquared via CRM Outbox Pattern
     if (finalProspectId && prospect_id) { // Only push if it was an actual LSQ prospect
-      axios.post(`http://localhost:${process.env.PORT || 3000}/api/coaching/push_to_lsq`, {
-        prospect_id: finalProspectId,
-        coaching_report: coachingReport,
-        source: effectiveSource
-      }).catch(err => console.error("LSQ push failed:", err.message));
+      try {
+        await supabase.from('crm_outbox').insert({
+          prospect_id: finalProspectId,
+          payload: {
+            prospect_id: finalProspectId,
+            coaching_report: coachingReport,
+            source: effectiveSource
+          },
+          status: 'pending'
+        });
+        console.log(`📦 Inserted LSQ push into crm_outbox for ${finalProspectId}`);
+      } catch (outboxErr) {
+        console.error("Failed to insert into CRM outbox:", outboxErr.message);
+      }
     }
 
-    res.json({
-      success: true,
-      call_id: callIdToUpdate,
-      coaching_report: coachingReport,
-      insights: insightsResult.insights,
-      summary: insightsResult.summary,
-      next_steps: insightsResult.next_steps,
-      quality: qualityResult.quality,
-      call_quality_score: callQualityScore,
-      call_quality_raw: callQualityRaw
-    });
+    console.log(`✅ Background evaluation complete for call: ${callIdToUpdate}`);
   } catch (err) {
-    console.error("Evaluation Error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Async Evaluation Error:", err);
   }
+  }); // End Promise.resolve().then()
 });
 
 // ═══════════════════════════════════════════════════════════════

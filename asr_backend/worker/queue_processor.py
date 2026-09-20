@@ -1,14 +1,3 @@
-# -- Patch torch.load BEFORE any ML imports --
-# PyTorch 2.6+ defaults weights_only=True which breaks pyannote/lightning checkpoints.
-# We force weights_only=False because lightning passes it explicitly (not as a default),
-# so setdefault doesn't work.
-import torch
-_orig_torch_load = torch.load
-def _safe_torch_load(*a, **kw):
-    kw["weights_only"] = False
-    return _orig_torch_load(*a, **kw)
-torch.load = _safe_torch_load
-
 import os
 import uuid
 import json
@@ -22,8 +11,11 @@ from supabase import create_client, Client
 import asr.asr_pipeline as pipeline
 import coaching.coaching_agent as qc_agent
 import translation.translator as translator
+import worker.pii_scrubber as pii_scrubber
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("worker")
 
 load_dotenv()
@@ -134,12 +126,25 @@ def process_queue_item(queue_id: str):
             sentence_texts = [seg.get("text", "") for seg in segments]
             if sentence_texts:
                 translations = translator.translate_batch(sentence_texts, src_lang=language)
+                
+                # Check for failure rate
+                failed_count = sum(1 for t in translations if not t or t == "[TRANSLATION_FAILED]")
+                if len(translations) > 0 and (failed_count / len(translations)) > 0.2:
+                    raise Exception(f"Translation failure rate too high: {failed_count}/{len(translations)} failed")
+                
                 for seg, text_en in zip(segments, translations):
-                    seg["text_en"] = text_en
-                logger.info(f"Translation complete — {len(translations)} segments translated.")
+                    # SCRUB PII from the english translation
+                    safe_text = pii_scrubber.scrub_pii(text_en)
+                    seg["text_en"] = safe_text
+                logger.info(f"Translation and PII scrubbing complete — {len(translations)} segments processed.")
         except Exception as translate_err:
-            logger.warning(f"Translation failed (non-fatal): {translate_err}")
-            # Graceful degradation — continue without English translations
+            logger.error(f"Translation failed: {translate_err}")
+            # Policy: Hard halt, do not send Indic text to LLM
+            supabase.table("callizer_queue").update({
+                "status": "failed_translation",
+                "errors": json.dumps([str(translate_err)])
+            }).eq("id", queue_id).execute()
+            return
         
         # 4. Save to calls table FIRST so QC evaluation can find it
         internal_call_id = str(uuid.uuid4())
@@ -178,7 +183,7 @@ def process_queue_item(queue_id: str):
                     "prospect_id": prospect_id if prospect_id else None,
                     "source": "phone_call"
                 },
-                timeout=180  # 3 min timeout for Gemini evaluation
+                timeout=15  # Returns 202 immediately now
             )
             qc_resp.raise_for_status()
             qc_data = qc_resp.json()

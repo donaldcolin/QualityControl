@@ -17,6 +17,9 @@ import threading
 import time
 import logging
 
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Event to instantly wake up the polling thread without waiting for the sleep timeout
@@ -36,45 +39,57 @@ def queue_worker():
     while True:
         try:
             if not worker.supabase:
-                time.sleep(5)
+                time.sleep(10)
                 continue
                 
-            # Grab the oldest pending item
-            resp = worker.supabase.table("callizer_queue")\
-                .select("id")\
-                .eq("status", "pending")\
-                .order("created_at")\
-                .limit(1)\
-                .execute()
+            # ATOMIC LOCK: Grab the oldest pending item and lock it in one transaction
+            resp = worker.supabase.rpc("claim_next_queue_job", {"p_worker_id": WORKER_ID}).execute()
                 
-            if resp.data:
+            if resp.data and len(resp.data) > 0:
                 item_id = resp.data[0]["id"]
-                
-                # ATOMIC LOCK: Try to claim the item. If another Mac grabbed it first, 
-                # the status will no longer be 'pending' and this update will affect 0 rows.
-                lock_resp = worker.supabase.table("callizer_queue")\
-                    .update({"status": f"Initializing pipeline (Worker: {WORKER_ID[:8]})..."})\
-                    .eq("id", item_id)\
-                    .eq("status", "pending")\
-                    .execute()
-                
-                if not lock_resp.data:
-                    # Another Mac beat us to this file! Skip and find the next one.
-                    logger.info(f"Race condition avoided. Another worker claimed {item_id}")
-                    continue
-                
-                logger.info(f"Successfully claimed pending queue item: {item_id}")
+                logger.info(f"Successfully claimed queue item: {item_id}")
                 worker.process_queue_item(item_id)
             else:
-                # No pending items, wait for a webhook to wake us up instantly
-                queue_event.wait(timeout=5.0)
+                # No pending items, wait for a webhook to wake us up instantly, fallback to 5 minutes
+                queue_event.wait(timeout=300.0)
                 queue_event.clear()
         except Exception as e:
             logger.error(f"Queue worker polling error: {e}")
-            time.sleep(5)
+            time.sleep(10)
 
 # Start the smart polling queue
 threading.Thread(target=queue_worker, daemon=True).start()
+
+class MeetWebhookRequest(BaseModel):
+    meeting_id: str
+    recording_url: str
+    host_email: str
+    
+@app.post("/api/webhook/meet")
+def meet_webhook(req: MeetWebhookRequest):
+    """
+    Ingests a Google Meet or Zoom recording directly into the pipeline.
+    Expects an MP4 or M4A URL which will be processed by the audio extraction
+    logic in the worker node automatically.
+    """
+    if not worker.supabase:
+        raise HTTPException(status_code=500, detail="Database not connected")
+        
+    queue_id = str(uuid.uuid4())
+    
+    worker.supabase.table("callizer_queue").insert({
+        "id": queue_id,
+        "call_id": req.meeting_id,
+        "audio_url": req.recording_url,
+        "prospect_id": req.host_email, # using host_email as a fallback prospect ID for Meet
+        "status": "pending",
+        "language": "en" # default language for Meet, worker will auto-detect
+    }).execute()
+    
+    # Wake up the local worker instantly
+    queue_event.set()
+    
+    return {"status": "accepted", "queue_id": queue_id}
 
 class ProcessAudioRequest(BaseModel):
     queue_id: str
