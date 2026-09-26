@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { getQCLead, evaluateCall, evaluateLeadIntelligence, resendCallToASR } from '../api';
-import { ArrowLeft, Play, FileAudio, CheckCircle2, Clock, AlertCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Play, FileAudio, CheckCircle2, XCircle, Clock, AlertCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -430,12 +430,12 @@ export default function LeadDetails({ leadId, onBack }) {
 
               </div>
 
-              {/* RIGHT COLUMN: Path to Conversion */}
+              {/* RIGHT COLUMN: Path to Conversion & Coaching */}
               <div className="space-y-8">
                 <section>
                   <div className="flex items-center gap-2 mb-4">
                     <BrainCircuit className="w-5 h-5 text-purple-500" />
-                    <h3 className="text-lg font-semibold">Path to Conversion</h3>
+                    <h3 className="text-lg font-semibold">Path to Conversion & Coaching</h3>
                   </div>
 
                   <Card className="shadow-sm bg-purple-500/5 border-purple-500/10">
@@ -489,6 +489,53 @@ export default function LeadDetails({ leadId, onBack }) {
                       )}
                     </CardContent>
                   </Card>
+
+                  {/* Golden Pitch / Prescriptive Coaching */}
+                  {(() => {
+                    const latestCall = lead.calls?.[lead.calls.length - 1];
+                    const coaching = latestCall?.coaching_report?.prescriptive_coaching;
+                    if (!coaching || coaching.length === 0) return null;
+
+                    return (
+                      <Card className="shadow-sm mt-6 border-emerald-500/20 bg-emerald-500/5">
+                        <CardHeader className="pb-3 border-b border-emerald-500/10">
+                          <CardTitle className="text-sm flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                            <Target className="w-4 h-4" /> Golden Pitch Corrections
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                          <div className="p-5 space-y-6">
+                            {coaching.map((pc, idx) => (
+                              <div key={idx} className="space-y-3">
+                                <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{pc.situation}</div>
+                                
+                                <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 relative">
+                                  <div className="text-[10px] font-bold text-destructive uppercase tracking-widest mb-1 flex items-center gap-1">
+                                    <XCircle className="h-3 w-3" /> You said
+                                  </div>
+                                  <div className="text-sm italic">"{pc.what_associate_said}"</div>
+                                </div>
+                                
+                                <div className="bg-emerald-500/15 border border-emerald-500/30 rounded-md p-3">
+                                  <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                    <CheckCircle2 className="h-3 w-3" /> Golden Pitch
+                                  </div>
+                                  <div className="text-sm font-medium">"{pc.golden_pitch}"</div>
+                                </div>
+                                
+                                <div className="text-sm text-muted-foreground bg-muted/50 p-2 rounded flex gap-2">
+                                  <Lightbulb className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                                  <span>{pc.why_it_works}</span>
+                                </div>
+                                {idx < coaching.length - 1 && <hr className="my-4 border-border/50" />}
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+
                 </section>
               </div>
 

@@ -117,7 +117,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       }
     });
 
-    const insightsResult = JSON.parse(insightsResponse.text());
+    const insightsResult = JSON.parse(insightsResponse.text);
 
     // 4. Run COMBINED Quality + Coaching evaluation (single API call, 2-in-1)
     let qualityResult = { quality: {} };
@@ -130,7 +130,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           // Transcript is sent once instead of twice — saves ~33% input tokens
           const combinedSchema = qcEngine.getCombinedQualityCoachingSchema(filteredQualityChecks, params);
           const combinedPrompt = qcEngine.buildCombinedQualityCoachingPrompt(
-            transcriptText, effectiveSource, filteredQualityChecks, params
+            transcriptText, effectiveSource, filteredQualityChecks, params, leadState
           );
 
           const combinedResponse = await qcEngine.ai.models.generateContent({
@@ -143,7 +143,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
             }
           });
 
-          const combinedResult = JSON.parse(combinedResponse.text());
+          const combinedResult = JSON.parse(combinedResponse.text);
           qualityResult = { quality: combinedResult.quality || {} };
           coachingReport = combinedResult.coaching_report || null;
         } else {
@@ -159,7 +159,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
               temperature: 0.15
             }
           });
-          qualityResult = JSON.parse(qualityResponse.text());
+          qualityResult = JSON.parse(qualityResponse.text);
         }
       } catch (combinedErr) {
         console.error('Combined quality+coaching evaluation failed (non-fatal):', combinedErr.message);
@@ -545,7 +545,7 @@ router.post('/intelligence/evaluate_lead', async (req, res) => {
       config: { responseMimeType: 'application/json', responseSchema, temperature: 0.2 }
     });
 
-    const resultObj = JSON.parse(response.text());
+    const resultObj = JSON.parse(response.text);
     await supabase.from('leads').update({
         overall_prediction: resultObj.overall_prediction,
         overall_reasoning: resultObj.overall_reasoning,
@@ -788,12 +788,14 @@ router.post('/coaching/push_to_lsq', async (req, res) => {
       activityNote += `\n`;
     }
 
-    if (report.suggested_script_lines && report.suggested_script_lines.length > 0) {
-      activityNote += `💡 SUGGESTED RESPONSES:\n`;
-      report.suggested_script_lines.forEach(sl => {
-        activityNote += `• [${sl.situation}]: "${sl.suggested_response}"\n`;
+    if (report.prescriptive_coaching && report.prescriptive_coaching.length > 0) {
+      activityNote += `🎯 PRESCRIPTIVE COACHING (GOLDEN PITCH):\n`;
+      report.prescriptive_coaching.forEach(pc => {
+        activityNote += `• Situation: ${pc.situation}\n`;
+        activityNote += `  ❌ You said: "${pc.what_associate_said}"\n`;
+        activityNote += `  ✅ Golden Pitch: "${pc.golden_pitch}"\n`;
+        activityNote += `  💡 Why: ${pc.why_it_works}\n\n`;
       });
-      activityNote += `\n`;
     }
 
     const LSQ_QC_ACTIVITY_EVENT = parseInt(process.env.LSQ_QC_ACTIVITY_EVENT_CODE || '279', 10);

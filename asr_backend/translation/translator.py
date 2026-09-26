@@ -29,6 +29,13 @@ LANG_CODE_MAP = {
 TARGET_LANG = "eng_Latn"
 MODEL_NAME = "ai4bharat/indictrans2-indic-en-dist-200M"
 
+# ── Resolve local snapshot path so we NEVER hit the network ─────────────────
+import os as _os
+_SNAPSHOT_DIR = _os.path.expanduser(
+    "~/.cache/huggingface/hub/models--ai4bharat--indictrans2-indic-en-dist-200M"
+    "/snapshots/eb9e49d81077cfc5311e82ff36d8c1fc11557b5d"
+)
+
 # ── Singleton model holder ──────────────────────────────────────────────────
 
 _model = None
@@ -52,14 +59,19 @@ def _ensure_loaded():
     if _model is not None:
         return
 
-    logger.info(f"Loading translation model: {MODEL_NAME}")
+    logger.info(f"Loading translation model from local cache: {_SNAPSHOT_DIR}")
     _device = _get_device()
 
-    _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    _model = AutoModelForSeq2SeqLM.from_pretrained(
-        MODEL_NAME, 
+    _tokenizer = AutoTokenizer.from_pretrained(
+        _SNAPSHOT_DIR,
         trust_remote_code=True,
-        torch_dtype=torch.float16
+        local_files_only=True,
+    )
+    _model = AutoModelForSeq2SeqLM.from_pretrained(
+        _SNAPSHOT_DIR,
+        trust_remote_code=True,
+        local_files_only=True,
+        torch_dtype=torch.float16,
     ).to(_device)
     _model.eval()
 
@@ -158,7 +170,7 @@ def translate_batch(sentences: list[str], src_lang: str) -> list[str]:
         with torch.inference_mode():
             generated = _model.generate(
                 **inputs,
-                use_cache=True,
+                use_cache=False,
                 min_length=0,
                 max_length=256,
                 num_beams=2,
@@ -186,4 +198,5 @@ def translate_batch(sentences: list[str], src_lang: str) -> list[str]:
     elif torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+    logger.info(f"translate_batch complete — {len(translations)} sentences returned")
     return translations

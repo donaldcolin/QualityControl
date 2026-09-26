@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS rubric_versions (
 
 CREATE TABLE IF NOT EXISTS evaluation_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    call_id UUID REFERENCES calls(id) ON DELETE CASCADE,
+    call_id TEXT REFERENCES calls(id) ON DELETE CASCADE,
     rubric_version_id UUID REFERENCES rubric_versions(id),
     model_id TEXT NOT NULL,
     input_snapshot JSONB NOT NULL,

@@ -126,17 +126,18 @@ def process_queue_item(queue_id: str):
             sentence_texts = [seg.get("text", "") for seg in segments]
             if sentence_texts:
                 translations = translator.translate_batch(sentence_texts, src_lang=language)
+                logger.info(f"[{queue_id}] Translation returned {len(translations)} results. Starting PII scrubbing...")
                 
                 # Check for failure rate
                 failed_count = sum(1 for t in translations if not t or t == "[TRANSLATION_FAILED]")
                 if len(translations) > 0 and (failed_count / len(translations)) > 0.2:
                     raise Exception(f"Translation failure rate too high: {failed_count}/{len(translations)} failed")
                 
-                for seg, text_en in zip(segments, translations):
+                for i, (seg, text_en) in enumerate(zip(segments, translations)):
                     # SCRUB PII from the english translation
                     safe_text = pii_scrubber.scrub_pii(text_en)
                     seg["text_en"] = safe_text
-                logger.info(f"Translation and PII scrubbing complete — {len(translations)} segments processed.")
+                logger.info(f"[{queue_id}] Translation and PII scrubbing complete — {len(translations)} segments processed.")
         except Exception as translate_err:
             logger.error(f"Translation failed: {translate_err}")
             # Policy: Hard halt, do not send Indic text to LLM
@@ -167,6 +168,7 @@ def process_queue_item(queue_id: str):
             "participant_stats": json.dumps(participant_stats),
         }
         
+        logger.info(f"[{queue_id}] Inserting call data into Supabase...")
         supabase.table("calls").insert(call_data).execute()
         logger.info(f"[{queue_id}] Saved call data to Supabase (ID: {internal_call_id})")
 

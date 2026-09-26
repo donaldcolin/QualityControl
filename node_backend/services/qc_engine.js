@@ -5,7 +5,7 @@ const { GoogleGenAI } = require('@google/genai');
 const supabase = require('../config/supabase');
 
 // ── Active model — change here to switch globally ─────────────────────────────
-const GEMINI_MODEL = 'gemini-2.5-flash-002';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 // ── In-memory static prompt cache: keyed by source+paramHash ─────────────────
 // Avoids rebuilding the large QC parameter block on every single call.
@@ -30,6 +30,43 @@ try {
   console.log(`Loaded Hybrid Knowledge Base with ${knowledgeBase.total_leads_analyzed} historical leads.`);
 } catch (err) {
   console.warn("WARNING: knowledge_base.json not found or invalid in config/. Lead Intelligence will lack historical grounding.");
+}
+
+// Load Coaching Templates (Golden Pitches & Flags)
+let coachingTemplates = [];
+try {
+  const templateData = fs.readFileSync(path.join(configDir, 'coaching_templates.json'), 'utf8');
+  coachingTemplates = JSON.parse(templateData);
+  console.log(`Loaded ${coachingTemplates.length} predefined Golden Coaching Templates.`);
+} catch (err) {
+  console.warn("WARNING: coaching_templates.json not found. AI will use generic coaching.");
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Global Context Definition
+// ═══════════════════════════════════════════════════════════════
+function getKalviumContext(source, leadState = null) {
+  const base = source === 'google_meet'
+    ? 'a product demonstration meeting via Google Meet'
+    : 'a university admissions sales counselling phone call';
+  
+  let ctx = `${base} for Kalvium. 
+Kalvium is a higher-education startup offering a Work-Integrated Computer Science Engineering degree. Key features include a 100% placement guarantee, hands-on paid internships starting from Year 2, and an aptitude-based entrance exam called K-NET (we do not require JEE/NEET).
+
+CRITICAL SALES CYCLE RULES:
+1. FIRST PHONE CALL: The goal is NEVER to ask for registration or payment. The ONLY goal is to build interest and invite the parent/student to attend a 1-on-1 Google Meet demo.
+2. GOOGLE MEET DEMO: During the video call, the counselor discusses the exam details and pushes for K-NET Exam Registration.
+3. EXAM: The student writes the K-NET exam after 2 months.
+4. INTERVIEW: If they pass the exam, they attend an interview (they only get ONE chance).
+5. PROVISIONAL ADMISSION: If they pass the interview, they pay 10% of the total university fees to secure provisional admission.
+
+You must judge the associate based on where they are in this cycle (e.g. do not penalize a phone call for not collecting registration fees).`;
+
+  if (leadState && leadState.ProspectStage) {
+    ctx += `\n\nCURRENT LEAD STAGE: This prospect is currently in the CRM stage "${leadState.ProspectStage}". Use this to correctly identify their position in the cycle!`;
+  }
+  
+  return ctx;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -209,9 +246,7 @@ function getInsightsSchema(dataCaptureQuestions) {
 
 function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls, leadState) {
   const role = source === 'google_meet' ? 'Expert Video Demo Analyst' : 'Expert Sales Call Analyst';
-  const context = source === 'google_meet'
-    ? 'a product demonstration meeting conducted via Google Meet'
-    : 'a sales counselling phone call for university admissions';
+  const context = getKalviumContext(source, leadState);
 
   let prompt = `You are an ${role}. You are analyzing ${context}.\n\n`;
 
@@ -291,9 +326,7 @@ function getQualitySchema(qualityChecks) {
 
 function buildQualityPrompt(transcript, source, qualityChecks) {
   const role = source === 'google_meet' ? 'Expert Video Demo Quality Auditor' : 'Expert Call Quality Auditor';
-  const context = source === 'google_meet'
-    ? 'a product demonstration meeting conducted via Google Meet'
-    : 'a sales counselling phone call for university admissions';
+  const context = getKalviumContext(source);
 
   let prompt = `You are an ${role}. You are evaluating the quality of ${context}.\n\n`;
   prompt += `=== TRANSCRIPT ===\n${transcript}\n\n`;
@@ -339,17 +372,16 @@ function buildQualityPrompt(transcript, source, qualityChecks) {
  * This part is identical across all calls for the same source+parameter set.
  * Result is cached in memory so it is built at most once per unique config.
  */
-function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters) {
-  // Hash key = source + all check IDs + all param names
-  const cacheKey = `${source}|${qualityChecks.map(q => q.id || q.parameter).join(',')}|${parameters.map(p => p.Parameter).join(',')}`;
+function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState = null) {
+  // Hash key = source + all check IDs + all param names + lead stage
+  const stage = leadState?.ProspectStage || 'none';
+  const cacheKey = `${source}|${stage}|${qualityChecks.map(q => q.id || q.parameter).join(',')}|${parameters.map(p => p.Parameter).join(',')}`;
   if (_staticPromptCache.has(cacheKey)) return _staticPromptCache.get(cacheKey);
 
   const role = source === 'google_meet'
     ? 'Expert Video Demo Quality Auditor & Coach'
     : 'Expert Sales Call Quality Auditor & Coach';
-  const context = source === 'google_meet'
-    ? 'a product demonstration meeting via Google Meet'
-    : 'a university admissions sales counselling call';
+  const context = getKalviumContext(source, leadState);
 
   let block = `You are an ${role} evaluating ${context}.\n`;
   block += `You must complete TWO tasks in one response.\n\n`;
@@ -376,13 +408,22 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters) {
     block += '\n';
   }
 
-  // ── PART 2: Coaching report ─────────────────────────────────────────────────
-  block += `=== PART 2: COACHING REPORT ===\n`;
-  block += `You are a COACH, not a judge. For every category:\n`;
-  block += `1. Acknowledge what the associate did well (quote the transcript)\n`;
-  block += `2. Point out specifically what was missed or poorly done\n`;
-  block += `3. Give a concrete coaching tip with an example phrase they can say next time\n`;
-  block += `4. Suggest 1-2 actual script lines for moments they struggled\n\n`;
+  // ── PART 2: PRESCRIPTIVE COACHING REPORT ──────────────────────────────────────
+  block += `=== PART 2: PRESCRIPTIVE COACHING REPORT ===\n`;
+  block += `You are a strict but helpful Sales Coach. We use standard proven pitches/templates to close sales.\n`;
+  block += `You must evaluate the associate against the following PREDEFINED COMPANY TEMPLATES:\n`;
+  
+  if (coachingTemplates.length > 0) {
+    coachingTemplates.forEach((t, i) => {
+      block += `\n[TEMPLATE ${i+1}]\n- FLAG TO DETECT: ${t.flag}\n- GOLDEN PITCH TO RECOMMEND: ${t.template}\n`;
+    });
+  }
+
+  block += `\nWhen the associate triggers any of the FLAGS above, you must correct them using the PRESCRIPTIVE COACHING format:\n`;
+  block += `1. Identify the situation based on the FLAG detected.\n`;
+  block += `2. Quote exactly what the associate said (the failure/deviation).\n`;
+  block += `3. Provide the EXACT 'Golden Pitch' provided in the template above.\n`;
+  block += `4. Explain briefly why this Golden Pitch works better.\n\n`;
   block += `Overall grade scale — A (90-100), B (75-89), C (60-74), D (40-59), F (0-39)\n\n`;
 
   const categories = groupByCategory(parameters);
@@ -402,8 +443,8 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters) {
  * Builds the full combined prompt — static block + dynamic transcript appended.
  * The static block is served from the in-memory cache after first build.
  */
-function buildCombinedQualityCoachingPrompt(transcript, source, qualityChecks, parameters) {
-  const staticBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters);
+function buildCombinedQualityCoachingPrompt(transcript, source, qualityChecks, parameters, leadState = null) {
+  const staticBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState);
   return `${staticBlock}=== TRANSCRIPT ===\n${transcript}\n\nBe specific. Cite evidence from the transcript for every score and coaching point.`;
 }
 
@@ -470,22 +511,25 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
           category_scores: { type: 'object', properties: categoryScoreProps },
           top_strengths: { type: 'array', items: { type: 'string' } },
           critical_improvements: { type: 'array', items: { type: 'string' } },
-          suggested_script_lines: {
+          prescriptive_coaching: {
             type: 'array',
             items: {
               type: 'object',
               properties: {
-                situation: { type: 'string' },
-                suggested_response: { type: 'string' }
+                situation: { type: 'string', description: 'The context or objection raised by the customer.' },
+                what_associate_said: { type: 'string', description: 'Exact quote of what the associate said (which was suboptimal).' },
+                golden_pitch: { type: 'string', description: 'The exact standard pitch/template the associate SHOULD have used.' },
+                why_it_works: { type: 'string', description: 'Why the golden pitch is better for clearing the sale.' }
               }
-            }
+            },
+            description: 'Provide 2-4 highly targeted prescriptive coaching corrections based on proven templates.'
           },
           parameter_evaluations: {
             type: 'object',
             properties: coachingParamProps
           }
         },
-        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'suggested_script_lines', 'parameter_evaluations']
+        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'prescriptive_coaching', 'parameter_evaluations']
       }
     },
     required: ['quality', 'coaching_report']
@@ -601,9 +645,7 @@ function getCoachingSchema(parameters) {
 
 function buildCoachingPrompt(transcript, source, parameters) {
   const role = source === 'google_meet' ? 'Expert Video Demo Coach' : 'Expert Counselling Coach';
-  const context = source === 'google_meet'
-    ? 'a product demonstration meeting conducted via Google Meet'
-    : 'a sales counselling phone call for university admissions';
+  const context = getKalviumContext(source);
   const categories = groupByCategory(parameters);
 
   let prompt = `You are an ${role}. You are evaluating ${context}.\n\n`;

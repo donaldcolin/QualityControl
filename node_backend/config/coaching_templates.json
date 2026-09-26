@@ -1,0 +1,14 @@
+[
+  {
+    "flag": "Customer says the fees (2 lakhs) are too high or out of budget, and associate fails to justify the value.",
+    "template": "I completely understand that the fee is a significant investment. However, unlike traditional colleges, our program includes a 100% guaranteed placement with top tech companies. You are essentially securing your child's career, not just a degree. Can we look at the ROI together?"
+  },
+  {
+    "flag": "Customer says they want to discuss with their spouse/parents before deciding, and the associate just says 'Okay, I will call back later'.",
+    "template": "That makes perfect sense; this is an important family decision. To make that conversation easier for you, how about I jump on a quick 5-minute video call with both of you tomorrow evening to answer any questions they might have?"
+  },
+  {
+    "flag": "Customer asks about the difficulty of the K-NET exam, and associate makes it sound intimidating or doesn't offer help.",
+    "template": "The K-NET is challenging, but it's purely aptitude-based, not based on rote memorization. We actually provide a complete free mock-test kit and study guide the moment you register. If your child is good at logic, they will do great."
+  }
+]
