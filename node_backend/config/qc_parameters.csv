@@ -1,124 +1,124 @@
-Category,Parameter,Description
-Authenticity,Minimum viable turn count,Transcript has fewer than 6 distinct speech turns for its duration — looks like a monologue or a call that never really started.
-Authenticity,Turns-per-minute sanity,Number of back-and-forth turns per minute of call duration is implausibly low (near-silence / one-sided).
-Authenticity,Words-per-minute sanity (too fast),Transcript word count implies >210 spoken words/minute sustained — suggests transcript/audio mismatch or spliced content.
-Authenticity,Words-per-minute sanity (too slow),"Transcript word count implies <45 spoken words/minute — suggests long dead air, hold music, or a mis-fetched recording rather than live counselling."
-Authenticity,Prospect responsiveness present,"Lead's turns include natural short acknowledgements/answers (yes/no/okay/numbers) — evidence of a real two-sided conversation, not a read monologue."
-Authenticity,Prospect asks at least one question,"A genuine, engaged prospect usually asks something back (about fees, colleges, placements, process) — total absence across a long call is a mild red flag."
-Authenticity,Lead name used correctly & consistently,"Lead's own name is referenced in the transcript and stays consistent (no other, different lead name appearing) — a mismatch suggests the wrong recording/notes were logged."
-Authenticity,Personal/discovery detail specific to this lead,"Call contains at least one lead-specific fact (board %, JEE score, city, school) rather than being 100% generic script text — generic-only calls are harder to verify as genuinely tailored."
-Authenticity,Duration vs. content-depth match,"Call duration is broadly consistent with the depth of topics actually covered (e.g. a 20-minute call covering almost nothing, or a 2-minute call marked as covering the full script)."
-Authenticity,No abrupt mid-sentence cutoff,Transcript doesn't end mid-word/mid-sentence in a way suggesting the recording was cut/edited.
-Authenticity,Single-speaker dominance ratio,"Share of total transcript characters contained in long (>200 char) uninterrupted lines is within a normal counselling range, not near-100% monologue."
-Authenticity,No verbatim block reused across different leads by same associate,"Long (~40+ word) verbatim passages are expected script lines, but if an entire transcript is near-identical to another call by the same associate with a different lead, flag for manual copy-paste/fabrication check."
-Authenticity,Student count claim within canonical range,"Stated total enrolled-student figure is close to Kalvium's standard figure (~2,200) rather than an outlier (e.g. 5,000+) that suggests improvisation/exaggeration. NOTE: this regex also catches a partner university's OWN enrolment stats quoted for context (e.g. 'LPU had 5,000 students in CSC') -- treat a fail here as 'verify by listening', not a confirmed violation."
-Authenticity,University count claim within canonical range,Stated partner-university count is close to the standard figure (~10-12) rather than a wildly different number.
-Authenticity,No fabricated urgency/scarcity claims,No invented scarcity pressure such as 'only X seats left today' / 'offer expires tonight' that isn't part of the approved script.
-Authenticity,No invented placement/salary statistics outside script norms,Any LPA/salary figures quoted fall within the ranges normally used in the script rather than an inflated one-off number.
-Authenticity,Call not simply a voicemail/no-answer,"Transcript reflects an actual conversation and is not just ringing tones, a voicemail message, or 'call not connected' content mislabeled as a completed counselling call."
-Authenticity,transcription_status corroborates a full call,Backend transcription_status is 'success' and transcript_length is non-trivial relative to duration.
-Authenticity,audio_fetch_status corroborates a real recording,"Backend audio_fetch_status is 'success', i.e. an actual audio file exists behind this log entry."
-Authenticity,No signs of a scripted 'demo' recording,No meta-references such as 'this is a sample call' / 'for training purposes' / associate coaching another associate rather than speaking to a prospect.
-Authenticity,Notes/summary internally consistent with transcript length,The auditor notes/summary do not claim full script coverage while the underlying transcript is extremely short (or vice versa) — inconsistency suggests the summary wasn't genuinely derived from this call.
-Compliance,Associate identity captured,associate_name field is populated and non-generic.
-Compliance,Lead identity captured,lead_name field is populated and non-generic.
-Compliance,Prospect ID present & well-formed,prospect_id exists and is a valid unique identifier (no blank/placeholder).
-Compliance,Recording link reachable,audio_recording_url is present and correctly formed (not blank/broken).
-Compliance,Call duration logged and plausible,call_duration_seconds is present and within a plausible range for a counselling call (not 0 or absurdly small/large).
-Compliance,Only one recording per prospect record,This prospect_id is not sharing its audio file with any other prospect_id in the same audit batch.
-Compliance,"Notes field is call-specific, not boilerplate",notes / script_coverage_summary text reads as specific to this call rather than an identical stock sentence reused everywhere.
-Compliance,Consistent associate attribution,"Same associate name spelling/casing used consistently for this associate elsewhere in the batch (flags likely data-entry/identity issues, not the associate's fault, but worth cleaning)."
-Compliance,No missing/blank critical fields,"None of the required fields (associate, lead, duration, transcript) are empty for this row."
-Compliance,Transcript language field present where relevant,native_transcript populated when the call included non-English speech (supports verification against english_transcript).
-Introduction,Self introduction (name),Associate states their own name.
-Introduction,Company introduction (Kalvium),Associate names Kalvium as the organisation calling.
-Introduction,Reason for call stated,Associate explains why they are calling (follow-up on an enquiry/form).
-Introduction,Confirms speaking to the right person,Associate verifies they are speaking to the actual lead (not a parent/sibling) before pitching.
-Introduction,Confirms prior interest/lead source,Associate references the specific form/enquiry the lead had submitted.
-Introduction,Asks permission / checks availability,Associate asks if it's a good time / requests a few minutes before diving in.
-Introduction,"Warm, non-robotic opening tone",Opening lines vary/feel conversational rather than a rigid word-for-word script read (proxy: presence of natural filler/acknowledgement words).
-Introduction,Sets call agenda,Associate briefly previews what the call will cover.
-Introduction,Introduction not skipped entirely,"Some introduction element is present at all (baseline floor, distinct from quality of intro)."
-Introduction,Appropriate greeting used,A greeting (hello/good morning/good evening) opens the call.
-Discovery,Class 12 / academic status checked,Associate asks about Class 12 completion status.
-Discovery,Board exam result / percentage discussed,Board marks or percentage are discussed.
-Discovery,Entrance exam (JEE/other) status discussed,JEE or equivalent entrance exam attempt/score is discussed where relevant.
-Discovery,Stream / subject interest confirmed,Associate confirms interest in CSE/engineering or the relevant stream.
-Discovery,Career goal / motivation explored,Associate asks about the lead's career goals or reasons for interest.
-Discovery,Parents' involvement discussed,Associate checks whether parents are part of the decision and includes them appropriately.
-Discovery,Current alternatives/competing options discussed,Associate asks what other colleges/programs the lead is considering.
-Discovery,Decision timeline discussed,Associate asks when the lead plans to decide/enrol.
-Discovery,Location / relocation preference discussed,Associate discusses willingness to relocate or preferred city/region.
-Discovery,Budget/affordability sensitively explored,Fee range or affordability is discussed without being the sole focus.
-Discovery,"Discovery questions open-ended, not just yes/no",At least some discovery questions invite more than a one-word answer (proxy via lead response length).
-Discovery,Discovery not entirely skipped,Some discovery/qualification element occurs at all (baseline floor).
-ProgramPitch,B.Tech CSE / Work-Integrated Program explained,The core Work-Integrated B.Tech CSE program is explained.
-ProgramPitch,Program structure/duration explained,"How the program runs (years, structure) is described."
-ProgramPitch,Partner-university model explained,Associate explains the multi-university delivery model correctly (curriculum consistent across partner campuses).
-ProgramPitch,At least one real partner university named,"A recognisable, real partner university (e.g. LPU, SRM, JECRC, VIT, Amity) is mentioned by name."
-ProgramPitch,University count claim present,A specific partner-university count is stated (supports E-15/A-15 fact-check).
-ProgramPitch,Student enrolment figure cited,A specific enrolled/alumni student count is cited (supports A-14 fact-check).
-ProgramPitch,Day-one coding / practical curriculum emphasised,Associate emphasises hands-on coding/project work starting early.
-ProgramPitch,Industry relevance / AI-era relevance explained,Associate connects the program to current industry/AI-era hiring relevance.
-ProgramPitch,Coding/projects specifics mentioned,Concrete detail on coding exposure or project-based learning is given (not just a buzzword).
-ProgramPitch,Faculty/mentorship model mentioned,Who teaches / mentors students is mentioned.
-ProgramPitch,Fee structure mentioned or offered to be shared,"Fees, payment plans, or scholarships are discussed or explicitly deferred to a documented next step."
-ProgramPitch,No unauthorised placement guarantee,"Associate does not promise guaranteed placement (should mirror the compliant disclaimer pattern: 'we don't guarantee, but train you')."
-ProgramPitch,"Salary/package figures, if given, framed as illustrative not guaranteed",Any LPA figures quoted are framed as examples/ranges rather than promises.
-ProgramPitch,Accreditation / recognition addressed,Associate addresses degree validity/recognition when relevant/asked.
-ProgramPitch,Internship component explained,Internship opportunities are explained accurately (paid/unpaid status not overstated).
-ProgramPitch,No overstated exclusivity ('only program of its kind') beyond script,Claims of uniqueness are consistent with the standard differentiation pitch (see category F) rather than invented superlatives.
-ProgramPitch,Program pitch not entirely skipped,Some program-pitch element occurs at all (baseline floor).
-ProgramPitch,Pitch tailored to stated interest (not generic-only),Program explanation references the lead's own stated stream/goal rather than being a fully generic block.
-Differentiation,Comparison vs. traditional college route made,Associate explains how this differs from a typical B.Tech/college experience.
-Differentiation,Curriculum-over-campus positioning explained,"Associate explains that value comes from the curriculum/program, not the specific campus/college name."
-Differentiation,Skill/employability focus articulated,"Differentiation is framed around skills and job-readiness, not just brand/ranking claims."
-Differentiation,No disparagement of specific named competitor colleges,Comparisons are made without unfairly disparaging a specific competitor institution.
-Differentiation,Consistent with company-approved comparison points,Differentiation claims align with the recurring standard talking points seen across the wider call sample (proxy: overlap with common phrasing set).
-Differentiation,Addresses 'why not IIT/top exam college' objection where relevant,"When the lead references a top exam/college ambition, the associate responds to it rather than ignoring it."
-Differentiation,Explains the AI-era/future relevance angle,Differentiation includes why this preparation matters for an AI-changed job market.
-Differentiation,No fabricated exclusivity claims ('first and only in India'),"Superlative claims, if made, are not contradicted elsewhere in the wider dataset's standard script."
-Differentiation,Differentiation segment not entirely skipped,Some differentiation content occurs at all (baseline floor).
-Differentiation,"Balanced tone (confident, not disparaging or exaggerated)",Overall tone of the differentiation pitch is confident and factual rather than aggressive or over-the-top.
-Objections,Cost/fee objection addressed if raised,"If the lead raises a cost concern, the associate responds to it directly."
-Objections,Parental approval objection addressed if raised,"If the lead mentions needing to check with parents, associate responds constructively (not pressuring)."
-Objections,'Not a well-known college' objection addressed if raised,"If brand/recognition concerns are raised, associate responds with the curriculum/outcomes framing."
-Objections,'Will I get a job' objection addressed if raised,"If job-security concerns are raised, associate responds without over-promising."
-Objections,No pressure tactics used in response to hesitation,"Associate does not use guilt, false urgency, or repeated pushing after a clear 'no'/hesitation."
-Objections,Associate acknowledges the objection before responding,"Response pattern shows acknowledgement ('I understand', 'that's a fair question') rather than talking over the objection."
-Objections,"Objection responses are specific, not deflected generically",Responses address the actual concern raised rather than pivoting to an unrelated script line.
-Objections,Lead's hesitation/questions are not cut off,Long associate turns don't immediately follow a lead question without an intervening answer.
-Objections,No use of comparative fear (e.g. 'you'll be left behind') beyond script norm,Persuasion avoids manufactured fear-based pressure beyond the standard AI-relevance framing.
-Objections,Objection handling present when objections exist,"Where the transcript shows a lead objection/hesitation cue, some associate response follows (not silence/topic change)."
-Closure,Call summarised before ending,Associate briefly recaps what was discussed/agreed.
-Closure,Clear next step defined,"A concrete next step (webinar date, registration, follow-up call) is agreed."
-Closure,Registration/close attempted,"Associate attempts to move the lead toward registration/enrollment interest, per 'Registration/close' scripting."
-Closure,Thanks / polite sign-off,Call ends with a courteous thank-you/goodbye.
-Closure,Follow-up timing set if not closed,"If the lead doesn't commit, a specific follow-up time/date is set rather than leaving it open-ended."
-Closure,No abrupt/unexplained call termination,Call does not end mid-topic without any closing exchange.
-Closure,Lead's final sentiment captured,"Transcript shows the lead's own closing response (agree/maybe/decline), not just the associate talking."
-Closure,Closure segment not entirely skipped,Some closure content occurs at all (baseline floor).
-Closure,Consistent with stated Closure field,This category's automated read is broadly consistent with the pre-existing 'Closure' column value for this call.
-Closure,No contradictory promises made at closing,"Nothing promised at closing (dates, guarantees) contradicts what was said earlier in the call."
-SoftSkills,Active listening signals present,Associate paraphrases/references what the lead just said (proxy: echoing lead's own words back).
-SoftSkills,Avoids talking over the lead,Long associate monologues are not immediately followed by cutting off a lead's short reply (proxy via turn-length pattern).
-SoftSkills,Patience with repeated/basic questions,"If the lead repeats a question, associate re-explains patiently rather than showing irritation (proxy: no curt one-word repeats)."
-SoftSkills,Empathetic language used,"Phrases showing empathy/reassurance appear ('I understand', 'no worries', 'that's a valid concern')."
-SoftSkills,Professional language throughout,"No unprofessional language, slang, or inappropriate remarks detected."
-SoftSkills,Appropriate pacing (not rushed),Speaking pace (WPM) sits in a natural conversational range rather than rushed.
-SoftSkills,Clarity — avoids excessive filler/repetition,Associate turns aren't dominated by excessive verbal filler or needless repetition (proxy: repeated-word ratio).
-SoftSkills,Handles language-switching smoothly,"Where native-language segments appear, the associate transitions between English/native language without confusion (checked against native_transcript availability)."
-SoftSkills,Confidence in delivery,"Program facts are delivered without excessive hedging/uncertainty ('I think', 'maybe', 'not sure') on core facts."
-SoftSkills,Enthusiasm/energy conveyed,"Positive, energetic framing is used when describing the program (proxy: positive-language density)."
-SoftSkills,Lead's engagement sustained to the end,"Lead continues responding through to the later portion of the call, not just the opening (evidence call didn't lose the prospect)."
-SoftSkills,No dead-air heavy sections,No unusually long single lines suggesting extended unscripted silence/hold within an otherwise short call.
-EthicalRisk,No false placement guarantee,No unqualified '100% placement guaranteed' style claim (see E12/G-pattern) that oversteps the approved disclaimer.
-EthicalRisk,No false accreditation/recognition claim,No inaccurate claim about degree recognition/accreditation status.
-EthicalRisk,"No fabricated scarcity/urgency ('only today', 'last seat')",No manufactured urgency beyond genuine deadlines.
-EthicalRisk,No discriminatory or inappropriate remarks,"No remarks about gender, caste, religion, or similar that would be inappropriate."
-EthicalRisk,No misuse of personal data mentioned,No indication personal data is being shared/used outside the counselling purpose.
-EthicalRisk,No pressure to decide immediately on payment,Associate does not push for immediate payment/commitment on the call itself.
-EthicalRisk,No disparagement of the lead's current school/college,Associate does not belittle the lead's current or prior institution.
-EthicalRisk,No inconsistent/contradictory factual claims within the same call,"Numbers or claims don't contradict themselves within the same transcript. NOTE: the script legitimately cites multiple different figures in one call (this-year vs last-year cohort size, or a named partner university's own stats) -- a fail here means 'multiple numbers detected, worth a quick listen', not a confirmed contradiction."
-EthicalRisk,No inappropriate personal questions,"No questions unrelated to admissions counselling (financial status beyond fees, personal life probing)."
-EthicalRisk,Recording/consent context not contradicted,Nothing in the transcript suggests the lead was unaware they were speaking with a counsellor (e.g. impersonation of another role).
+Category,Parameter,Description,"max_score"
+Authenticity,Minimum viable turn count,Transcript has fewer than 6 distinct speech turns for its duration — looks like a monologue or a call that never really started.,5
+Authenticity,Turns-per-minute sanity,Number of back-and-forth turns per minute of call duration is implausibly low (near-silence / one-sided).,5
+Authenticity,Words-per-minute sanity (too fast),Transcript word count implies >210 spoken words/minute sustained — suggests transcript/audio mismatch or spliced content.,5
+Authenticity,Words-per-minute sanity (too slow),"Transcript word count implies <45 spoken words/minute — suggests long dead air, hold music, or a mis-fetched recording rather than live counselling.",5
+Authenticity,Prospect responsiveness present,"Lead's turns include natural short acknowledgements/answers (yes/no/okay/numbers) — evidence of a real two-sided conversation, not a read monologue.",5
+Authenticity,Prospect asks at least one question,"A genuine, engaged prospect usually asks something back (about fees, colleges, placements, process) — total absence across a long call is a mild red flag.",5
+Authenticity,Lead name used correctly & consistently,"Lead's own name is referenced in the transcript and stays consistent (no other, different lead name appearing) — a mismatch suggests the wrong recording/notes were logged.",5
+Authenticity,Personal/discovery detail specific to this lead,"Call contains at least one lead-specific fact (board %, JEE score, city, school) rather than being 100% generic script text — generic-only calls are harder to verify as genuinely tailored.",5
+Authenticity,Duration vs. content-depth match,"Call duration is broadly consistent with the depth of topics actually covered (e.g. a 20-minute call covering almost nothing, or a 2-minute call marked as covering the full script).",5
+Authenticity,No abrupt mid-sentence cutoff,Transcript doesn't end mid-word/mid-sentence in a way suggesting the recording was cut/edited.,5
+Authenticity,Single-speaker dominance ratio,"Share of total transcript characters contained in long (>200 char) uninterrupted lines is within a normal counselling range, not near-100% monologue.",5
+Authenticity,No verbatim block reused across different leads by same associate,"Long (~40+ word) verbatim passages are expected script lines, but if an entire transcript is near-identical to another call by the same associate with a different lead, flag for manual copy-paste/fabrication check.",5
+Authenticity,Student count claim within canonical range,"Stated total enrolled-student figure is close to Kalvium's standard figure (~2,200) rather than an outlier (e.g. 5,000+) that suggests improvisation/exaggeration. NOTE: this regex also catches a partner university's OWN enrolment stats quoted for context (e.g. 'LPU had 5,000 students in CSC') -- treat a fail here as 'verify by listening', not a confirmed violation.",5
+Authenticity,University count claim within canonical range,Stated partner-university count is close to the standard figure (~10-12) rather than a wildly different number.,5
+Authenticity,No fabricated urgency/scarcity claims,No invented scarcity pressure such as 'only X seats left today' / 'offer expires tonight' that isn't part of the approved script.,5
+Authenticity,No invented placement/salary statistics outside script norms,Any LPA/salary figures quoted fall within the ranges normally used in the script rather than an inflated one-off number.,5
+Authenticity,Call not simply a voicemail/no-answer,"Transcript reflects an actual conversation and is not just ringing tones, a voicemail message, or 'call not connected' content mislabeled as a completed counselling call.",5
+Authenticity,transcription_status corroborates a full call,Backend transcription_status is 'success' and transcript_length is non-trivial relative to duration.,5
+Authenticity,audio_fetch_status corroborates a real recording,"Backend audio_fetch_status is 'success', i.e. an actual audio file exists behind this log entry.",5
+Authenticity,No signs of a scripted 'demo' recording,No meta-references such as 'this is a sample call' / 'for training purposes' / associate coaching another associate rather than speaking to a prospect.,5
+Authenticity,Notes/summary internally consistent with transcript length,The auditor notes/summary do not claim full script coverage while the underlying transcript is extremely short (or vice versa) — inconsistency suggests the summary wasn't genuinely derived from this call.,5
+Compliance,Associate identity captured,associate_name field is populated and non-generic.,10
+Compliance,Lead identity captured,lead_name field is populated and non-generic.,10
+Compliance,Prospect ID present & well-formed,prospect_id exists and is a valid unique identifier (no blank/placeholder).,10
+Compliance,Recording link reachable,audio_recording_url is present and correctly formed (not blank/broken).,10
+Compliance,Call duration logged and plausible,call_duration_seconds is present and within a plausible range for a counselling call (not 0 or absurdly small/large).,10
+Compliance,Only one recording per prospect record,This prospect_id is not sharing its audio file with any other prospect_id in the same audit batch.,10
+Compliance,"Notes field is call-specific, not boilerplate",notes / script_coverage_summary text reads as specific to this call rather than an identical stock sentence reused everywhere.,10
+Compliance,Consistent associate attribution,"Same associate name spelling/casing used consistently for this associate elsewhere in the batch (flags likely data-entry/identity issues, not the associate's fault, but worth cleaning).",10
+Compliance,No missing/blank critical fields,"None of the required fields (associate, lead, duration, transcript) are empty for this row.",10
+Compliance,Transcript language field present where relevant,native_transcript populated when the call included non-English speech (supports verification against english_transcript).,10
+Introduction,Self introduction (name),Associate states their own name.,5
+Introduction,Company introduction (Kalvium),Associate names Kalvium as the organisation calling.,5
+Introduction,Reason for call stated,Associate explains why they are calling (follow-up on an enquiry/form).,5
+Introduction,Confirms speaking to the right person,Associate verifies they are speaking to the actual lead (not a parent/sibling) before pitching.,5
+Introduction,Confirms prior interest/lead source,Associate references the specific form/enquiry the lead had submitted.,5
+Introduction,Asks permission / checks availability,Associate asks if it's a good time / requests a few minutes before diving in.,5
+Introduction,"Warm, non-robotic opening tone",Opening lines vary/feel conversational rather than a rigid word-for-word script read (proxy: presence of natural filler/acknowledgement words).,5
+Introduction,Sets call agenda,Associate briefly previews what the call will cover.,5
+Introduction,Introduction not skipped entirely,"Some introduction element is present at all (baseline floor, distinct from quality of intro).",5
+Introduction,Appropriate greeting used,A greeting (hello/good morning/good evening) opens the call.,5
+Discovery,Class 12 / academic status checked,Associate asks about Class 12 completion status.,15
+Discovery,Board exam result / percentage discussed,Board marks or percentage are discussed.,15
+Discovery,Entrance exam (JEE/other) status discussed,JEE or equivalent entrance exam attempt/score is discussed where relevant.,15
+Discovery,Stream / subject interest confirmed,Associate confirms interest in CSE/engineering or the relevant stream.,15
+Discovery,Career goal / motivation explored,Associate asks about the lead's career goals or reasons for interest.,15
+Discovery,Parents' involvement discussed,Associate checks whether parents are part of the decision and includes them appropriately.,15
+Discovery,Current alternatives/competing options discussed,Associate asks what other colleges/programs the lead is considering.,15
+Discovery,Decision timeline discussed,Associate asks when the lead plans to decide/enrol.,15
+Discovery,Location / relocation preference discussed,Associate discusses willingness to relocate or preferred city/region.,15
+Discovery,Budget/affordability sensitively explored,Fee range or affordability is discussed without being the sole focus.,15
+Discovery,"Discovery questions open-ended, not just yes/no",At least some discovery questions invite more than a one-word answer (proxy via lead response length).,15
+Discovery,Discovery not entirely skipped,Some discovery/qualification element occurs at all (baseline floor).,15
+ProgramPitch,B.Tech CSE / Work-Integrated Program explained,The core Work-Integrated B.Tech CSE program is explained.,15
+ProgramPitch,Program structure/duration explained,"How the program runs (years, structure) is described.",15
+ProgramPitch,Partner-university model explained,Associate explains the multi-university delivery model correctly (curriculum consistent across partner campuses).,15
+ProgramPitch,At least one real partner university named,"A recognisable, real partner university (e.g. LPU, SRM, JECRC, VIT, Amity) is mentioned by name.",15
+ProgramPitch,University count claim present,A specific partner-university count is stated (supports E-15/A-15 fact-check).,15
+ProgramPitch,Student enrolment figure cited,A specific enrolled/alumni student count is cited (supports A-14 fact-check).,15
+ProgramPitch,Day-one coding / practical curriculum emphasised,Associate emphasises hands-on coding/project work starting early.,15
+ProgramPitch,Industry relevance / AI-era relevance explained,Associate connects the program to current industry/AI-era hiring relevance.,15
+ProgramPitch,Coding/projects specifics mentioned,Concrete detail on coding exposure or project-based learning is given (not just a buzzword).,15
+ProgramPitch,Faculty/mentorship model mentioned,Who teaches / mentors students is mentioned.,15
+ProgramPitch,Fee structure mentioned or offered to be shared,"Fees, payment plans, or scholarships are discussed or explicitly deferred to a documented next step.",15
+ProgramPitch,No unauthorised placement guarantee,"Associate does not promise guaranteed placement (should mirror the compliant disclaimer pattern: 'we don't guarantee, but train you').",15
+ProgramPitch,"Salary/package figures, if given, framed as illustrative not guaranteed",Any LPA figures quoted are framed as examples/ranges rather than promises.,15
+ProgramPitch,Accreditation / recognition addressed,Associate addresses degree validity/recognition when relevant/asked.,15
+ProgramPitch,Internship component explained,Internship opportunities are explained accurately (paid/unpaid status not overstated).,15
+ProgramPitch,No overstated exclusivity ('only program of its kind') beyond script,Claims of uniqueness are consistent with the standard differentiation pitch (see category F) rather than invented superlatives.,15
+ProgramPitch,Program pitch not entirely skipped,Some program-pitch element occurs at all (baseline floor).,15
+ProgramPitch,Pitch tailored to stated interest (not generic-only),Program explanation references the lead's own stated stream/goal rather than being a fully generic block.,15
+Differentiation,Comparison vs. traditional college route made,Associate explains how this differs from a typical B.Tech/college experience.,10
+Differentiation,Curriculum-over-campus positioning explained,"Associate explains that value comes from the curriculum/program, not the specific campus/college name.",10
+Differentiation,Skill/employability focus articulated,"Differentiation is framed around skills and job-readiness, not just brand/ranking claims.",10
+Differentiation,No disparagement of specific named competitor colleges,Comparisons are made without unfairly disparaging a specific competitor institution.,10
+Differentiation,Consistent with company-approved comparison points,Differentiation claims align with the recurring standard talking points seen across the wider call sample (proxy: overlap with common phrasing set).,10
+Differentiation,Addresses 'why not IIT/top exam college' objection where relevant,"When the lead references a top exam/college ambition, the associate responds to it rather than ignoring it.",10
+Differentiation,Explains the AI-era/future relevance angle,Differentiation includes why this preparation matters for an AI-changed job market.,10
+Differentiation,No fabricated exclusivity claims ('first and only in India'),"Superlative claims, if made, are not contradicted elsewhere in the wider dataset's standard script.",10
+Differentiation,Differentiation segment not entirely skipped,Some differentiation content occurs at all (baseline floor).,10
+Differentiation,"Balanced tone (confident, not disparaging or exaggerated)",Overall tone of the differentiation pitch is confident and factual rather than aggressive or over-the-top.,10
+Objections,Cost/fee objection addressed if raised,"If the lead raises a cost concern, the associate responds to it directly.",15
+Objections,Parental approval objection addressed if raised,"If the lead mentions needing to check with parents, associate responds constructively (not pressuring).",15
+Objections,'Not a well-known college' objection addressed if raised,"If brand/recognition concerns are raised, associate responds with the curriculum/outcomes framing.",15
+Objections,'Will I get a job' objection addressed if raised,"If job-security concerns are raised, associate responds without over-promising.",15
+Objections,No pressure tactics used in response to hesitation,"Associate does not use guilt, false urgency, or repeated pushing after a clear 'no'/hesitation.",15
+Objections,Associate acknowledges the objection before responding,"Response pattern shows acknowledgement ('I understand', 'that's a fair question') rather than talking over the objection.",15
+Objections,"Objection responses are specific, not deflected generically",Responses address the actual concern raised rather than pivoting to an unrelated script line.,15
+Objections,Lead's hesitation/questions are not cut off,Long associate turns don't immediately follow a lead question without an intervening answer.,15
+Objections,No use of comparative fear (e.g. 'you'll be left behind') beyond script norm,Persuasion avoids manufactured fear-based pressure beyond the standard AI-relevance framing.,15
+Objections,Objection handling present when objections exist,"Where the transcript shows a lead objection/hesitation cue, some associate response follows (not silence/topic change).",15
+Closure,Call summarised before ending,Associate briefly recaps what was discussed/agreed.,10
+Closure,Clear next step defined,"A concrete next step (webinar date, registration, follow-up call) is agreed.",10
+Closure,Registration/close attempted,"Associate attempts to move the lead toward registration/enrollment interest, per 'Registration/close' scripting.",10
+Closure,Thanks / polite sign-off,Call ends with a courteous thank-you/goodbye.,10
+Closure,Follow-up timing set if not closed,"If the lead doesn't commit, a specific follow-up time/date is set rather than leaving it open-ended.",10
+Closure,No abrupt/unexplained call termination,Call does not end mid-topic without any closing exchange.,10
+Closure,Lead's final sentiment captured,"Transcript shows the lead's own closing response (agree/maybe/decline), not just the associate talking.",10
+Closure,Closure segment not entirely skipped,Some closure content occurs at all (baseline floor).,10
+Closure,Consistent with stated Closure field,This category's automated read is broadly consistent with the pre-existing 'Closure' column value for this call.,10
+Closure,No contradictory promises made at closing,"Nothing promised at closing (dates, guarantees) contradicts what was said earlier in the call.",10
+SoftSkills,Active listening signals present,Associate paraphrases/references what the lead just said (proxy: echoing lead's own words back).,5
+SoftSkills,Avoids talking over the lead,Long associate monologues are not immediately followed by cutting off a lead's short reply (proxy via turn-length pattern).,5
+SoftSkills,Patience with repeated/basic questions,"If the lead repeats a question, associate re-explains patiently rather than showing irritation (proxy: no curt one-word repeats).",5
+SoftSkills,Empathetic language used,"Phrases showing empathy/reassurance appear ('I understand', 'no worries', 'that's a valid concern').",5
+SoftSkills,Professional language throughout,"No unprofessional language, slang, or inappropriate remarks detected.",5
+SoftSkills,Appropriate pacing (not rushed),Speaking pace (WPM) sits in a natural conversational range rather than rushed.,5
+SoftSkills,Clarity — avoids excessive filler/repetition,Associate turns aren't dominated by excessive verbal filler or needless repetition (proxy: repeated-word ratio).,5
+SoftSkills,Handles language-switching smoothly,"Where native-language segments appear, the associate transitions between English/native language without confusion (checked against native_transcript availability).",5
+SoftSkills,Confidence in delivery,"Program facts are delivered without excessive hedging/uncertainty ('I think', 'maybe', 'not sure') on core facts.",5
+SoftSkills,Enthusiasm/energy conveyed,"Positive, energetic framing is used when describing the program (proxy: positive-language density).",5
+SoftSkills,Lead's engagement sustained to the end,"Lead continues responding through to the later portion of the call, not just the opening (evidence call didn't lose the prospect).",5
+SoftSkills,No dead-air heavy sections,No unusually long single lines suggesting extended unscripted silence/hold within an otherwise short call.,5
+EthicalRisk,No false placement guarantee,No unqualified '100% placement guaranteed' style claim (see E12/G-pattern) that oversteps the approved disclaimer.,20
+EthicalRisk,No false accreditation/recognition claim,No inaccurate claim about degree recognition/accreditation status.,20
+EthicalRisk,"No fabricated scarcity/urgency ('only today', 'last seat')",No manufactured urgency beyond genuine deadlines.,20
+EthicalRisk,No discriminatory or inappropriate remarks,"No remarks about gender, caste, religion, or similar that would be inappropriate.",20
+EthicalRisk,No misuse of personal data mentioned,No indication personal data is being shared/used outside the counselling purpose.,20
+EthicalRisk,No pressure to decide immediately on payment,Associate does not push for immediate payment/commitment on the call itself.,20
+EthicalRisk,No disparagement of the lead's current school/college,Associate does not belittle the lead's current or prior institution.,20
+EthicalRisk,No inconsistent/contradictory factual claims within the same call,"Numbers or claims don't contradict themselves within the same transcript. NOTE: the script legitimately cites multiple different figures in one call (this-year vs last-year cohort size, or a named partner university's own stats) -- a fail here means 'multiple numbers detected, worth a quick listen', not a confirmed contradiction.",20
+EthicalRisk,No inappropriate personal questions,"No questions unrelated to admissions counselling (financial status beyond fees, personal life probing).",20
+EthicalRisk,Recording/consent context not contradicted,Nothing in the transcript suggests the lead was unaware they were speaking with a counsellor (e.g. impersonation of another role).,20

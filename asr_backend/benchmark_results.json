@@ -1,0 +1,19 @@
+{
+  "ffmpeg_conversion": 0.115111709,
+  "waveform_load": 0.023914417000000077,
+  "audio_duration_sec": 207.6560625,
+  "silence_trim": 0.020023875000000135,
+  "trimmed_duration_sec": 207.295,
+  "silence_trimmed_sec": 0.0,
+  "model_load": 10.197145125,
+  "actual_device": "mps",
+  "diarisation": 15.069653958999998,
+  "raw_segments": 61,
+  "segment_merge": 4.075000000014484e-05,
+  "merged_segments": 37,
+  "transcription": 24.628305958,
+  "total_pipeline_sec": 39.857050668,
+  "total_with_model_load_sec": 50.054195793,
+  "realtime_factor": 5.2100207872811986,
+  "realtime_factor_with_load": 4.148624490117976
+}

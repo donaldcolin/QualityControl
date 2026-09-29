@@ -4,9 +4,11 @@ from huggingface_hub import snapshot_download
 token = "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"
 cache_dir = "./local_models"
 
-print("Downloading Pyannote Diarization...")
-snapshot_download(repo_id="pyannote/speaker-diarization-3.1", cache_dir=cache_dir, token=token)
-snapshot_download(repo_id="pyannote/segmentation-3.0", cache_dir=cache_dir, token=token)
-snapshot_download(repo_id="pyannote/wespeaker-voxceleb-resnet34-LM", cache_dir=cache_dir, token=token)
+print("Downloading SpeechBrain ECAPA-TDNN...")
+snapshot_download(repo_id="speechbrain/spkrec-ecapa-voxceleb", cache_dir=cache_dir, token=token)
 
-print("All models downloaded to ./local_models!")
+print("Downloading Silero VAD (via torch.hub)...")
+import torch
+torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad', force_reload=True)
+
+print("All models downloaded!")

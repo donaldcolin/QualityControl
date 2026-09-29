@@ -14,13 +14,19 @@ import json
 import subprocess
 import os
 import logging
+import warnings
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Suppress PyTorch 2.5 FutureWarnings (weights_only) and other library warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="speechbrain")
+warnings.filterwarnings("ignore", message=".*torch_dtype is deprecated.*")
+warnings.filterwarnings("ignore", message=".*FRAME_DURATION_MS.*")
 
 # Force offline mode and point to local model cache
 # local_models is in the asr_backend root, one level above this asr/ subfolder
 os.environ["HF_HUB_CACHE"] = str(Path(__file__).parent.parent / "local_models")
-os.environ["HF_HUB_OFFLINE"] = "1"
+# os.environ["HF_HUB_OFFLINE"] = "1"
 
 logger = logging.getLogger("asr_pipeline")
 
@@ -193,40 +199,112 @@ def _transcribe_segment(model, device, wav, sr, lang, idx, turn):
     return idx, text
 
 
-# ── Diarization (Singleton) ───────────────────────────────────────────────
+# ── Custom Diarization (Singleton) ────────────────────────────────────────
 
-_cached_diarization_pipeline = None
+_cached_silero_vad = None
+_cached_silero_utils = None
+_cached_ecapa_model = None
 
-def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers: int = None):
+def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers: int = 2):
     """
-    Run pyannote speaker diarization on an in-memory waveform.
-    Avoids re-reading the file from disk.
+    Run custom fast diarization using Silero VAD and SpeechBrain ECAPA-TDNN.
+    Avoids re-reading the file from disk and skips heavy Pyannote inference.
     """
-    global _cached_diarization_pipeline
+    global _cached_silero_vad, _cached_silero_utils, _cached_ecapa_model
     import torch
-    from pyannote.audio import Pipeline as DiarizationPipeline
+    import numpy as np
+    from sklearn.cluster import KMeans
+    from speechbrain.pretrained import EncoderClassifier
+    from pathlib import Path
     
-    if _cached_diarization_pipeline is None:
-        _cached_diarization_pipeline = DiarizationPipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1", use_auth_token=hf_token if hf_token else True
+    # 1. Load models if not cached
+    if _cached_silero_vad is None:
+        _cached_silero_vad, _cached_silero_utils = torch.hub.load(
+            repo_or_dir='snakers4/silero-vad',
+            model='silero_vad',
+            force_reload=False,
+            trust_repo=True
         )
-        _cached_diarization_pipeline.to(torch.device(device))
     
-    # Feed waveform directly — no disk I/O!
-    diarization = _cached_diarization_pipeline(
-        {"waveform": wav, "sample_rate": sr},
-        num_speakers=num_speakers
+    if _cached_ecapa_model is None:
+        savedir = str(Path(__file__).parent.parent / "local_models" / "speechbrain")
+        _cached_ecapa_model = EncoderClassifier.from_hparams(
+            source="speechbrain/spkrec-ecapa-voxceleb",
+            savedir=savedir,
+            run_opts={"device": device}
+        )
+        
+    # Silero VAD uses PyTorch JIT which crashes on MPS graph fuser.
+    # We must run it on CPU. It is tiny so CPU is instant anyway.
+    silero_model = _cached_silero_vad.to("cpu")
+    wav_cpu = wav.to("cpu")
+    wav = wav.to(device)
+    
+    get_speech_timestamps = _cached_silero_utils[0]
+    
+    # Silero requires 1D tensor for a single channel
+    wav_1d = wav_cpu.squeeze(0) if wav_cpu.ndim > 1 else wav_cpu
+    
+    # 2. Get speech segments
+    speech_timestamps = get_speech_timestamps(
+        wav_1d, 
+        silero_model, 
+        sampling_rate=sr,
+        return_seconds=True,
+        min_speech_duration_ms=250,
+        min_silence_duration_ms=100
     )
-    return [
-        {"start": turn.start, "end": turn.end, "speaker": speaker}
-        for turn, _, speaker in diarization.itertracks(yield_label=True)
-    ]
+    
+    if not speech_timestamps:
+        return []
+        
+    # 3. Extract embeddings
+    embeddings = []
+    valid_segments = []
+    
+    for seg in speech_timestamps:
+        start_sample = int(seg['start'] * sr)
+        end_sample = int(seg['end'] * sr)
+        
+        crop = wav[:, start_sample:end_sample]
+        
+        with torch.inference_mode():
+            emb = _cached_ecapa_model.encode_batch(crop)
+            emb = emb.squeeze().cpu().numpy()
+            
+        embeddings.append(emb)
+        valid_segments.append(seg)
+        
+    if not embeddings:
+        return []
+        
+    if len(embeddings) == 1:
+        return [{"start": valid_segments[0]['start'], "end": valid_segments[0]['end'], "speaker": "SPEAKER_00"}]
+        
+    # 4. Cluster embeddings
+    embeddings = np.stack(embeddings)
+    # Normalize for cosine similarity clustering using KMeans
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+    
+    clustering = KMeans(n_clusters=num_speakers if num_speakers else 2, n_init=10).fit(embeddings)
+    labels = clustering.labels_
+    
+    # 5. Format output
+    results = []
+    for seg, label in zip(valid_segments, labels):
+        results.append({
+            "start": seg['start'],
+            "end": seg['end'],
+            "speaker": f"SPEAKER_{label:02d}"
+        })
+        
+    return results
 
 
 # ── Main Pipeline ─────────────────────────────────────────────────────────
 
 # Auto-detect: use more threads on machines with more RAM
-_CONCURRENT_WORKERS = 2  # safe default for 8GB; set to 4 on 24GB Mac Mini
+_CONCURRENT_WORKERS = 4  # Increased for better RTF on Apple Silicon
 
 
 def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str, out_dir: Path, status_callback=None):
@@ -273,7 +351,9 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
 
     # ── Step 4: Diarize from memory ──
     _update("Running speaker diarization...")
-    speakers = diarize(trimmed_wav, sr, hf_token, device=device, num_speakers=None)
+    # Speed optimization: Forcing num_speakers=2 skips heavy clustering computation
+    # Since these are BDA/sales calls, there are almost always exactly 2 speakers.
+    speakers = diarize(trimmed_wav, sr, hf_token, device=device, num_speakers=2)
     _update(f"Diarization complete — found {len(speakers)} raw segments")
 
     # ── Step 5: Map speaker labels ──

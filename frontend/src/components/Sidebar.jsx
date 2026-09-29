@@ -2,16 +2,17 @@ import { useState } from 'react';
 import { 
   Users, 
   ListOrdered, 
-  LayoutDashboard, 
   Settings, 
   ChevronRight, 
   ChevronLeft,
   BarChart3,
-  Menu
+  Video
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import LogoLarge from '../assets/LogoLarge.png';
+import LogoSmall from '../assets/LogoSmall.png';
 
 export default function Sidebar({ currentView, setCurrentView }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -61,15 +62,12 @@ export default function Sidebar({ currentView, setCurrentView }) {
       </Button>
 
       {/* Header */}
-      <div className={cn("h-16 flex items-center border-b border-border/50 transition-all px-4", isCollapsed ? "justify-center" : "")}>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg shadow-md flex-shrink-0">
-            Q
-          </div>
-          {!isCollapsed && (
-            <h1 className="text-lg font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70 truncate animate-in fade-in">
-              QC Bake-off
-            </h1>
+      <div className={cn("h-16 flex items-center border-b border-border/50 transition-all", isCollapsed ? "justify-center px-0" : "px-4")}>
+        <div className="flex items-center w-full justify-center">
+          {isCollapsed ? (
+            <img src={LogoSmall} alt="Logo" className="h-8 w-8 object-contain animate-in fade-in" />
+          ) : (
+            <img src={LogoLarge} alt="Quality Control" className="h-8 object-contain animate-in fade-in mr-auto" />
           )}
         </div>
       </div>
@@ -83,7 +81,8 @@ export default function Sidebar({ currentView, setCurrentView }) {
         )}
         <NavButton id="teamqc" label="Team QC" icon={Users} />
         <NavButton id="queue" label="Queue" icon={ListOrdered} />
-        <NavButton id="dashboard" label="Dashboard" icon={LayoutDashboard} />
+        <NavButton id="meet_sync" label="Meet Sync" icon={Video} />
+
         
         <Separator className="my-4 opacity-50 mx-2" />
         

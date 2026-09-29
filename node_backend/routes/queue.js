@@ -33,6 +33,20 @@ router.get('/queue', async (req, res) => {
       .order('created_at', { ascending: false });
     
     if (error) throw error;
+
+    const prospectIds = [...new Set(data.map(q => q.prospect_id).filter(Boolean))];
+    if (prospectIds.length > 0) {
+      const { data: leads } = await supabase.from('leads').select('id, name').in('id', prospectIds);
+      if (leads) {
+        const leadMap = leads.reduce((acc, lead) => { acc[lead.id] = lead.name; return acc; }, {});
+        data.forEach(q => {
+          if (q.prospect_id && leadMap[q.prospect_id]) {
+            q.prospect_name = leadMap[q.prospect_id];
+          }
+        });
+      }
+    }
+
     res.json(data);
   } catch (err) {
     console.error("Queue fetch error:", err.message);

@@ -1,14 +1,534 @@
 [
   {
-    "flag": "Customer says the fees (2 lakhs) are too high or out of budget, and associate fails to justify the value.",
-    "template": "I completely understand that the fee is a significant investment. However, unlike traditional colleges, our program includes a 100% guaranteed placement with top tech companies. You are essentially securing your child's career, not just a degree. Can we look at the ROI together?"
+    "flag": "Associate fails to explain K-NET properly",
+    "template": "Let me clarify what K-NET is. Unlike traditional exams that test your memory and formulas, the Kalvium National Eligibility Test, or K-NET, is designed to evaluate your logical reasoning, problem-solving skills, and basic computational thinking. It's an online, 90-minute test that you can take from home. It ensures you have the right mindset to handle our hands-on, work-integrated curriculum. Shall we book your slot for this Sunday?"
   },
   {
-    "flag": "Customer says they want to discuss with their spouse/parents before deciding, and the associate just says 'Okay, I will call back later'.",
-    "template": "That makes perfect sense; this is an important family decision. To make that conversation easier for you, how about I jump on a quick 5-minute video call with both of you tomorrow evening to answer any questions they might have?"
+    "flag": "Associate struggles to pitch the B.Tech CSE Work-Integrated model clearly",
+    "template": "Traditional B.Tech programs keep you in a classroom for 4 years, learning theory that is often outdated. At Kalvium, we offer a high-growth, work-integrated B.Tech in Computer Science where you start working as a software developer intern at top tech companies from your second year itself. You earn a stipend of up to fifty thousand rupees per month and graduate with twenty-one months of real-world work experience. It's not just a degree; it's a 3-year headstart in your career."
   },
   {
-    "flag": "Customer asks about the difficulty of the K-NET exam, and associate makes it sound intimidating or doesn't offer help.",
-    "template": "The K-NET is challenging, but it's purely aptitude-based, not based on rote memorization. We actually provide a complete free mock-test kit and study guide the moment you register. If your child is good at logic, they will do great."
+    "flag": "Associate does not secure a commitment for the Google Meet Demo",
+    "template": "Since this is a unique, work-integrated program, it's best experienced visually. I want to invite you and your parents to a 20-minute Google Meet session tomorrow. I will show you our learning platform, our student portfolios, and how the internship placement works. I have slots open at 4 PM and 6:30 PM. Which of these times works best for both you and your parents?"
+  },
+  {
+    "flag": "Associate fails to handle 'Never heard of Kalvium' brand objection",
+    "template": "I completely understand your concern. Since we are a highly premium, industry-disruptive program, we don't market like traditional colleges. Kalvium is backed by tech industry leaders like the founders of Zoho, Freshworks, and BookMyShow. Our curriculum is designed by top tech executives, and our degree is awarded in partnership with prestigious, UGC-approved universities. We focus entirely on premium quality rather than mass advertising."
+  },
+  {
+    "flag": "Associate fails to handle the 'Fees are too high (2-3 Lakhs per year)' objection",
+    "template": "I understand that the fee is an important consideration. However, let’s look at the return on investment. With Kalvium, your child starts earning a paid internship from the second year, with stipends ranging from fifteen thousand to fifty thousand rupees a month. Over three years, your child can earn back a major portion of their fees. More importantly, they graduate with nearly two years of work experience, which positions them for high-paying jobs of twelve to fifteen lakhs per annum right after graduation."
+  },
+  {
+    "flag": "Associate sounds defensive when asked about UGC approval and university partnerships",
+    "template": "That is a very valid question. Kalvium's B.Tech CSE is fully UGC-approved. We partner with top-tier universities across India. The academic degree is awarded directly by our partner university, which is fully recognized by the UGC, while Kalvium delivers the specialized, work-integrated curriculum, industry mentorship, and coordinates the assured internships from year two. You get the safety of a traditional degree combined with the power of modern industry training."
+  },
+  {
+    "flag": "Associate fails to explain the post-K-NET personal interview process",
+    "template": "Congratulations on clearing the K-NET exam! The next and final step is our Personal Interview round. This isn't a stressful technical quiz. It's a friendly interaction where our academic and industry experts want to understand your passion for technology, your communication skills, and your readiness for a work-integrated environment. It’s also a great chance for you to ask us questions directly."
+  },
+  {
+    "flag": "Associate does not create urgency for the Provisional Admission deposit",
+    "template": "Based on your excellent performance in the K-NET and the interview, you have been selected for provisional admission. However, please note that we maintain small, premium cohorts of only sixty seats per partner campus to ensure individual mentorship and internship placements. To secure your seat and freeze your campus preference, I highly recommend making the provisional deposit today. If you change your mind later, this deposit is fully refundable as per our transparent refund policy."
+  },
+  {
+    "flag": "Associate fails to handle 'I want to focus on JEE preparation' objection",
+    "template": "It's great that you are aiming high! But let's look at the reality: JEE tests your memory of Chemistry, Physics, and Math, not your ability to write code or build software. Even if you clear JEE, you will enter a traditional college where you will learn outdated theory. Kalvium bypasses this competitive stress and places you straight into real-world software engineering. If your ultimate goal is to become an exceptional software engineer at a top global tech firm, Kalvium gets you there faster and with guaranteed industry experience."
+  },
+  {
+    "flag": "Associate fails to address location constraints / 'Campus is too far' objection",
+    "template": "I understand that distance can be a concern. However, for a life-defining program like B.Tech CSE, the quality of education and career outcomes must come first. We have state-of-the-art residential partner campuses across multiple regions. Living on campus helps your child build deep collaborative skills, learn to live independently, and prepare for their high-stress corporate internships starting in the second year. It's a safe, fully-monitored environment designed for high achievers."
+  },
+  {
+    "flag": "Associate interrupts the parent or student while they are speaking",
+    "template": "I am so sorry for cutting you off. Please go ahead and complete your thought, I want to make sure I fully understand your perspective."
+  },
+  {
+    "flag": "Associate fails to confirm the student and parent's names at the start of the call",
+    "template": "Hello, thank you for reaching out to Kalvium. Am I speaking with both the student and their parent today? May I know your names so I can address you properly throughout our conversation?"
+  },
+  {
+    "flag": "Associate fails to explain the daily schedule of a Kalvium student",
+    "template": "Unlike traditional colleges where students sit through boring lectures all day, a Kalvium student's day is highly structured and professional. The morning sessions are dedicated to hands-on coding, solving real-world challenges on our platform, and 1-on-1 sessions with industry mentors. In the afternoon, students work on real-world projects or, from year two onwards, spend their day working at their remote software engineering internships. It's designed to mirror a real tech company environment."
+  },
+  {
+    "flag": "Associate fails to handle 'What if my child does not get an internship in the 2nd year?'",
+    "template": "I completely understand that concern. It is our responsibility to make your child industry-ready. Our dedicated placement cell works directly with over a hundred tech partners to align interviews. If a student doesn't clear the initial interviews, we don't leave them behind. They receive intensive, personalized coaching from our mentors to crack the next company interview. Our placement commitment ensures that every eligible student who maintains the academic and attendance criteria is placed in a paid internship."
+  },
+  {
+    "flag": "Associate does not highlight the 'No exams/Rote-learning' aspect of Kalvium",
+    "template": "At Kalvium, we have completely eliminated traditional, stressful pen-and-paper exams. Instead, your grading is based on continuous assessment. You are evaluated on the real code you write, the projects you build, and your actual performance in your workplace. This ensures that you are graded on real competence and skills, not just memorization."
+  },
+  {
+    "flag": "Associate handles 'My child got low board marks' poorly",
+    "template": "Please don't worry about that. At Kalvium, we believe that a student's potential to become an elite software engineer cannot be measured by memorizing board exams. We look at logical capability and passion. As long as your child has passed their 12th board exams with the basic eligibility criteria of our partner university, their admission will be decided by their performance in our K-NET test and interview. We look forward, not backward."
+  },
+  {
+    "flag": "Associate fails to pitch the quality of mentors at Kalvium",
+    "template": "At Kalvium, our students are not taught by traditional professors who have never worked in the industry. They are guided by active, 1-on-1 industry mentors who are professional software engineers, tech leads, and engineering managers from top tech giants. This ensures that the guidance your child receives is modern, practical, and highly aligned with current industry demands."
+  },
+  {
+    "flag": "Associate fails to handle 'It's too early to decide on admissions' objection",
+    "template": "I appreciate that you want to take your time. However, because our work-integrated model is highly personalized, we limit our batch size to only sixty students per campus. Our seats fill up very quickly with students who are determined to build a high-growth career in tech. By taking the K-NET and securing your provisional seat now, you keep your options open and secure a backup that is far superior to traditional colleges, without any pressure."
+  },
+  {
+    "flag": "Associate does not explain the role of 'Liberal Engineering' in the curriculum",
+    "template": "Kalvium does not just train coding robots. We teach Liberal Engineering. This unique curriculum combines core computer science with essential human skills like critical thinking, emotional intelligence, personal finance, and professional communication. This ensures your child grows into a well-rounded leader who can pitch ideas, manage teams, and rise to leadership positions quickly."
+  },
+  {
+    "flag": "Associate speaks too fast, overwhelming the parent with technical jargon",
+    "template": "Let me slow down a bit to make sure I am explaining this clearly. Essentially, we have removed the outdated parts of engineering and replaced them with hands-on coding and real work experience. Does this make sense so far, or would you like me to clarify any part of this?"
+  },
+  {
+    "flag": "Associate fails to transition smoothly from the initial inquiry call to the GMeet booking",
+    "template": "Now that you have a basic overview of how Kalvium transforms traditional engineering education, the best way to visualize this unique model is through a quick Google Meet demo. During this visual demo, I'll show you our actual learning platform and walk you through student success stories. Let’s set that up for tomorrow. Would afternoon or evening work better for you?"
+  },
+  {
+    "flag": "Associate fails to handle 'My child is not from a computer science background' objection",
+    "template": "That is absolutely fine! In fact, more than half of our top-performing students had zero prior coding experience before joining Kalvium. Our curriculum starts from the absolute basics of computational logic. We assume you know nothing about coding on day one, and we build your skills systematically through intensive, hand-held practice. All we need is a logical mind and a willingness to learn."
+  },
+  {
+    "flag": "Associate does not explain the difference between a traditional B.Tech and Kalvium B.Tech",
+    "template": "The key difference is simple: A traditional B.Tech is about sitting in classrooms, writing theory exams, and hoping to get a job at the end of four years. Kalvium is a Work-Integrated B.Tech. You learn by doing, start working in the tech industry from your second year, earn a stipend, and graduate with a robust portfolio and a 21-month work experience advantage. You enter the job market as an experienced professional, not a fresher."
+  },
+  {
+    "flag": "Associate handles 'Can we visit the campus before registering?' defensively",
+    "template": "Absolutely! We highly encourage campus visits because it helps you experience the environment firsthand. You can visit our partner campuses, see the high-tech classrooms, the hostels, and meet current students. Let me share the campus location details with you, and we can schedule an official guided tour for you and your family this weekend. How does that sound?"
+  },
+  {
+    "flag": "Associate fails to explain the refund policy of the provisional admission fee",
+    "template": "We want this process to be completely stress-free for you. Our provisional admission fee is fully refundable. If, for any reason, you choose not to join Kalvium before the commencement of the academic session, you can request a full refund, and it will be processed promptly as per our partner university's guidelines. This allows you to book your seat risk-free while you await other results."
+  },
+  {
+    "flag": "Associate does not check for understanding / speaks continuously without pauses",
+    "template": "I've shared a lot of information just now about our work-integrated model and the internship structure. I want to pause here. What are your initial thoughts on this? Does this align with what you are looking for in your child's engineering education?"
+  },
+  {
+    "flag": "Associate fails to build rapport with a student who is nervous about the interview",
+    "template": "I can hear a little hesitation, and that’s completely normal! It's okay to feel nervous before an interview. But let me assure you, our interviewers are incredibly friendly. They are not looking to fail you or test you on difficult coding questions. They just want to know you, your interests, and your passion for technology. Just be yourself and speak honestly. You're going to do great!"
+  },
+  {
+    "flag": "Associate fails to explain the 'stipend' aspect of the internship clearly",
+    "template": "Let me explain how the internship stipend works. Starting from your second year, you will be working as an intern with our partner tech companies. These are paid internships where our students earn monthly stipends ranging from fifteen thousand to fifty thousand rupees. This money goes directly into the student's bank account, helping them take financial responsibility and build a sense of independence early in life."
+  },
+  {
+    "flag": "Associate fails to highlight the 'placement safety net' of Kalvium",
+    "template": "One of the greatest security features of Kalvium is our career assurance. Because our students graduate with nearly two years of real-world corporate experience, they do not have to struggle in crowded pool campus drives. Our dedicated placements team actively curates high-paying roles for our graduates. We ensure that you graduate not just with a degree, but with a highly competitive career track already established."
+  },
+  {
+    "flag": "Associate fails to address 'What if we don't clear the K-NET?'",
+    "template": "If you don't clear the K-NET on your first attempt, don't worry. It simply means you need to adjust your approach to logical and algorithmic thinking. We can provide you with sample practice materials and resource links to help you understand the format. Once you feel ready, we can schedule a second attempt for you. We are here to support your journey, not to create barriers."
+  },
+  {
+    "flag": "Associate fails to explain the 'work-from-campus' or remote work culture of internships",
+    "template": "Our internships are designed to mirror modern global tech roles. Students work remotely as software engineering interns for top global firms directly from our specialized, high-tech campus incubation hubs. They have dedicated work hours, use high-end development environments, and are guided by on-site mentors. This gives them the experience of a global corporate office right inside their university campus."
+  },
+  {
+    "flag": "Associate reacts poorly to the objection: 'We want to wait for local state counselling'",
+    "template": "I completely understand that waiting for state counselling is the traditional path. However, please consider this: even the top state colleges still follow the old, theory-heavy curriculum with no practical industry exposure until graduation. By the time counselling finishes, our limited premium seats will be fully booked. By securing your Kalvium provisional seat today, you ensure a world-class back-up that offers direct industry entry, and you can always withdraw if you get a government seat that you prefer."
+  },
+  {
+    "flag": "Associate fails to highlight the 'work portfolio' instead of a traditional resume",
+    "template": "When a Kalvium student graduates, they don't just hand over a piece of paper with a list of subjects they studied. They present an active GitHub portfolio filled with real-world applications they have built, code they have written, and official performance reviews from their corporate internship employers. This practical proof of work makes them infinitely more employable than any traditional engineering graduate."
+  },
+  {
+    "flag": "Associate does not address the parent's concern about the workload on the child",
+    "template": "It is very natural to worry about the workload since our students study and work simultaneously. However, we have designed this curriculum very scientifically. We don't pile on useless assignments, rote homework, or stressful exams. The learning is highly engaging and interactive, and we build time-management and stress-management skills directly into their schedule. Our students find it highly exciting because they are building real things, not just memorizing books."
+  },
+  {
+    "flag": "Associate fails to pitch the global recognition of the partner universities",
+    "template": "Our academic partners are highly prestigious and recognized universities known for their state-of-the-art infrastructure and strong academic heritage. By combining Kalvium's advanced industry curriculum with their institutional excellence, you get a premium B.Tech CSE degree that is recognized globally for higher education, government jobs, and global immigration."
+  },
+  {
+    "flag": "Associate handles 'Is Kalvium a distance education program?' poorly",
+    "template": "Not at all. Kalvium is a full-time, regular, on-campus B.Tech program. Students live on the university campus, attend regular classes, use the university infrastructure, and participate in campus life. The only difference is that our curriculum is designed in a work-integrated format, where the learning is highly practical and includes built-in, credit-earning corporate internships."
+  },
+  {
+    "flag": "Associate fails to build a connection with the student on their personal interests",
+    "template": "That's fantastic that you enjoy gaming and building basic web pages! That passion is exactly what we look for. At Kalvium, we don't suppress your passion; we channel it. You will learn the exact technologies that power your favorite games and platforms. Would you like to see how our students turn their creative ideas into real software on our platform during our Google Meet demo?"
+  },
+  {
+    "flag": "Associate does not summarize the next steps clearly at the end of a successful booking",
+    "template": "Awesome, we are all set for our Google Meet session tomorrow at 5 PM. I have sent the invite link to your email and WhatsApp. Please ensure that both you and your parents join from a laptop or tablet for the best experience. Before our meet, I will also send a short 2-minute video about our student success stories. Looking forward to speaking with you and your family tomorrow!"
+  },
+  {
+    "flag": "Associate fails to show empathy when a parent mentions financial constraints",
+    "template": "I completely hear you, and I understand that funding a premium engineering education is a significant family commitment. We want to support talented students as much as we can. We have partnered with leading financial institutions to offer easy, low-interest education loans and EMI options to spread out the costs. Additionally, the stipends your child earns from year two will significantly ease your financial load."
+  },
+  {
+    "flag": "Associate does not address the safety of female students in residential campuses",
+    "template": "Safety is our absolute highest priority. Our partner university campuses have dedicated, highly secure hostels for female students with round-the-clock security, CCTV surveillance, and strict entry-exit protocols. We also have on-campus female wardens and counselors available 24/7 to ensure that our students feel fully supported, safe, and comfortable at all times."
+  },
+  {
+    "flag": "Associate fails to answer 'Can my child go abroad for MS after Kalvium?'",
+    "template": "Yes, absolutely! Since the degree is a regular, full-time B.Tech in Computer Science and Engineering awarded by a UGC-recognized university, it is fully valid for higher education globally. In fact, having 21 months of real corporate work experience on their transcript makes our graduates highly competitive candidates for top-tier master's programs abroad."
+  },
+  {
+    "flag": "Associate sounds mechanical, reading from a script without conversational flow",
+    "template": "I want to take a step back from the details and ask you: what is your child's biggest interest when it comes to technology? Let’s talk about how we can build a personalized path that matches their specific interests, rather than just talking about a standard syllabus."
+  },
+  {
+    "flag": "Associate fails to explain the concept of '1-on-1 Mentorship' during the pitch",
+    "template": "Unlike standard colleges where one professor lectures a class of eighty students, Kalvium operates on a personalized mentorship model. Every student is assigned a dedicated industry mentor. They meet regularly to review code, solve blockers, and discuss career goals. It’s like having a personal tech coach guiding you every single step of your journey."
+  },
+  {
+    "flag": "Associate fails to pitch the 'Alumni' or industry connections network",
+    "template": "When you join Kalvium, you join a premium elite network. Our co-founders and advisors are tech stalwarts who have built multi-billion dollar companies. This means our students get direct exposure to founders, tech leaders, and investors through regular guest sessions, hackathons, and networking events. This level of access is unmatched in traditional colleges."
+  },
+  {
+    "flag": "Associate fails to handle 'Can we get direct admission without K-NET?'",
+    "template": "I understand you are looking for a direct entry, but to maintain our extremely high academic standards and assure internships with top companies, we do not offer direct admissions. Every student must clear the K-NET exam. This ensures that the cohort consists of highly motivated, logical minds, which is exactly why tech companies trust us and recruit our students so early."
+  },
+  {
+    "flag": "Associate does not ask probing questions to understand the student's background",
+    "template": "Before we dive deep into the program details, I would love to know a bit more about you. What streams have you taken in 12th standard, and what got you interested in pursuing Computer Science Engineering? Have you tried coding before, or are you looking to start completely fresh?"
+  },
+  {
+    "flag": "Associate fails to highlight the 'stipend growth' over the years",
+    "template": "The stipend is not a flat rate; it grows as your child's skills grow. In the second year, they start with a base stipend, and as they deliver real value to the company, many of our students see their stipends scale up significantly by their fourth year, sometimes reaching up to fifty thousand rupees a month. This acts as a huge confidence booster and financial support."
+  },
+  {
+    "flag": "Associate handles 'What companies hire Kalvium interns?' poorly",
+    "template": "Our students are interned and hired by high-growth product companies, elite tech startups, and global IT leaders. This includes prominent names like Zoho, Freshworks, yellow.ai, and many other leading tech firms. These companies recruit from Kalvium because our students can write production-ready code from day one, unlike traditional graduates who require months of training."
+  },
+  {
+    "flag": "Associate fails to explain the 'Work-Integrated Education' term simply",
+    "template": "Work-Integrated Education simply means that work and study are not separate. Your academic curriculum is directly aligned with your corporate work. What you learn in your lessons in the morning, you apply directly to your software internship projects in the afternoon. This continuous loop of learning and applying makes you an expert software professional twice as fast."
+  },
+  {
+    "flag": "Associate does not pitch the curriculum's focus on modern technologies (AI, Web3, Cloud)",
+    "template": "Traditional colleges are still teaching programming languages from thirty years ago. At Kalvium, our curriculum is constantly updated by top tech professionals. Our students learn cutting-edge technologies like Full-Stack Web Development, Cloud Computing, Artificial Intelligence, and Mobile App Development, ensuring they are highly relevant to today's tech market."
+  },
+  {
+    "flag": "Associate fails to follow up professionally on a missed Google Meet demo",
+    "template": "Hi, I noticed we missed you at our scheduled Google Meet session today. I completely understand that unexpected things come up. I would love to reschedule this for a more convenient time so you don't miss out on exploring this career path. Would tomorrow at the same time work, or do you prefer a weekend slot?"
+  },
+  {
+    "flag": "Associate fails to handle 'We are looking for a cheaper college' objection",
+    "template": "I appreciate that cost is a major deciding factor. However, cheaper colleges often have outdated syllabi, lack of individual attention, and poor placements, which might result in long periods of unemployment or low-paying jobs after graduation. With Kalvium, the return on investment is immediate through our high-paying internships, ensuring your investment pays off even before graduation."
+  },
+  {
+    "flag": "Associate does not check if the parent is also on the line during a high-stakes pitch",
+    "template": "I'm glad to share these exciting details with you! Since deciding on an engineering college is a major milestone for the entire family, is your mother or father nearby? I would love to have them join our conversation so I can answer any questions they might have as well."
+  },
+  {
+    "flag": "Associate fails to position Kalvium as an elite program vs. general engineering",
+    "template": "Kalvium is not a mass-market engineering program. It is an elite, high-performance academy for students who want to be in the top 1% of software engineers globally. If you want a relaxed, theoretical four years of college, a traditional route is fine. But if you are ambitious and want to build real products and work with tech leaders, Kalvium is the absolute best choice."
+  },
+  {
+    "flag": "Associate fails to handle 'Is there any bond or lock-in for the internships?'",
+    "template": "There is absolutely no restrictive bond or lock-in. The internship is a professional contract between you and the hiring tech company, designed to give you rich experience and competitive compensation. You are free to explore other opportunities upon graduation or continue with the same company if they offer you a full-time role, which many of our partners do."
+  },
+  {
+    "flag": "Associate does not explain how the mentoring session works practically",
+    "template": "In our practical mentoring sessions, students don't just listen to lectures. They open their code editors, share their screens with their industry mentors, and receive live, line-by-line feedback on their work. This interactive, real-time coaching is how professional developers grow in the tech industry, and we bring that exact culture to college."
+  },
+  {
+    "flag": "Associate fails to leverage the success stories of existing students",
+    "template": "Let me share a quick story of one of our students. They started with zero coding background, cleared K-NET, and by their second year, they were interning at a top software startup, earning thirty thousand rupees a month while studying. Today, they are handling core development tasks that traditional freshers aren't allowed to touch for years. This is the transformation Kalvium enables."
+  },
+  {
+    "flag": "Associate fails to explain the transition from internship to full-time placement (PPO)",
+    "template": "One of the best parts of our model is the Pre-Placement Offer, or PPO. Because you work with a company for nearly two years as an intern, they get to see your talent, dedication, and work ethic firsthand. Most of our partner companies prefer to absorb our interns as full-time employees upon graduation, completely eliminating any post-college placement anxiety."
+  },
+  {
+    "flag": "Associate fails to explain that 'K-NET does not require coding knowledge'",
+    "template": "Please don't be anxious about the K-NET exam. It requires absolutely zero coding or programming knowledge. We do not test you on languages like Java or Python. We only test your basic logic, critical thinking, and problem-solving abilities through puzzle-like questions. It's actually a very fun and engaging test!"
+  },
+  {
+    "flag": "Associate reacts defensively when parent questions the legitimacy of 'work-integrated learning'",
+    "template": "That's a very fair question, as the term is relatively new in India. Work-Integrated Learning is a globally recognized, highly successful educational model popularized in countries like Canada and Germany. The Indian government and UGC have actively approved and promoted this format to bridge the massive gap between what colleges teach and what the industry actually needs."
+  },
+  {
+    "flag": "Associate fails to handle 'Can we get admission based on JEE/Board scores?'",
+    "template": "While we respect high board and JEE scores, they do not guarantee admission to Kalvium. Because our program is highly practical and industry-focused, we must evaluate candidates on their real-world logical application and communication skills through K-NET and our personal interview. This ensures that every student we admit is truly a great fit for a work-integrated career."
+  },
+  {
+    "flag": "Associate fails to pitch the library/learning platform and tools provided",
+    "template": "As a Kalvium student, you get access to our state-of-the-art proprietary learning platform, which is integrated with modern developer tools, real-time code execution environments, and an extensive digital library of high-quality tech resources. You don't need to buy heavy, expensive textbook sets; everything you need to build software is at your fingertips."
+  },
+  {
+    "flag": "Associate fails to explain the schedule flexibility during internships",
+    "template": "Our program is built for harmony between work and academics. During the internship phase, your daily schedule is divided smoothly: half the day is dedicated to your remote internship work, and the other half is for your academic modules and mentoring. This ensures you excel in both without feeling overwhelmed or burned out."
+  },
+  {
+    "flag": "Associate does not ask for a commitment to fill out the K-NET application during the call",
+    "template": "Since we have cleared up all your questions, let's take the first step towards securing your tech career. I can guide you through the registration page right now on this call; it takes less than five minutes. Let's open the link together, and I will help you fill out the details. Shall we?"
+  },
+  {
+    "flag": "Associate fails to address the 'No theoretical classes' doubt clearly",
+    "template": "Let me clarify: we do teach the necessary computer science theory, but we do not do it through passive lectures. Instead of memorizing a database concept from a textbook, you will build a database system yourself. We teach theory through action, ensuring that you understand the deep concepts by seeing how they function in real applications."
+  },
+  {
+    "flag": "Associate does not project confidence when asked about the curriculum designers",
+    "template": "You can be absolutely confident in our curriculum. It has been designed from scratch by tech industry veterans, including former engineering directors and tech leads from companies like Microsoft, Google, and Flipkart. They know exactly what skills are missing in college graduates and have built those exact requirements directly into our B.Tech program."
+  },
+  {
+    "flag": "Associate fails to handle 'We live in a metro city, why should we go to a smaller town partner campus?'",
+    "template": "I understand you prefer metro cities. However, our partner campuses are chosen because they offer massive, world-class residential campuses with modern tech laboratories, peaceful learning environments, and state-of-the-art infrastructure. Since your internship is remote and global, your physical campus location doesn't limit your career. You get the best of campus life combined with global tech exposure."
+  },
+  {
+    "flag": "Associate fails to explain the direct mentorship connection during the interview prep",
+    "template": "To help you prepare for your personal interview, I am going to share a preparation checklist and some student tips. Our team wants you to succeed, and this interview is just a conversation to check your communication and eagerness to learn. Review the checklist tonight, and you'll do amazing."
+  },
+  {
+    "flag": "Associate sounds apologetic about the program's unique structure",
+    "template": "I am proud to say that Kalvium is very different from traditional colleges. We have intentionally removed the outdated systems of rote learning and passive lectures because they do not work in modern tech. We have replaced them with hands-on building and real professional experience, which is why our students are so highly sought after by top companies."
+  },
+  {
+    "flag": "Associate fails to handle 'Is there an extra charge for placements or internships?'",
+    "template": "No, absolutely not. There are no hidden fees or extra charges for internships or final placements. The placement coordination, industry mentorship, and career support are completely integrated into your academic program fee. Our goal is to ensure you succeed without any extra financial burden."
+  },
+  {
+    "flag": "Associate fails to pitch the global community of Kalvium students",
+    "template": "When you join Kalvium, you become part of a highly active, national community of brilliant young developers. Our students collaborate across different partner campuses, participate in exclusive national hackathons, build open-source projects together, and support each other's growth. It’s an elite peer group that will stay with you for life."
+  },
+  {
+    "flag": "Associate fails to highlight 'earning independence' as a major personality builder",
+    "template": "Beyond the financial relief, earning a stipend from the second year builds immense maturity and self-confidence in your child. When a nineteen-year-old manages their own earnings, pays for their personal expenses, and contributes to their goals, they develop a highly responsible, professional mindset that traditional college students don't gain until much later."
+  },
+  {
+    "flag": "Associate fails to handle 'Can we visit the hostels?'",
+    "template": "Yes, absolutely! During your campus visit, we will arrange a complete guided tour of the hostels so you can check the room configurations, hygiene, mess food quality, security measures, and recreational areas. We want you to be completely satisfied and comfortable with where your child will be living."
+  },
+  {
+    "flag": "Associate does not explain the grading criteria / CGPA system in Kalvium",
+    "template": "Our CGPA system is highly reflective of industry excellence. Instead of traditional marks, students are evaluated on their milestones achieved on our learning platform, quality of code submissions, peer reviews, and supervisor feedback from their internships. This means your GPA shows future employers your actual ability to deliver real-world results."
+  },
+  {
+    "flag": "Associate fails to handle 'What if my child wants to change their branch later?'",
+    "template": "Since Kalvium is an elite, highly specialized program focused exclusively on Computer Science and Engineering to guarantee maximum career outcomes, we do not offer alternative engineering branches. Our entire infrastructure, ecosystem, and placement network are custom-built to produce world-class software professionals."
+  },
+  {
+    "flag": "Associate does not pitch the 'flexible learning pace' of the platform",
+    "template": "Our learning platform supports personalized, flexible pacing. If a student grasps a programming concept quickly, they can move ahead without waiting for the rest of the class. If they need more time, they can review the concept, consult their mentor, and master it at their own pace. This ensures no student is left behind or held back."
+  },
+  {
+    "flag": "Associate handles 'We are waiting for board results to decide' poorly",
+    "template": "I understand you want to wait for board results. However, because our admission is based primarily on logical ability through the K-NET and interview rather than board marks, waiting will only mean losing your seat in our limited premium cohort. You can secure your admission today risk-free, as our fee is fully refundable if you decide otherwise after the board results."
+  },
+  {
+    "flag": "Associate does not explain the support system for students facing academic difficulty",
+    "template": "If a student struggles with a module, we don't leave them to fail. Our platform alerts their dedicated mentor immediately, who then schedules 1-on-1 remedial sessions to help clear their doubts. We also have active peer learning groups where senior students and batchmates collaborate to help everyone succeed together."
+  },
+  {
+    "flag": "Associate fails to pitch the leadership and communication workshops",
+    "template": "We don't just teach technical coding skills. Our curriculum includes regular masterclasses, interactive workshops, and leadership modules designed to build public speaking, negotiation, professional writing, and emotional intelligence. This ensures our graduates can lead teams and communicate with global clients effectively."
+  },
+  {
+    "flag": "Associate fails to clarify 'Who issues the final B.Tech degree?'",
+    "template": "The final B.Tech degree is issued directly by our partner university, which is fully recognized by the UGC. The degree certificates are identical in value and validity to any traditional B.Tech degree, making them fully eligible for higher education, competitive exams, and government or private sector jobs worldwide."
+  },
+  {
+    "flag": "Associate does not emphasize the direct feedback loop from employers during internships",
+    "template": "During the internship phase, our students receive regular, structured feedback from their corporate managers. This professional feedback is integrated directly into our academic reviews, allowing students to identify their weak spots and fix them immediately with their mentor’s help. This creates an incredibly fast professional growth loop."
+  },
+  {
+    "flag": "Associate handles 'My child is physically weak/shy' objection poorly",
+    "template": "I understand your concern, but our supportive residential campus is actually the perfect place for them to grow. Our small cohort sizes, empathetic mentors, and collaborative group tasks are specifically designed to help introverted or shy students build high confidence, find their voice, and learn to collaborate in a safe and highly encouraging environment."
+  },
+  {
+    "flag": "Associate fails to address 'How is Kalvium different from online coding bootcamps?'",
+    "template": "Coding bootcamps are short, unaccredited online courses that only teach basic coding syntax and do not offer a recognized degree or campus life. Kalvium is a comprehensive, 4-year regular B.Tech degree program. It combines core computer science engineering foundational theory, a full campus experience, personalized mentorship, and extensive 21-month corporate work experience."
+  },
+  {
+    "flag": "Associate does not verify if the prospect has high-speed internet for the GMeet demo",
+    "template": "Before we hop on our Google Meet demo tomorrow, I highly recommend joining from a laptop or desktop with a stable internet connection. This will help you view our code interface and student dashboards clearly. Would you like me to send a test link to make sure everything is working smoothly?"
+  },
+  {
+    "flag": "Associate fails to handle 'Do we have to pay the entire year's fee upfront?'",
+    "template": "No, you do not need to pay the entire fee upfront. We offer flexible semester-wise payment plans to make it highly convenient for you. We also have tie-ups with leading education loan providers to offer easy, monthly EMI plans with zero-cost options, making the financial planning very smooth for your family."
+  },
+  {
+    "flag": "Associate fails to pitch the standard of on-campus labs and incubation centers",
+    "template": "Our partner campuses feature cutting-edge incubation centers designed to look and feel like modern Silicon Valley tech offices rather than boring college labs. They are equipped with high-speed internet, collaborative meeting zones, and state-of-the-art workstations where our students work on their internships and projects."
+  },
+  {
+    "flag": "Associate fails to build excitement about the student's first year project portfolio",
+    "template": "By the end of your very first year at Kalvium, you won't just have passed exams; you will have built and launched your own fully functional web applications and software tools from scratch. Having a real, live portfolio of products before you even enter your second year is what makes you stand out to top tech companies."
+  },
+  {
+    "flag": "Associate does not address 'What happens if a student loses their internship midway?'",
+    "template": "If a student loses their internship due to company-side restructuring or other external reasons, our dedicated placement cell steps in immediately. We work closely with the student to align new interviews with our other partner firms, ensuring their career progress remains fully on track without any academic delay."
+  },
+  {
+    "flag": "Associate handles 'Can we get a scholarship?' poorly",
+    "template": "We highly value merit and potential! We offer performance-based scholarships to exceptional performers in the K-NET exam and our personal interviews. Furthermore, our unique work-integrated model allows every student to earn substantial stipends from their second year, which acts as a self-earned scholarship throughout their degree."
+  },
+  {
+    "flag": "Associate fails to explain 'Liberal Engineering' in relation to career growth",
+    "template": "Liberal Engineering is what separates a standard coder from a future Chief Technology Officer. While we teach deep technical skills, we also train you in critical thinking, human psychology, design, and economics. This multi-disciplinary foundation ensures you can understand business needs, manage teams, and rise to executive roles rapidly."
+  },
+  {
+    "flag": "Associate does not check for the parent's primary concern at the start of the call",
+    "template": "To ensure I make the best use of your time today, what is the most important factor for you when choosing an engineering program for your child? Is it the curriculum quality, the campus environment, the fees, or the career outcomes and placements?"
+  },
+  {
+    "flag": "Associate fails to highlight the 'industry readiness' gap in traditional engineering graduates",
+    "template": "Statistics show that over eighty percent of traditional engineering graduates in India are unemployable because they only learn old theory. Companies have to spend months training them. Kalvium solves this exact problem. Our graduates are fully trained on modern tech and have nearly two years of real-world work experience, making them productive from day one."
+  },
+  {
+    "flag": "Associate handles 'We want a college with a big brand name' objection poorly",
+    "template": "I understand the appeal of traditional brand names. However, in the tech industry today, companies do not hire based on old-school college names; they hire based on your actual skills, problem-solving capability, and previous work experience. A graduate from Kalvium with 21 months of real corporate experience and a stellar code portfolio will always stand out over a fresher from a traditional brand who only has a theoretical degree."
+  },
+  {
+    "flag": "Associate fails to explain the role of 'Mentors' vs. 'Teachers'",
+    "template": "At Kalvium, we don't have teachers who read slides in front of a class. We have mentors who are active tech professionals. They work alongside you, review your code daily, guide you through real industry practices, and help you navigate your corporate internships. It's an active, real-world professional relationship."
+  },
+  {
+    "flag": "Associate does not emphasize 'No mechanical memorization' of code",
+    "template": "We believe that memorizing code is the worst way to learn computer science. At Kalvium, you are trained to think like an engineer. We focus on building your computational logic and problem-solving framework, so that no matter what new programming language or tool comes out in the future, you can learn and master it in days."
+  },
+  {
+    "flag": "Associate fails to explain the 'practical-first' classroom design",
+    "template": "Our classrooms are not set up with rows of desks facing a blackboard. They are modern, collaborative tech bays. Students sit in teams, working on real coding sprints, discussing logic, and building products. The mentor guides the process, making the entire classroom experience feel like an active, high-growth startup environment."
+  },
+  {
+    "flag": "Associate handles 'My child is not confident in English' poorly",
+    "template": "Please do not worry about that. Communication is a skill that can be built with practice. In our curriculum, we have dedicated communication modules and active presentation sessions designed specifically to help shy or non-native English speakers build high fluency, professional presentation skills, and ultimate confidence."
+  },
+  {
+    "flag": "Associate fails to explain 'How the first year prepares students for internships'",
+    "template": "Our first-year curriculum is an intensive, high-growth bootcamp. We start from absolute coding basics and build up to advanced software engineering, agile methodologies, and professional workplace communication. By the end of year one, your child is fully prepared to pass corporate interviews and start working as an effective developer intern."
+  },
+  {
+    "flag": "Associate does not schedule a calendar invite during the booking call",
+    "template": "I want to make sure this slot is saved for you. I am sending a direct Google Calendar invite to your email right now. Please click 'Yes' or 'Accept' on the invite so it syncs with your phone and sends you a reminder ten minutes before we start tomorrow. Did you receive it?"
+  },
+  {
+    "flag": "Associate fails to handle 'Can my child prepare for UPSC/GATE along with Kalvium?'",
+    "template": "While our degree is fully UGC-recognized and valid for GATE or UPSC exams, our work-integrated program is highly intensive and designed for students who are single-mindedly focused on building an elite corporate tech career. If your child's primary goal is civil services or pure research, a traditional, less demanding theoretical program might be a more suitable path for them."
+  },
+  {
+    "flag": "Associate does not highlight that 'Kalvium curriculum adapts to AI trends'",
+    "template": "Traditional university syllabi take years to change, meaning students graduate with outdated skills. At Kalvium, our learning modules are agile. We have already integrated modern generative AI tools and AI-assisted coding practices into our curriculum, ensuring our students know how to use cutting-edge technology to build faster and smarter."
+  },
+  {
+    "flag": "Associate fails to explain the 'parent dashboard' or performance transparency",
+    "template": "We believe in complete transparency. As a parent, you don't have to wait for semester reports to know how your child is doing. We provide a dedicated parent portal where you can view your child's daily progress, their module completions, their attendance, and feedback from their industry mentors in real-time."
+  },
+  {
+    "flag": "Associate handles 'Is there a sports and extra-curricular life on campus?' poorly",
+    "template": "Absolutely! Since our program is hosted on sprawling, premium partner university campuses, our students have full access to all campus facilities, including state-of-the-art sports arenas, gymnasiums, cultural clubs, student festivals, and extra-curricular activities. They get the perfect blend of high-growth professional life and vibrant college memories."
+  },
+  {
+    "flag": "Associate does not ask the student what project they dream of building",
+    "template": "If you had all the coding skills in the world right now, what is the one app, game, or software tool you would want to build? At Kalvium, we want to give you the exact skills to turn that idea into a real, live product that you can show the world."
+  },
+  {
+    "flag": "Associate fails to explain 'How the program ensures academic integrity' (No Plagiarism)",
+    "template": "Because we assess real code, we take academic integrity very seriously. Our learning platform has built-in, industry-grade plagiarism and AI-code detection systems. This ensures that every line of code our students write is truly their own logic, building genuine software engineering capability that shines in corporate interviews."
+  },
+  {
+    "flag": "Associate fails to highlight the 'lifetime placement support' value proposition",
+    "template": "Our relationship with our students doesn't end at graduation. As a Kalvium alumnus, you gain lifetime access to our elite career network and continuous placement support. Whether you want to switch jobs, transition to a leadership role, or need guidance on starting your own tech venture, our community and mentors are always here for you."
+  },
+  {
+    "flag": "Associate handles 'What happens if my child falls sick during the internship?'",
+    "template": "Health and well-being always come first. Since our internships are structured professionally, students can request standard medical leave as per company policy. On the academic side, our mentors will work with them to adjust their learning goals and milestones, ensuring they can recover fully without any academic penalty."
+  },
+  {
+    "flag": "Associate does not pitch the 'co-working space' campus design",
+    "template": "Our campuses are specifically designed to bridge the gap between college and work. We have replaced old classroom benches with dynamic, high-speed open co-working spaces. This modern layout encourages collaboration, peer discussions, and replicates the exact corporate workspace of top global tech firms like Google or Meta."
+  },
+  {
+    "flag": "Associate fails to highlight the 'stipend offset' math clearly to parents",
+    "template": "Let's do the math together. If your child earns an average stipend of twenty-five thousand rupees a month for twenty-one months, that’s over five lakhs earned during their B.Tech itself! This directly offsets a massive portion of the tuition fees, making Kalvium one of the most financially smart and self-sustaining engineering programs in the country."
+  },
+  {
+    "flag": "Associate handles 'Is a laptop provided by the college?' poorly",
+    "template": "To ensure every student has the exact high-performance environment needed for professional software development, we provide a detailed hardware specification guide. We recommend students bring a high-quality laptop matching these specs, and we also offer corporate-discount purchase links and financing options to make it easy for you to acquire the right machine."
+  },
+  {
+    "flag": "Associate does not address the student's fear of 'not being smart enough' for tech",
+    "template": "I want you to know that coding is not about being a genius; it is simply about consistency and practice. It is like learning a new language or learning to ride a bicycle. Our curriculum is built to take you step-by-step from zero to professional level, with mentors guiding you every day. If you have the curiosity to learn, we have the system to make you a star software developer."
+  },
+  {
+    "flag": "Associate fails to explain 'How the final placements differ from internships'",
+    "template": "While the internship is a part-time corporate engagement during your studies to gain real-world experience, the final placement is your full-time transition into the tech industry upon graduation. Our graduates typically start at much higher roles and compensation packages than traditional freshers because they already have nearly two years of proven corporate performance."
+  },
+  {
+    "flag": "Associate does not clarify that 'Kalvium is a regular degree, not distance learning'",
+    "template": "Let me clarify this important point: this is a regular, full-time on-campus B.Tech degree, not a distance learning or correspondence course. Your classes, your mentorship, your examinations, and your campus interactions are completely in-person and physical. The term 'work-integrated' simply refers to our modern, practical approach to the learning process."
+  },
+  {
+    "flag": "Associate fails to explain the benefits of 'earning while learning' beyond money",
+    "template": "Earning while learning does more than just pay the bills. It teaches your child professional accountability, client communication, time management, and financial responsibility at a very young age. When they graduate, they don't just have a degree; they have the maturity, confidence, and posture of a seasoned corporate professional."
+  },
+  {
+    "flag": "Associate handles 'We want to visit the class in session' defensively",
+    "template": "We would love for you to see our learning ecosystem in action! When you visit our partner campus, we will take you directly to our active tech bays. You can watch how our students collaborate, write real-world code, and interact with their on-site mentors. Let's schedule your campus visit for this week so you can experience this vibrant energy firsthand."
+  },
+  {
+    "flag": "Associate does not confirm the parent's consent before sending details on WhatsApp",
+    "template": "To help you review everything we discussed, I would love to send a detailed program brochure, fee structures, and campus photos directly to your WhatsApp. May I confirm if the number we are speaking on is your active WhatsApp number, and if I have your permission to share these details?"
+  },
+  {
+    "flag": "Associate fails to explain the concept of 'credit-earning' internships",
+    "template": "In our program, your internship is not an extra-curricular activity; it is a core part of your academics. The credits you earn from your internship performance contribute directly to your final B.Tech degree requirements. This integration ensures that your real-world work is fully recognized and valued academically by the university."
+  },
+  {
+    "flag": "Associate fails to handle 'Is there an entrance exam syllabus we should prepare for?'",
+    "template": "There is no dense academic syllabus to study or memorize for K-NET. You do not need to study heavy books. The test is purely aptitude-based, evaluating your basic logic, sequence completion, and puzzle-solving skills. I will send you a short mock practice test link so you can get familiar with the interface and question types before your actual test."
+  },
+  {
+    "flag": "Associate does not maintain a professional, enthusiastic tone throughout the call",
+    "template": "I am incredibly excited about the prospect of having you join Kalvium! This program is truly a revolutionary way to learn engineering, and seeing our students transform into global tech professionals is what drives us every day. Let's work together to help you build an extraordinary career in tech."
+  },
+  {
+    "flag": "Associate fails to handle 'We are looking at foreign university admissions'",
+    "template": "Studying abroad is a great aspiration! However, many students who go abroad directly after 12th struggle to find high-paying jobs without solid corporate experience. By completing your B.Tech with Kalvium, you gain nearly two years of solid software engineering experience. This makes your profile incredibly attractive to top-tier global universities and international tech employers, giving you a massive advantage."
+  },
+  {
+    "flag": "Associate fails to explain the continuous evaluation system vs. semester-end exams",
+    "template": "We have completely eliminated the high-stress, memorization-heavy semester exams. Instead, we follow a continuous assessment model. You are evaluated on the quality of your daily coding tasks, project milestones, and professional workplace reviews. This means your final grades are a true reflection of your consistent hard work and real capability, rather than a single three-hour memory test."
+  },
+  {
+    "flag": "Associate fails to highlight 'no capitation fees or donations' value",
+    "template": "We maintain absolute transparency and integrity in our admission process. There are absolutely no donations, management quotas, or capitation fees at Kalvium. Admission is granted purely based on merit through the K-NET and personal interview. This ensures a highly fair, professional, and level playing field for all talented students."
+  },
+  {
+    "flag": "Associate handles 'Can our child apply for educational loans?' poorly",
+    "template": "Yes, absolutely. Since our program is a regular B.Tech degree in partnership with UGC-recognized universities, our students are fully eligible to apply for educational loans from all major nationalized and private banks. Our dedicated admissions team will provide you with all the necessary documentation, including admission letters and fee breakups, to make your loan approval process completely seamless."
+  },
+  {
+    "flag": "Associate fails to explain the role of 'industry partners' in curriculum updates",
+    "template": "Our industry partners do not just hire our students; they help shape what they learn. We hold regular feedback sessions with leading tech executives to understand what tools and technologies they are currently using. We then update our learning modules in real-time, ensuring our students are always learning the most modern, relevant skills needed by the market."
+  },
+  {
+    "flag": "Associate does not ask the student about their comfort level with laptop-based learning",
+    "template": "Since our program is completely hands-on and digital, how comfortable are you with spending your day coding and working on a laptop? If you are ready for a modern, digital-first learning lifestyle, you are going to absolutely love the interactive nature of our platform."
+  },
+  {
+    "flag": "Associate fails to pitch the 'start-up culture' mindset cultivated at Kalvium",
+    "template": "We don't just train employees; we build tech leaders and entrepreneurs. Our work-integrated model, collaborative project sprints, and direct exposure to startup founders teach our students how to build a product from scratch, manage resources, and launch ventures. If you dream of starting your own tech company one day, Kalvium is the perfect launching pad."
+  },
+  {
+    "flag": "Associate handles 'We don't want our child to do coding all day' objection poorly",
+    "template": "I understand your concern. While software development is our core, a successful career in tech requires much more than just writing code. Our curriculum is highly balanced, incorporating critical thinking, project management, communication design, and personal wellness. We ensure our students grow into well-rounded, balanced individuals with a healthy approach to both work and life."
+  },
+  {
+    "flag": "Associate fails to explain 'How to register for K-NET step-by-step'",
+    "template": "Registering for K-NET is very simple. I am going to send you a direct registration link. You just need to fill in your basic academic details, choose your preferred B.Tech campus, and select your convenient date and time slot for the online test. The entire process takes less than five minutes, and I can stay on the line to guide you through it."
+  },
+  {
+    "flag": "Associate does not emphasize 'learning by doing' over listening to lectures",
+    "template": "At Kalvium, we believe that you cannot learn swimming by reading a book; you have to get into the water. Similarly, you cannot learn programming by listening to lectures; you have to write code. Our entire program is built on 'learning by doing', where every theoretical concept is immediately followed by practical building, ensuring deep understanding."
+  },
+  {
+    "flag": "Associate fails to handle 'Will my child get a degree certificate that says Kalvium?'",
+    "template": "The B.Tech degree is awarded directly by our prestigious, UGC-recognized partner university. The degree certificate will mention a B.Tech in Computer Science and Engineering, which is fully valid globally. Kalvium is the academic and industry partner that powers this advanced curriculum, assures the internships, and delivers the 1-on-1 mentorship."
+  },
+  {
+    "flag": "Associate does not congratulate the student genuinely on clearing the interview",
+    "template": "I just received your interview results, and I am absolutely thrilled to tell you that you have cleared the personal interview round! Congratulations! Our interview panel was highly impressed by your logical approach and your enthusiasm. You have officially cleared all selection criteria for Kalvium's elite B.Tech CSE program!"
+  },
+  {
+    "flag": "Associate fails to handle 'Can we pay the provisional fee in installments?'",
+    "template": "We want to make this process as comfortable as possible for you. If paying the provisional deposit in one go is a constraint, we can discuss splitting it into two smaller parts over a few days to help you secure the seat without any financial strain. Let me check the system and arrange this customized option for you."
+  },
+  {
+    "flag": "Associate does not check if the prospect has any final questions before closing the call",
+    "template": "We have covered a lot of exciting details today about Kalvium, from our work-integrated model to the K-NET process. Before we wrap up, what final questions or concerns do you or your parents have? I want to make sure you have complete clarity on every single aspect of this decision."
   }
 ]

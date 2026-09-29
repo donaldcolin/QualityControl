@@ -6,6 +6,8 @@ const supabase = require('../config/supabase');
 const qcEngine = require('../services/qc_engine');
 const meetSync = require('../services/meet_sync');
 const { lsqParams } = require('../config/lsq');
+const fs = require('fs');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 // ═══════════════════════════════════════════════════════════════
@@ -144,7 +146,22 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           });
 
           const combinedResult = JSON.parse(combinedResponse.text);
-          qualityResult = { quality: combinedResult.quality || {} };
+          
+          // Convert quality array back to object keyed by parameter name (for DB storage compatibility)
+          const qualityObj = {};
+          if (Array.isArray(combinedResult.quality)) {
+            combinedResult.quality.forEach(item => {
+              qualityObj[item.parameter] = {
+                score: item.score,
+                max_score: item.max_score,
+                status: item.status,
+                coaching_status: item.coaching_status,
+                reason: item.reason
+              };
+            });
+          }
+          
+          qualityResult = { quality: qualityObj };
           coachingReport = combinedResult.coaching_report || null;
         } else {
           // No coaching params yet — fall back to quality-only pass
@@ -159,7 +176,18 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
               temperature: 0.15
             }
           });
-          qualityResult = JSON.parse(qualityResponse.text);
+          const rawResult = JSON.parse(qualityResponse.text);
+          // Quality-only schema still uses sanitized keys — reverse-map them
+          const reverseMap = {};
+          filteredQualityChecks.forEach(check => {
+            reverseMap[qcEngine.sanitizeKey(check.parameter)] = check.parameter;
+          });
+          const restoredQuality = {};
+          for (const [sanitizedKey, value] of Object.entries(rawResult.quality || {})) {
+            const originalName = reverseMap[sanitizedKey] || sanitizedKey;
+            restoredQuality[originalName] = value;
+          }
+          qualityResult = { quality: restoredQuality };
         }
       } catch (combinedErr) {
         console.error('Combined quality+coaching evaluation failed (non-fatal):', combinedErr.message);
@@ -187,7 +215,15 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     };
 
     if (coachingReport) {
-      resultsPayload.qc_results = coachingReport.parameter_evaluations;
+      // Extract per-parameter coaching results from unified quality entries
+      const paramEvals = {};
+      for (const [paramName, evaluation] of Object.entries(qualityResult.quality || {})) {
+        paramEvals[paramName] = {
+          status: evaluation.coaching_status || 'Not Applicable',
+          reason: evaluation.reason || ''
+        };
+      }
+      resultsPayload.qc_results = paramEvals;
       resultsPayload.coaching_report = coachingReport;
       resultsPayload.overall_score = coachingReport.overall_score;
       resultsPayload.overall_grade = coachingReport.overall_grade;
@@ -263,22 +299,112 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         avgQualityScore = Math.round(sum / allCalls.length);
       }
 
+      // ── Fetch existing lead state for MERGE logic ──────────────────────
+      const { data: existingLead } = await supabase
+        .from('leads')
+        .select('id, intent_score, intent_factors, bant_insights, data_capture, call_history_snapshot')
+        .eq('id', finalProspectId)
+        .maybeSingle();
+
+      const thisCallIntentScore = insightsResult.insights?.intent_score ?? null;
+      const thisCallNumber = (allCalls?.length || 1);
+
+      // ── 1. WEIGHTED INTENT SCORE ───────────────────────────────────────
+      // First call: use as-is. Subsequent calls: 30% historical + 70% latest
+      // so a short "give me 2 days" call doesn't nuke a high-intent lead.
+      let mergedIntentScore = thisCallIntentScore;
+      if (existingLead?.intent_score != null && thisCallIntentScore != null && thisCallNumber > 1) {
+        mergedIntentScore = Math.round(0.3 * existingLead.intent_score + 0.7 * thisCallIntentScore);
+      }
+
+      // ── 2. ACCUMULATE INTENT FACTORS (append, don't replace) ───────────
+      const newFactors = [
+        ...(insightsResult.insights?.high_intent_factors || []).map(f => ({ type: 'high', factor: f, call_number: thisCallNumber })),
+        ...(insightsResult.insights?.low_intent_factors || []).map(f => ({ type: 'low', factor: f, call_number: thisCallNumber }))
+      ];
+      const existingFactors = existingLead?.intent_factors || [];
+      // Deduplicate by factor text — keep the latest call_number version
+      const factorMap = new Map();
+      existingFactors.forEach(f => factorMap.set(f.factor, f));
+      newFactors.forEach(f => factorMap.set(f.factor, f));
+      const mergedIntentFactors = Array.from(factorMap.values());
+
+      // ── 3. MERGE BANT (only upgrade status, never downgrade) ───────────
+      const bantRank = { 'Unqualified': 0, 'Uncertain': 1, 'Qualified': 2 };
+      const existingBant = existingLead?.bant_insights || {};
+      const newBant = insightsResult.insights?.bant || {};
+      const mergedBant = {};
+      for (const dim of ['budget', 'authority', 'needs', 'timeline']) {
+        const oldEntry = existingBant[dim] || { status: 'Uncertain', details: '' };
+        const newEntry = newBant[dim] || { status: 'Uncertain', details: '' };
+        const oldRank = bantRank[oldEntry.status] ?? 1;
+        const newRank = bantRank[newEntry.status] ?? 1;
+        if (newRank >= oldRank) {
+          // Upgrade or same — take new entry (fresher details)
+          mergedBant[dim] = newEntry;
+        } else {
+          // Would be a downgrade — keep old status but append new details
+          mergedBant[dim] = {
+            status: oldEntry.status,
+            details: `${oldEntry.details} | Call ${thisCallNumber}: ${newEntry.details}`
+          };
+        }
+      }
+
+      // ── 4. MERGE DATA CAPTURE (keep old fields, update if higher confidence) ──
+      const confidenceRank = { 'Low': 0, 'Medium': 1, 'High': 2 };
+      const existingCapture = existingLead?.data_capture || {};
+      const newCapture = insightsResult.insights?.data_capture || {};
+      
+      const existingFields = existingCapture.extracted_fields || [];
+      const newFields = newCapture.extracted_fields || [];
+      
+      // Build map keyed by field name, keep higher-confidence version
+      const fieldMap = new Map();
+      existingFields.forEach(f => fieldMap.set(f.field, f));
+      newFields.forEach(f => {
+        const existing = fieldMap.get(f.field);
+        if (!existing || (confidenceRank[f.confidence] ?? 0) >= (confidenceRank[existing.confidence] ?? 0)) {
+          fieldMap.set(f.field, { ...f, captured_in_call: thisCallNumber });
+        }
+      });
+
+      // Missing fields = only those still not captured after merge
+      const capturedFieldNames = new Set(Array.from(fieldMap.values()).map(f => f.field));
+      const allMissingFields = [
+        ...(existingCapture.missing_mandatory_fields || []),
+        ...(newCapture.missing_mandatory_fields || [])
+      ];
+      const mergedMissing = [...new Set(allMissingFields)].filter(f => !capturedFieldNames.has(f));
+
+      const mergedDataCapture = {
+        extracted_fields: Array.from(fieldMap.values()),
+        missing_mandatory_fields: mergedMissing
+      };
+
+      // ── 5. PER-CALL INTENT HISTORY (for trend tracking) ───────────────
+      const existingHistory = existingLead?.call_history_snapshot || [];
+      const callSnapshot = {
+        call_number: thisCallNumber,
+        call_id: callIdToUpdate,
+        intent_score: thisCallIntentScore,
+        source: effectiveSource,
+        evaluated_at: new Date().toISOString()
+      };
+      const mergedHistory = [...existingHistory, callSnapshot];
+
+      // ── Build final lead update payload ────────────────────────────────
       const leadUpdate = {
-        intent_score: insightsResult.insights?.intent_score || null,
-        intent_factors: [
-          ...(insightsResult.insights?.high_intent_factors || []).map(f => ({ type: 'high', factor: f })),
-          ...(insightsResult.insights?.low_intent_factors || []).map(f => ({ type: 'low', factor: f }))
-        ],
-        bant_insights: insightsResult.insights?.bant || null,
-        data_capture: insightsResult.insights?.data_capture || null,
+        intent_score: mergedIntentScore,
+        intent_factors: mergedIntentFactors,
+        bant_insights: mergedBant,
+        data_capture: mergedDataCapture,
         journey_summary: insightsResult.summary?.journey_summary || null,
         next_process_step: insightsResult.next_steps?.[0]?.title || null,
         avg_call_quality_score: avgQualityScore,
+        call_history_snapshot: mergedHistory,
         updated_at: new Date().toISOString()
       };
-
-      // Check if lead exists
-      const { data: existingLead } = await supabase.from('leads').select('id').eq('id', finalProspectId).maybeSingle();
 
       if (existingLead) {
         await supabase
@@ -335,24 +461,47 @@ router.get('/leads', async (req, res) => {
     
     if (error) throw error;
     
-    // Fetch call counts separately to avoid missing foreign key errors
+    // Fetch all calls and their latest evaluation runs for the dashboard
     const { data: callsData } = await supabase
       .from('calls')
-      .select('prospect_id');
-      
-    const callCounts = {};
-    if (callsData) {
-      callsData.forEach(c => {
-        if (!callCounts[c.prospect_id]) callCounts[c.prospect_id] = 0;
-        callCounts[c.prospect_id]++;
+      .select('*');
+
+    const { data: evalsData } = await supabase
+      .from('evaluation_runs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // Map latest evaluation to calls
+    const evalMap = {};
+    if (evalsData) {
+      evalsData.forEach(e => {
+        if (!evalMap[e.call_id]) evalMap[e.call_id] = e;
       });
     }
-    
-    // Add call count for the dashboard
-    const leadsWithCounts = leads.map(l => ({
-      ...l,
-      total_calls: callCounts[l.id] || 0
-    }));
+
+    const callsByProspect = {};
+    if (callsData) {
+      callsData.forEach(c => {
+        const evaluation = evalMap[c.id];
+        if (evaluation && evaluation.results) {
+           c.quality_data = evaluation.results.quality_data;
+           c.insights_data = evaluation.results.insights_data;
+           c.coaching_report = evaluation.results.coaching_report;
+        }
+
+        if (!callsByProspect[c.prospect_id]) callsByProspect[c.prospect_id] = [];
+        callsByProspect[c.prospect_id].push(c);
+      });
+    }
+
+    const leadsWithCounts = leads.map(l => {
+      const leadCalls = callsByProspect[l.id] || [];
+      return {
+        ...l,
+        calls: leadCalls,
+        total_calls: leadCalls.length
+      };
+    });
     
     res.json(leadsWithCounts);
   } catch (error) {
@@ -387,29 +536,18 @@ router.get('/leads/:id', async (req, res) => {
 
 router.post('/demo/seed', async (req, res) => {
   try {
-    // 0. Ensure the demo owner exists in qc_associates
-    const ownerName = 'Siva Sandhiya';
-    let ownerNumber = 'SIVA-001';
-    
-    // Check if she already exists to use her actual emp_number
-    const { data: existingOwners } = await supabase
-      .from('qc_associates')
-      .select('emp_number')
-      .ilike('emp_name', '%Siva Sandhiya%')
-      .limit(1);
-      
-    if (existingOwners && existingOwners.length > 0) {
-      ownerNumber = existingOwners[0].emp_number;
-    } else {
-      await supabase.from('qc_associates').upsert([{
-        emp_number: ownerNumber,
-        emp_name: ownerName,
-        emp_tags: 'Demo',
-        language: 'en'
-      }], { onConflict: 'emp_number' });
-    }
+    // 0. Ensure the demo owners exist in qc_associates
+    const sivaName = 'Siva Sandhiya P';
+    let sivaNumber = 'bd41faa2-33df-11f0-9fe1-0259d35f5843'; // From db
 
-    // 1. Create High Intent Demo Lead
+    const abdulName = 'Abdul Kader Shanavas J';
+    let abdulNumber = 'e3d08770-b30d-11ef-be59-0259d35f5843';
+
+    await supabase.from('qc_associates').upsert([
+      { emp_number: sivaNumber, emp_name: sivaName, emp_tags: 'Demo', language: 'en' },
+      { emp_number: abdulNumber, emp_name: abdulName, emp_tags: 'Demo', language: 'en' }
+    ], { onConflict: 'emp_number' });
+
     const prospect_id_1 = uuidv4();
     const { error: lead1Err } = await supabase.from('leads').insert({
       id: prospect_id_1,
@@ -417,7 +555,7 @@ router.post('/demo/seed', async (req, res) => {
       phone: '+91 9876543210',
       intent_score: 81,
       avg_call_quality_score: 96,
-      kalvium_funnel_stage: 'PAC Paid',
+      
       next_process_step: '10 Sep \'26 - Provide WhatsApp Number',
       journey_summary: 'The customer, Farhaan\'s parent, is extremely interested in Kalvium\'s computer science program...',
       intent_factors: [
@@ -441,9 +579,9 @@ router.post('/demo/seed', async (req, res) => {
       updated_at: new Date().toISOString()
     });
     
-    // Create call for High Intent Lead
+    const call1Id = uuidv4();
     const { error: call1Err } = await supabase.from('calls').insert({
-      id: uuidv4(),
+      id: call1Id,
       prospect_id: prospect_id_1,
       source: 'phone_call',
       duration_sec: 660,
@@ -455,6 +593,17 @@ router.post('/demo/seed', async (req, res) => {
       insights_data: { objections: [{ category: 'Exam Difficulty', objection: 'Concerned about JEE.', how_handled: 'Clarified K-NET is aptitude-based.', customer_satisfied: true }] }
     });
 
+    // Link prospect_id_1 to Siva
+    await supabase.from('callizer_queue').insert({
+      id: uuidv4(),
+      call_id: call1Id,
+      prospect_id: prospect_id_1,
+      emp_number: sivaNumber,
+      status: 'completed',
+      audio_url: 'dummy',
+      language: 'en'
+    });
+
     // 2. Create Low Intent Demo Lead
     const prospect_id_2 = uuidv4();
     const { error: lead2Err } = await supabase.from('leads').insert({
@@ -463,7 +612,7 @@ router.post('/demo/seed', async (req, res) => {
       phone: '+91 9123456789',
       intent_score: 35,
       avg_call_quality_score: 55,
-      kalvium_funnel_stage: 'Exam Registered',
+      
       next_process_step: 'Follow up in 2 weeks',
       journey_summary: 'Customer is hesitant due to the cost and prefers traditional colleges.',
       intent_factors: [
@@ -485,9 +634,9 @@ router.post('/demo/seed', async (req, res) => {
       updated_at: new Date().toISOString()
     });
     
-    // Create call for Low Intent Lead
+    const call2Id = uuidv4();
     const { error: call2Err } = await supabase.from('calls').insert({
-      id: uuidv4(),
+      id: call2Id,
       prospect_id: prospect_id_2,
       source: 'phone_call',
       duration_sec: 420,
@@ -499,7 +648,18 @@ router.post('/demo/seed', async (req, res) => {
       insights_data: { objections: [{ category: 'Cost', objection: 'Too expensive.', how_handled: 'Agent just repeated the price.', customer_satisfied: false }] }
     });
 
-    res.json({ success: true, seeded_leads: [prospect_id_1, prospect_id_2] });
+    // Link prospect_id_2 to Abdul
+    await supabase.from('callizer_queue').insert({
+      id: uuidv4(),
+      call_id: call2Id,
+      prospect_id: prospect_id_2,
+      emp_number: abdulNumber,
+      status: 'completed',
+      audio_url: 'dummy',
+      language: 'en'
+    });
+
+    if (lead1Err) throw lead1Err; if (lead2Err) throw lead2Err; if (call1Err) throw call1Err; if (call2Err) throw call2Err; res.json({ success: true, seeded_leads: [prospect_id_1, prospect_id_2] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -564,6 +724,20 @@ router.post('/intelligence/evaluate_lead', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 //  QUALITY CHECKS CRUD (uses qc_parameters table)
 // ═══════════════════════════════════════════════════════════════
+
+router.get('/coaching_templates', (req, res) => {
+  try {
+    const templatesPath = path.join(__dirname, '../config/coaching_templates.json');
+    if (!fs.existsSync(templatesPath)) {
+      return res.json([]);
+    }
+    const templates = JSON.parse(fs.readFileSync(templatesPath, 'utf8'));
+    res.json(templates);
+  } catch (error) {
+    console.error('Error reading coaching templates:', error);
+    res.status(500).json({ error: 'Failed to load coaching templates' });
+  }
+});
 
 router.get('/quality_checks', async (req, res) => {
   const { source } = req.query;
@@ -691,10 +865,20 @@ router.delete('/data_capture_questions/:id', async (req, res) => {
 
 router.post('/activities/push_to_qc', async (req, res) => {
   try {
-    const { activity_id, resource_url, duration, type, prospect_id, emp_number, client_number, language } = req.body;
+    const { activity_id, resource_url, duration, type, prospect_id, emp_number, client_number, language, lead_name, lead_source } = req.body;
 
     if (!resource_url) {
       return res.status(400).json({ error: "No recording URL available for this activity" });
+    }
+
+    // Upsert lead so it's immediately tracked on the QC Leads Dashboard
+    if (prospect_id) {
+      await supabase.from('leads').upsert({
+        id: prospect_id,
+        name: lead_name || 'Unknown',
+        phone: client_number || null,
+        lead_source: lead_source || 'Phone'
+      }, { onConflict: 'id' });
     }
 
     const { data: existing } = await supabase

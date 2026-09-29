@@ -62,7 +62,8 @@ function parseCsv(filePath, source) {
             source: source,
             category: data.Category,
             parameter: data.Parameter,
-            description: data.Description
+            description: data.Description,
+            max_score: data.max_score ? parseInt(data.max_score) : 10
           });
         }
       })

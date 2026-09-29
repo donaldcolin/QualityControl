@@ -195,25 +195,80 @@ export default function RunPanel({ activeQueueId, isSidebar = false }) {
               {status.status === 'pending' && <Badge variant="outline">Pending</Badge>}
             </div>
 
-            <div className="text-sm">
-              <span className="text-muted-foreground font-medium text-xs uppercase tracking-wider block mb-1">Message</span>
-              <p className="bg-muted p-2 rounded-md font-mono text-xs">{status.progress_msg}</p>
-            </div>
+            {(() => {
+              const msg = (status.progress_msg || '').toLowerCase();
+              
+              const steps = [
+                { id: 1, label: 'Preparation & Audio Download', activeTerms: ['initializ', 'download', 'load', 'convert', 'trim'] },
+                { id: 2, label: 'Speaker Diarization', activeTerms: ['diarization', 'merg'] },
+                { id: 3, label: 'ASR Transcription', activeTerms: ['transcrib', 'saving', 'insert', 'saved'] },
+                { id: 4, label: 'QC AI Evaluation', activeTerms: ['qc', 'evaluat'] }
+              ];
 
-            {(status.total_files > 0) && (
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Progress</span>
-                  <span>{status.done_files} / {status.total_files} Files</span>
+              let currentStep = 0;
+              if (status.status === 'completed') {
+                currentStep = 5;
+              } else if (status.status === 'failed') {
+                currentStep = -1; // Keep whatever it was, maybe show error
+              } else {
+                for (let i = steps.length - 1; i >= 0; i--) {
+                  if (steps[i].activeTerms.some(term => msg.includes(term))) {
+                    currentStep = steps[i].id;
+                    break;
+                  }
+                }
+                // Fallback if not matched
+                if (currentStep === 0 && msg) currentStep = 1;
+              }
+
+              return (
+                <div className="space-y-4">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground font-medium text-xs uppercase tracking-wider block mb-1">Current Process</span>
+                    <p className="bg-muted p-2 rounded-md font-mono text-xs text-primary font-semibold">{status.progress_msg}</p>
+                  </div>
+                  
+                  <div className="relative border-l-2 border-muted ml-3 space-y-6 mt-6 pb-2">
+                    {steps.map((step) => {
+                      const isCompleted = currentStep > step.id || currentStep === 5;
+                      const isActive = currentStep === step.id;
+                      const isPending = currentStep !== 5 && currentStep < step.id;
+                      
+                      return (
+                        <div key={step.id} className="relative pl-6">
+                          <div className={cn(
+                            "absolute -left-[9px] top-0.5 w-4 h-4 rounded-full border-2 bg-background flex items-center justify-center transition-colors",
+                            isCompleted ? "border-green-500 bg-green-500" :
+                            isActive ? "border-primary shadow-[0_0_8px_rgba(59,130,246,0.5)]" : 
+                            "border-muted"
+                          )}>
+                            {isCompleted && <CheckCircle2 className="w-3 h-3 text-white" />}
+                            {isActive && <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />}
+                          </div>
+                          <div className={cn(
+                            "text-sm font-medium transition-colors",
+                            isCompleted ? "text-foreground" :
+                            isActive ? "text-primary" : 
+                            "text-muted-foreground"
+                          )}>
+                            {step.label}
+                          </div>
+                          {isActive && msg.includes('transcribing segment') && (
+                            <div className="mt-2 w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                              {(() => {
+                                const match = msg.match(/(\d+)\/(\d+)/);
+                                const pct = match ? (parseInt(match[1]) / parseInt(match[2])) * 100 : 10;
+                                return <div className="h-full bg-primary transition-all duration-300" style={{ width: `${pct}%` }} />
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-primary transition-all duration-500 ease-out" 
-                    style={{ width: `${(status.done_files / status.total_files) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {status.errors && status.errors.length > 0 && (
               <div className="space-y-1">

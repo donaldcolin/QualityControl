@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC, scanAll, triggerMeetSync } from '../api';
-import { RefreshCw, Trash2, Plus, PhoneCall, Headphones, Clock, ArrowRight, UserPlus, Play, Users, Zap, CheckCircle2 } from 'lucide-react';
+import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC } from '../api';
+import { RefreshCw, Trash2, Plus, PhoneCall, Headphones, Clock, ArrowRight, Play, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +22,7 @@ export default function TeamQC({ onPushToQueue }) {
   const [leads, setLeads] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
   const [loadingLeads, setLoadingLeads] = useState(false);
+  const [leadActivityCounts, setLeadActivityCounts] = useState({});
 
   // Level 3: Activities
   const [activities, setActivities] = useState([]);
@@ -29,10 +30,6 @@ export default function TeamQC({ onPushToQueue }) {
   const [pushingId, setPushingId] = useState(null);
   const [syncLanguages, setSyncLanguages] = useState({});
 
-  // Automation
-  const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-  const [syncingMeet, setSyncingMeet] = useState(false);
 
   useEffect(() => {
     fetchAssociates();
@@ -102,6 +99,42 @@ export default function TeamQC({ onPushToQueue }) {
     try {
       const data = await getLeadsForAssociate(emp_number);
       setLeads(data || []);
+      setLeadActivityCounts({});
+      
+      // Fire background requests to get activity counts sequentially to strictly respect LSQ rate limits
+      if (data && data.length > 0) {
+        const processSequential = async () => {
+          for (const l of data) {
+            try {
+              const acts = await getActivitiesForLead(l.prospect_id);
+              if (Array.isArray(acts)) {
+                // Compute separate counts: calls connected, demo conducted, knet registered
+                const counts = { calls: 0, meetings: 0, knet: 0 };
+                acts.forEach(a => {
+                  const t = a.type || '';
+                  if (t === 'Inbound' || t === 'Outbound') {
+                    const status = (a.status || '').toLowerCase();
+                    if (status === 'complete' || status === 'answered') counts.calls++;
+                  } else if (t.toLowerCase() === 'conversion call' && a.resource_url) {
+                    // Demo conducted = Conversion call with Recording Link of Demo populated
+                    counts.meetings++;
+                  }
+                  // Knet check across all activity types
+                  if (String(a.data?.ApplicationPaymentStatus || a.data?.['Application Payment Status'] || a.data?.mx_Custom_16 || '').toLowerCase() === 'completed') {
+                    counts.knet++;
+                  }
+                });
+                setLeadActivityCounts(prev => ({ ...prev, [l.prospect_id]: counts }));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+            // Strict 500ms delay between requests to guarantee we stay under the API limits
+            await new Promise(r => setTimeout(r, 500));
+          }
+        };
+        processSequential();
+      }
     } catch (err) {
       console.error(err);
       setLeads([]);
@@ -115,7 +148,7 @@ export default function TeamQC({ onPushToQueue }) {
     setLoadingActivities(true);
     try {
       const data = await getActivitiesForLead(prospectId);
-      setActivities(data || []);
+      setActivities(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
       setActivities([]);
@@ -144,7 +177,9 @@ export default function TeamQC({ onPushToQueue }) {
         prospect_id: activity.prospect_id,
         emp_number: selectedEmp,
         client_number: lead?.phone || '',
-        language: lang
+        language: lang,
+        lead_name: lead?.name || 'Unknown',
+        lead_source: lead?.source || 'Phone'
       });
       if (res.error) {
         alert(res.error);
@@ -167,276 +202,126 @@ export default function TeamQC({ onPushToQueue }) {
     const s = sec % 60;
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
   };
-
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-
-  // Filter activities to only show 'Complete' ones
-  const filteredActivities = activities.filter(a => (a.status || '').toLowerCase() === 'complete');
+  // Filter activities: strictly whitelist BDA Activity, Application Status, Conversion call, and completed calls
+  const filteredActivities = activities.filter(a => {
+    const t = (a.type || '').toLowerCase();
+    if (t === 'inbound' || t === 'outbound') {
+      const status = (a.status || '').toLowerCase();
+      return status === 'complete' || status === 'answered';
+    }
+    return t === 'bda activity' || t === 'application status' || t === 'conversion call';
+  });
 
   const selectedAssoc = associates.find(a => a.emp_number === selectedEmp);
   const selectedLeadObj = leads.find(l => l.prospect_id === selectedLead);
 
-  const handleScanAll = async () => {
-    setScanning(true);
-    setScanResult(null);
-    try {
-      const result = await scanAll();
-      setScanResult(result.summary || result);
-    } catch (err) {
-      console.error('Scan All failed:', err);
-      setScanResult({ error: err.message });
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  const handleMeetSync = async () => {
-    setSyncingMeet(true);
-    setScanResult(null);
-    try {
-      const res = await triggerMeetSync();
-      setScanResult({ message: `Meet Sync: ${res.results.processed} processed, ${res.results.skipped} skipped.` });
-    } catch (err) {
-      console.error('Meet Sync failed:', err);
-      setScanResult({ error: err.message });
-    } finally {
-      setSyncingMeet(false);
-    }
-  };
 
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] gap-6">
 
-      {/* Automation Bar */}
-      <Card className="shadow-sm">
+
+      {/* Team Selection Toolbar */}
+      <Card className="flex-shrink-0 shadow-sm z-10">
         <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
-            <div className="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-full">
-              <Zap className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm">Auto-Scan Pipeline</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Scan all associates → leads → queue all recordings to ASR + QC</p>
-            </div>
+          <div className="flex items-center gap-3 flex-1 min-w-[300px]">
+             <span className="text-sm font-medium text-muted-foreground">QC Team Associate:</span>
+             <Select value={selectedEmp || ""} onValueChange={selectAssociate}>
+               <SelectTrigger className="w-[300px] h-9">
+                 <SelectValue placeholder="Select an associate..." />
+               </SelectTrigger>
+               <SelectContent>
+                 {associates.map(a => (
+                   <SelectItem key={a.emp_number} value={a.emp_number}>
+                     {a.emp_name} ({a.emp_number})
+                   </SelectItem>
+                 ))}
+                 {associates.length === 0 && (
+                   <SelectItem value="" disabled>No associates tracked</SelectItem>
+                 )}
+               </SelectContent>
+             </Select>
+             
+             {selectedEmp && (
+               <Button variant="ghost" size="icon" onClick={() => handleRemove(selectedEmp)} className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Remove tracking for this associate">
+                 <Trash2 className="w-4 h-4" />
+               </Button>
+             )}
           </div>
-          <div className="flex items-center gap-3">
-            {scanResult && !scanResult.error && (
-              <div className="flex items-center gap-4 text-xs mr-4 bg-muted px-3 py-1.5 rounded-md">
-                <span className="flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  {scanResult.associates_scanned} associates
-                </span>
-                <span className="text-muted-foreground">{scanResult.leads_found} leads</span>
-                <span className="font-medium text-emerald-600">{scanResult.calls_queued} queued</span>
-                {scanResult.calls_skipped > 0 && (
-                  <span className="text-muted-foreground">{scanResult.calls_skipped} skipped</span>
-                )}
-              </div>
-            )}
-            {scanResult?.error && (
-              <span className="text-xs text-destructive mr-4">{scanResult.error}</span>
-            )}
-            <Button
-              onClick={handleScanAll}
-              disabled={scanning || syncingMeet}
-              className="gap-2"
-            >
-              {scanning ? (
-                <><RefreshCw className="w-4 h-4 animate-spin" /> Scanning...</>
-              ) : (
-                <><Zap className="w-4 h-4" /> Scan All</>
-              )}
+          
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={handleSyncClick} disabled={syncing} className="gap-2 h-9">
+               <RefreshCw className={cn("w-4 h-4", syncing && "animate-spin")} />
+               Manage / Sync Team
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleMeetSync}
-              disabled={scanning || syncingMeet}
-              className="gap-2"
-            >
-              {syncingMeet ? (
-                <><RefreshCw className="w-4 h-4 animate-spin" /> Syncing...</>
-              ) : (
-                <><Play className="w-4 h-4" /> Sync Meet</>
-              )}
-            </Button>
+            
+            <Dialog open={showSyncModal} onOpenChange={setShowSyncModal}>
+              <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[85vh] flex flex-col overflow-hidden p-0">
+                <DialogHeader className="px-6 py-4 border-b bg-muted/30 flex-shrink-0">
+                  <DialogTitle className="flex items-center gap-2 text-xl">
+                    <Users className="w-5 h-5 text-primary" />
+                    Select Associates to Track
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="flex-1 overflow-y-auto p-0 min-h-0">
+                  <Table className="w-full">
+                    <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
+                      <TableRow>
+                        <TableHead className="px-6 w-[35%]">Name</TableHead>
+                        <TableHead className="w-[35%]">Role / Groups</TableHead>
+                        <TableHead className="w-[15%]">Language</TableHead>
+                        <TableHead className="text-right px-6 w-[15%]">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {syncedList.map((emp) => {
+                        const isAdded = associates.some(a => a.emp_number === emp.emp_number);
+                        const empLang = syncLanguages[emp.emp_number] || 'hi';
+                        return (
+                          <TableRow key={emp.emp_number}>
+                            <TableCell className="px-6 font-medium whitespace-nowrap">{emp.emp_name}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate" title={emp.emp_tags}>{emp.emp_tags}</TableCell>
+                            <TableCell>
+                              <Select
+                                disabled={isAdded}
+                                value={empLang}
+                                onValueChange={(val) => setSyncLanguages({...syncLanguages, [emp.emp_number]: val})}
+                              >
+                                <SelectTrigger className="w-[120px] h-8 text-xs">
+                                  <SelectValue placeholder="Language" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="hi">Hindi</SelectItem>
+                                  <SelectItem value="ta">Tamil</SelectItem>
+                                  <SelectItem value="kn">Kannada</SelectItem>
+                                  <SelectItem value="te">Telugu</SelectItem>
+                                  <SelectItem value="ml">Malayalam</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell className="text-right px-6">
+                              <Button
+                                size="sm"
+                                disabled={isAdded}
+                                onClick={() => handleAddAssociate(emp)}
+                                variant={isAdded ? "secondary" : "default"}
+                                className="h-8 gap-1.5"
+                              >
+                                {isAdded ? 'Added' : <><Plus className="w-3 h-3" /> Add</>}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </CardContent>
       </Card>
 
       <div className="flex flex-col md:flex-row flex-1 gap-6 min-h-0">
-        
-        {/* Panel 1: Associates Sidebar */}
-        <Card className={cn(
-          "flex-shrink-0 flex flex-col min-h-0 transition-all duration-300 relative shadow-sm",
-          sidebarOpen ? "w-full md:w-[320px]" : "w-full md:w-[80px] items-center"
-        )}>
-          {/* Toggle Button */}
-          <Button 
-            variant="outline"
-            size="icon"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="absolute -right-4 top-6 z-10 w-8 h-8 rounded-full hidden md:flex shadow-sm bg-background"
-            title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            <ArrowRight className={cn("w-4 h-4 transition-transform duration-300", sidebarOpen ? "rotate-180" : "")} />
-          </Button>
-
-          <CardHeader className={cn("pb-4", sidebarOpen ? "" : "px-2")}>
-            <div className={cn("flex items-center", sidebarOpen ? "justify-between w-full" : "justify-center")}>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-primary" />
-                {sidebarOpen && "QC Team"}
-              </CardTitle>
-              {sidebarOpen && (
-                <Badge variant="secondary">{associates.length}</Badge>
-              )}
-            </div>
-          </CardHeader>
-          
-          <CardContent className="flex flex-col flex-1 min-h-0 p-4 pt-0 gap-4">
-            {sidebarOpen ? (
-              <>
-              <Button 
-                variant="outline"
-                className="w-full gap-2"
-                onClick={handleSyncClick} 
-                disabled={syncing}
-              >
-                <RefreshCw className={cn("w-4 h-4", syncing && "animate-spin")} />
-                {syncing ? 'Syncing...' : 'Add / Sync Associate'}
-              </Button>
-              <Dialog open={showSyncModal} onOpenChange={setShowSyncModal}>
-                
-                <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0">
-                  <DialogHeader className="px-6 py-4 border-b bg-muted/30">
-                    <DialogTitle className="flex items-center gap-2 text-xl">
-                      <Users className="w-5 h-5 text-primary" />
-                      Select Associates to Track
-                    </DialogTitle>
-                  </DialogHeader>
-                  <ScrollArea className="flex-1 p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="px-6">Name</TableHead>
-                          <TableHead>Role / Groups</TableHead>
-                          <TableHead>Language</TableHead>
-                          <TableHead className="text-right px-6">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {syncedList.map((emp) => {
-                          const isAdded = associates.some(a => a.emp_number === emp.emp_number);
-                          const empLang = syncLanguages[emp.emp_number] || 'hi';
-                          return (
-                            <TableRow key={emp.emp_number}>
-                              <TableCell className="px-6 font-medium">{emp.emp_name}</TableCell>
-                              <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate" title={emp.emp_tags}>{emp.emp_tags}</TableCell>
-                              <TableCell>
-                                <Select
-                                  disabled={isAdded}
-                                  value={empLang}
-                                  onValueChange={(val) => setSyncLanguages({...syncLanguages, [emp.emp_number]: val})}
-                                >
-                                  <SelectTrigger className="w-[120px] h-8 text-xs">
-                                    <SelectValue placeholder="Language" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="hi">Hindi</SelectItem>
-                                    <SelectItem value="ta">Tamil</SelectItem>
-                                    <SelectItem value="kn">Kannada</SelectItem>
-                                    <SelectItem value="te">Telugu</SelectItem>
-                                    <SelectItem value="ml">Malayalam</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </TableCell>
-                              <TableCell className="text-right px-6">
-                                <Button
-                                  size="sm"
-                                  disabled={isAdded}
-                                  onClick={() => handleAddAssociate(emp)}
-                                  variant={isAdded ? "secondary" : "default"}
-                                  className="h-8 gap-1.5"
-                                >
-                                  {isAdded ? 'Added' : <><Plus className="w-3 h-3" /> Add</>}
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                </DialogContent>
-              </Dialog>
-              </>
-            ) : (
-              <Button 
-                variant="outline"
-                size="icon"
-                onClick={handleSyncClick} 
-                disabled={syncing}
-                title="Sync LeadSquared"
-              >
-                <RefreshCw className={cn("w-4 h-4", syncing && "animate-spin")} />
-              </Button>
-            )}
-
-            <ScrollArea className="flex-1 -mx-1 px-1">
-              <div className="space-y-2">
-                {associates.map((a) => (
-                  <div
-                    key={a.emp_number}
-                    onClick={() => selectAssociate(a.emp_number)}
-                    title={!sidebarOpen ? a.emp_name : ""}
-                    className={cn(
-                      "group rounded-lg border cursor-pointer transition-all duration-200 flex items-center",
-                      sidebarOpen ? "p-3" : "p-2 justify-center aspect-square",
-                      selectedEmp === a.emp_number 
-                        ? "border-primary bg-primary/5 shadow-sm" 
-                        : "border-transparent hover:border-border hover:bg-muted"
-                    )}
-                  >
-                    {sidebarOpen ? (
-                      <div className="flex justify-between items-start w-full">
-                        <div className="min-w-0">
-                          <div className={cn("font-medium text-sm truncate", selectedEmp === a.emp_number ? "text-primary" : "")}>
-                            {a.emp_name}
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-0.5 truncate">
-                            {a.emp_number}
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10 -mr-1 -mt-1"
-                          onClick={(e) => { e.stopPropagation(); handleRemove(a.emp_number); }}
-                          title="Remove"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className={cn(
-                        "font-bold text-sm w-8 h-8 rounded-full flex items-center justify-center uppercase",
-                        selectedEmp === a.emp_number ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground group-hover:text-foreground"
-                      )}>
-                        {a.emp_name.charAt(0)}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {associates.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground text-sm">
-                    {sidebarOpen ? <><span className="block mb-1">No associates tracked.</span>Sync from LeadSquared to start.</> : "-"}
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
         {/* Panel 2: Leads for selected Associate */}
         <Card className="w-full md:w-[320px] flex-shrink-0 flex flex-col min-h-0 shadow-sm">
           <CardHeader className="pb-4">
@@ -465,12 +350,27 @@ export default function TeamQC({ onPushToQueue }) {
                     No leads found in "New Lead" stage for this associate.
                   </div>
                 ) : (
-                  leads.map((l) => (
+                  [...leads]
+                    .sort((a, b) => {
+                      const ca = leadActivityCounts[a.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
+                      const cb = leadActivityCounts[b.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
+                      // Sort: knet > meetings > calls
+                      if (cb.knet !== ca.knet) return cb.knet - ca.knet;
+                      if (cb.meetings !== ca.meetings) return cb.meetings - ca.meetings;
+                      return cb.calls - ca.calls;
+                    })
+                    .filter(l => {
+                      const c = leadActivityCounts[l.prospect_id];
+                      return c && c.calls > 0;
+                    })
+                    .map((l) => {
+                    const c = leadActivityCounts[l.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
+                    return (
                     <div
                       key={l.prospect_id}
                       onClick={() => selectLead(l.prospect_id)}
                       className={cn(
-                        "p-3 rounded-lg border cursor-pointer transition-all duration-200",
+                        "p-3 rounded-lg border cursor-pointer transition-all duration-200 relative",
                         selectedLead === l.prospect_id 
                           ? "border-primary bg-primary/5 shadow-sm" 
                           : "border-border hover:bg-muted/50"
@@ -483,8 +383,27 @@ export default function TeamQC({ onPushToQueue }) {
                           {l.source}
                         </span>
                       </div>
+                      
+                      <div className="flex items-center gap-1.5 absolute top-2.5 right-3">
+                        {c.calls > 0 && (
+                          <Badge className="bg-blue-500 hover:bg-blue-600 text-[10px] px-1.5 py-0">
+                            {c.calls} Calls
+                          </Badge>
+                        )}
+                        {c.meetings > 0 && (
+                          <Badge className="bg-purple-500 hover:bg-purple-600 text-[10px] px-1.5 py-0">
+                            Meeting
+                          </Badge>
+                        )}
+                        {c.knet > 0 && (
+                          <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[10px] px-1.5 py-0">
+                            Knet ✓
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </ScrollArea>
@@ -518,76 +437,123 @@ export default function TeamQC({ onPushToQueue }) {
               </div>
             ) : filteredActivities.length === 0 ? (
               <div className="flex justify-center items-center h-full text-sm text-muted-foreground border-t">
-                No completed phone call activities found for this lead.
+                No activities found for this lead.
               </div>
             ) : (
-              <ScrollArea className="flex-1 border-t">
-                <Table>
-                  <TableHeader className="bg-muted/50 sticky top-0">
-                    <TableRow>
-                      <TableHead className="whitespace-nowrap px-6">Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Audio</TableHead>
-                      <TableHead className="text-right px-6">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredActivities.map((a) => (
-                      <TableRow key={a.activity_id}>
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap px-6">
-                          {new Date(a.created_on).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={a.type === 'Outbound' ? 'default' : 'secondary'} className="text-[10px] font-semibold tracking-wide uppercase">
-                            {a.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <Clock className="w-3.5 h-3.5 opacity-70" />
-                            {formatDuration(a.duration)}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-xs capitalize">
-                          {a.status}
-                        </TableCell>
-                        <TableCell>
-                          {a.resource_url ? (
-                            <a href={a.resource_url} target="_blank" rel="noreferrer"
-                              className="inline-flex items-center gap-1.5 text-primary hover:text-primary/80 text-xs font-medium bg-primary/10 px-2 py-1 rounded-md transition-colors">
-                              <Play className="w-3 h-3 fill-current" /> Play
-                            </a>
-                          ) : (
-                            <span className="text-xs text-muted-foreground opacity-50">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right px-6">
-                          {a.resource_url && a.duration > 60 ? (
-                            <Button
-                              size="sm"
-                              onClick={() => handlePushToQC(a)}
-                              disabled={pushingId === a.activity_id}
-                              className="h-8 text-xs gap-1"
-                            >
-                              {pushingId === a.activity_id ? (
-                                <><RefreshCw className="w-3 h-3 animate-spin" /> Pushing</>
-                              ) : (
-                                <>Push <ArrowRight className="w-3 h-3" /></>
+              <div className="flex-1 overflow-y-auto border-t bg-muted/5">
+                <div className="p-6 space-y-4">
+                  {filteredActivities.map((a) => (
+                    <div key={a.activity_id} className="relative pl-8 before:absolute before:left-[15px] before:top-2 before:bottom-[-32px] last:before:hidden before:w-[2px] before:bg-border group">
+                      <div className="absolute left-0 top-1.5 w-[32px] h-[32px] rounded-full bg-background border-2 border-primary/20 flex items-center justify-center shadow-sm z-10 group-hover:border-primary group-hover:scale-110 transition-all">
+                        {a.type === 'Conversion call' ? (
+                          <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                        ) : a.type === 'Inbound' || a.type === 'Outbound' ? (
+                          <PhoneCall className="w-4 h-4 text-primary" />
+                        ) : (
+                          <div className="w-2.5 h-2.5 rounded-full bg-slate-400" />
+                        )}
+                      </div>
+                      
+                      <Card className="shadow-sm border border-border/50 hover:shadow-md transition-shadow bg-background">
+                        <CardHeader className="py-3 px-4 flex flex-row items-center justify-between space-y-0 bg-muted/20 border-b border-border/50">
+                          <div>
+                            <CardTitle className="text-sm font-semibold flex items-center gap-2 flex-wrap">
+                              {a.type}
+                              {a.type === 'Conversion call' && a.resource_url && (
+                                <Badge variant="secondary" className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200 text-[10px] h-5">
+                                  Demo Conducted ✓
+                                </Badge>
                               )}
-                            </Button>
-                          ) : a.resource_url ? (
-                            <Badge variant="outline" className="text-[10px] text-muted-foreground bg-muted/50">Too short</Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No Audio</span>
+                              {a.type === 'Conversion call' && !a.resource_url && (
+                                <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200 text-[10px] h-5">
+                                  Conversion Call
+                                </Badge>
+                              )}
+                              {a.data && (String(a.data.ApplicationPaymentStatus || a.data['Application Payment Status'] || a.data.mx_Custom_16 || '').toLowerCase() === 'completed') && (
+                                <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border-emerald-200 text-[10px] h-5">
+                                  Knet Registered
+                                </Badge>
+                              )}
+                            </CardTitle>
+                            <CardDescription className="text-xs mt-1 text-foreground/70">
+                              {new Date(a.created_on).toLocaleString()}
+                            </CardDescription>
+                          </div>
+                          
+                          {/* Action Button for Audio/Meet calls */}
+                          {(a.type === 'Inbound' || a.type === 'Outbound' || a.type === 'Conversion call') && a.resource_url && (
+                            <div className="flex flex-col items-end gap-2">
+                              <Button
+                                size="sm"
+                                variant={a.type === 'Conversion call' ? 'outline' : 'default'}
+                                className="h-8 shadow-sm text-xs gap-1.5"
+                                onClick={() => {
+                                  if (a.type === 'Conversion call') {
+                                    window.open(a.resource_url, '_blank');
+                                  } else {
+                                    handlePushToQC(a);
+                                  }
+                                }}
+                                disabled={pushingId === a.activity_id || (a.type !== 'Conversion call' && a.duration < 60)}
+                              >
+                                {pushingId === a.activity_id ? (
+                                  <><RefreshCw className="w-3 h-3 animate-spin" /> Pushing</>
+                                ) : a.type === 'Conversion call' ? (
+                                  <><Play className="w-3 h-3" /> View Recording</>
+                                ) : (
+                                  <>Push <ArrowRight className="w-3 h-3" /></>
+                                )}
+                              </Button>
+                            </div>
                           )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+                        </CardHeader>
+                        <CardContent className="py-3 px-4 text-sm flex flex-col gap-2">
+                          <div className="flex flex-wrap gap-x-6 gap-y-2">
+                            {a.status && (
+                              <div className="flex flex-col">
+                                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Status</span>
+                                <span className="font-medium capitalize text-sm">{a.status}</span>
+                              </div>
+                            )}
+                            {a.duration > 0 && (
+                              <div className="flex flex-col">
+                                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Duration</span>
+                                <span className="font-medium text-sm flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5 opacity-70" />
+                                  {formatDuration(a.duration)}
+                                </span>
+                              </div>
+                            )}
+                            {a.caller && (
+                              <div className="flex flex-col">
+                                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Agent</span>
+                                <span className="font-medium text-sm">{a.caller}</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Raw Data Attributes for non-call events */}
+                          {a.data && Object.keys(a.data).length > 0 && a.type !== 'Inbound' && a.type !== 'Outbound' && (
+                            <div className="mt-2 p-3 bg-muted/40 rounded-md border border-border/50 grid grid-cols-2 gap-3">
+                              {Object.entries(a.data)
+                                .filter(([k,v]) => v && k !== 'ActivityType' && k !== 'Duration' && k !== 'CallType' && k !== 'Conversioncallstatus' && k !== 'ResourceUrl' && k !== 'ResourceURL')
+                                .slice(0, 8)
+                                .map(([key, value]) => (
+                                <div key={key} className="flex flex-col truncate">
+                                  <span className="text-[10px] text-muted-foreground font-semibold tracking-wider uppercase truncate">
+                                    {key.replace(/mx_Custom_/, '').replace(/([A-Z])/g, ' $1').trim()}
+                                  </span>
+                                  <span className="font-medium text-sm truncate" title={String(value)}>{String(value)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

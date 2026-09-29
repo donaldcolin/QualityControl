@@ -2,6 +2,7 @@ const { google } = require('googleapis');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const supabase = require('../config/supabase');
 
 const GOOGLE_KEY_FILE = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.join(__dirname, '..', 'config', 'credentials.json');
 const TOP_LEVEL_FOLDER_ID = process.env.DRIVE_FOLDER_ID;
@@ -79,16 +80,28 @@ async function scanFolderForTranscripts(folderId, folderPath = "") {
 
 async function processTranscript(file) {
     try {
-        const match = file.name.match(/(?:Lead|#)\s*(\d+)/i);
+        // Extract 10-12 digit phone number (e.g. from "( 9994336681 )" or just "9994336681")
+        const match = file.name.match(/\(\s*(\d{10,12})\s*\)/) || file.name.match(/(\d{10,12})/);
         
         if (!match) {
-            console.log(`⚠️ Skipped: Could not find a Lead Number in title: "${file.name}"`);
+            console.log(`⚠️ Skipped: Could not find a Phone Number in title: "${file.name}"`);
             markAsProcessed(file.id);
             return false; 
         }
 
-        const leadNumber = match[1];
-        console.log(`✅ Extracted Lead Number ${leadNumber} from title "${file.name}"`);
+        const phoneNumber = match[1];
+        console.log(`✅ Extracted Phone Number ${phoneNumber} from title "${file.name}"`);
+
+        // Look up the prospect_id in the database
+        const { data: rows, error } = await supabase.from('leads').select('id').like('phone', `%${phoneNumber}%`).limit(1);
+        if (error || !rows || rows.length === 0) {
+            console.log(`⚠️ Skipped: Could not find a lead with phone number matching ${phoneNumber} in database.`);
+            markAsProcessed(file.id);
+            return false;
+        }
+
+        const leadNumber = rows[0].id;
+        console.log(`✅ Mapped Phone ${phoneNumber} to Prospect ID ${leadNumber}`);
 
         const exportResponse = await drive.files.export({
             fileId: file.id,

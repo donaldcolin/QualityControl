@@ -43,6 +43,20 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  Gemini Schema Key Sanitizer
+//  Gemini structured output requires property names to be valid
+//  identifiers: ^[a-zA-Z_][a-zA-Z0-9_]*$
+// ═══════════════════════════════════════════════════════════════
+function sanitizeKey(name) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')    // Replace non-alphanumeric with _
+    .replace(/^_+|_+$/g, '')         // Trim leading/trailing underscores
+    .replace(/_+/g, '_')             // Collapse consecutive underscores
+    || 'param';                      // Fallback
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  Global Context Definition
 // ═══════════════════════════════════════════════════════════════
 function getKalviumContext(source, leadState = null) {
@@ -60,10 +74,29 @@ CRITICAL SALES CYCLE RULES:
 4. INTERVIEW: If they pass the exam, they attend an interview (they only get ONE chance).
 5. PROVISIONAL ADMISSION: If they pass the interview, they pay 10% of the total university fees to secure provisional admission.
 
-You must judge the associate based on where they are in this cycle (e.g. do not penalize a phone call for not collecting registration fees).`;
+You must judge the associate based on where they are in this cycle.`;
 
-  if (leadState && leadState.ProspectStage) {
-    ctx += `\n\nCURRENT LEAD STAGE: This prospect is currently in the CRM stage "${leadState.ProspectStage}". Use this to correctly identify their position in the cycle!`;
+  if (source !== 'google_meet') {
+    ctx += `\n\nEXPECTED CALL STRUCTURE (1:1 COUNSELLING BOOKING CALL):
+1. Warm Opening: Greet, establish context (e.g., School Outreach or Website Lead), ask about 12th Std stream, and check if they know Kalvium.
+2. Probing and Aligning: Understand their current college search status, post-12th plans, and if they are preparing for JEE.
+3. Understand Priorities: Ask what is most important (academics, placements, fees, safety) and identify the final decision maker.
+4. Introduce Kalvium: Explain that it's a 4-year on-campus B.Tech CSE where academic learning is combined with practical real-world projects and industry exposure, differentiating it from theory-heavy traditional colleges.
+5. Why connect early?: Explain that KNET entrance is in December, and this gives them time to plan without rushing.
+6. Create Need for 1:1 Counselling: Pitch the session as a customized discussion about their career, KNET syllabus, and fees, involving both the student and parents.
+7. University Structure (If asked): Explain they choose location first, and pick specific university later.
+8. Book the Counselling: Offer TWO specific time slots.
+9. Close: Recap value and mention a WhatsApp confirmation will be sent.
+Evaluate the associate's adherence to this flow.`;
+  }
+
+  if (leadState) {
+    ctx += `\n\nCURRENT LEAD STATUS & HISTORY:`;
+    if (leadState.kalvium_funnel_stage) ctx += `\n- Funnel Stage: ${leadState.kalvium_funnel_stage}`;
+    if (leadState.next_process_step) ctx += `\n- Next Scheduled Activity: ${leadState.next_process_step}`;
+    if (leadState.journey_summary) ctx += `\n- CRM Journey Summary (Past Calls): ${leadState.journey_summary}`;
+    
+    ctx += `\n\nIMPORTANT: The CRM "Lead Stage" might statically say "New Lead", so you MUST rely on the Funnel Stage, Next Activity, and Journey Summary above to determine where they actually are in the sales cycle. Do NOT penalize the associate for skipping introductory steps if the Journey Summary proves the customer already completed them!`;
   }
   
   return ctx;
@@ -117,14 +150,42 @@ async function getPastCalls(prospectId) {
     console.error("Failed to fetch past calls:", error.message);
     return [];
   }
-  return data || [];
+  const calls = data || [];
+
+  // Enrich calls with evaluation_runs data (insights_data, summary_data)
+  // so the prompt builder has full prior analysis context
+  if (calls.length > 0) {
+    const callIds = calls.map(c => c.id);
+    const { data: evals } = await supabase
+      .from('evaluation_runs')
+      .select('call_id, results')
+      .in('call_id', callIds)
+      .order('created_at', { ascending: false });
+
+    if (evals) {
+      const evalMap = {};
+      evals.forEach(e => {
+        if (!evalMap[e.call_id]) evalMap[e.call_id] = e; // latest only
+      });
+      calls.forEach(c => {
+        const ev = evalMap[c.id];
+        if (ev && ev.results) {
+          c.insights_data = c.insights_data || ev.results.insights_data;
+          c.summary_data = c.summary_data || ev.results.summary_data;
+        }
+      });
+    }
+  }
+
+  return calls;
 }
+
 
 async function getLeadState(prospectId) {
   if (!prospectId) return null;
   const { data, error } = await supabase
     .from('leads')
-    .select('journey_summary, intent_score, bant_insights, data_capture')
+    .select('journey_summary, intent_score, bant_insights, data_capture, kalvium_funnel_stage, next_process_step')
     .eq('id', prospectId)
     .single();
   if (error) return null;
@@ -136,17 +197,7 @@ async function getLeadState(prospectId) {
 // ═══════════════════════════════════════════════════════════════
 
 function getInsightsSchema(dataCaptureQuestions) {
-  // Build dynamic data_capture properties from the questions
-  const dataCaptureProps = {};
-  dataCaptureQuestions.forEach(q => {
-    dataCaptureProps[q.label] = {
-      type: 'object',
-      properties: {
-        answer: { type: 'string', description: `Answer to: ${q.question}` },
-        evidence: { type: 'string', description: 'Evidence from the transcript supporting this answer' }
-      }
-    };
-  });
+  // (dataCaptureProps variable unused, removed)
 
   return {
     type: 'object',
@@ -181,17 +232,30 @@ function getInsightsSchema(dataCaptureQuestions) {
           bant: {
             type: 'object',
             properties: {
-              budget: { type: 'string', description: 'What was discussed about budget/financial constraints' },
-              authority: { type: 'string', description: 'Who is the decision maker and their role' },
-              needs: { type: 'string', description: 'What are the customer/student needs and requirements' },
-              timeline: { type: 'string', description: 'What is the timeline for making a decision' }
+              budget: { type: 'object', properties: { status: { type: 'string', enum: ['Qualified', 'Unqualified', 'Uncertain'] }, details: { type: 'string' } } },
+              authority: { type: 'object', properties: { status: { type: 'string', enum: ['Qualified', 'Unqualified', 'Uncertain'] }, details: { type: 'string' } } },
+              needs: { type: 'object', properties: { status: { type: 'string', enum: ['Qualified', 'Unqualified', 'Uncertain'] }, details: { type: 'string' } } },
+              timeline: { type: 'object', properties: { status: { type: 'string', enum: ['Qualified', 'Unqualified', 'Uncertain'] }, details: { type: 'string' } } }
             },
             description: 'BANT analysis extracted from the conversation'
           },
           data_capture: {
             type: 'object',
-            properties: dataCaptureProps,
-            description: 'Answers to specific data capture questions'
+            properties: {
+              missing_mandatory_fields: { type: 'array', items: { type: 'string' }, description: 'List of expected fields that were NOT captured' },
+              extracted_fields: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    field: { type: 'string', description: 'The name of the field captured' },
+                    value: { type: 'string', description: 'The value captured' },
+                    confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] }
+                  }
+                }
+              }
+            },
+            description: `Answers to specific data capture questions. Expected fields: ${dataCaptureQuestions.map(q => q.label).join(', ')}`
           },
           conversation_topics: {
             type: 'array',
@@ -247,51 +311,102 @@ function getInsightsSchema(dataCaptureQuestions) {
 function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls, leadState) {
   const role = source === 'google_meet' ? 'Expert Video Demo Analyst' : 'Expert Sales Call Analyst';
   const context = getKalviumContext(source, leadState);
+  const callNumber = (pastCalls?.length || 0) + 1;
 
   let prompt = `You are an ${role}. You are analyzing ${context}.\n\n`;
 
-  // Inject past call context if available
+  // ── Multi-call awareness header ──────────────────────────────────────
+  if (callNumber > 1) {
+    prompt += `⚠️ CRITICAL: This is CALL #${callNumber} for this prospect. You have ${pastCalls.length} previous call(s) below.\n`;
+    prompt += `You MUST analyze this call IN CONTEXT of the full journey. A short follow-up call does NOT mean low intent — it may be a scheduling call or status check.\n`;
+    prompt += `Your INTENT SCORE must reflect the CUMULATIVE journey, not just this single call.\n\n`;
+  }
+
+  // ── Inject rich past call context ────────────────────────────────────
   if (pastCalls && pastCalls.length > 0) {
     prompt += `=== PREVIOUS CALLS FOR THIS PROSPECT (${pastCalls.length} calls) ===\n`;
     pastCalls.forEach((pc, i) => {
       const summary = pc.summary_data ? (typeof pc.summary_data === 'string' ? JSON.parse(pc.summary_data) : pc.summary_data) : null;
-      prompt += `--- Call ${i + 1} (${pc.source || 'phone_call'}) ---\n`;
+      const insights = pc.insights_data ? (typeof pc.insights_data === 'string' ? JSON.parse(pc.insights_data) : pc.insights_data) : null;
+      prompt += `--- Call ${i + 1} (${pc.source || 'phone_call'}, ${pc.duration_sec ? Math.round(pc.duration_sec / 60) + ' min' : 'unknown duration'}) ---\n`;
       if (summary && summary.call_summary) {
-        prompt += summary.call_summary.join('\n') + '\n';
+        prompt += `Summary: ${summary.call_summary.join(' | ')}\n`;
+      }
+      if (summary && summary.key_points) {
+        prompt += `Key Points: ${summary.key_points.join(' | ')}\n`;
+      }
+      if (insights) {
+        if (insights.intent_score != null) prompt += `Intent Score: ${insights.intent_score}/100\n`;
+        if (insights.objections && insights.objections.length > 0) {
+          prompt += `Objections Raised: ${insights.objections.map(o => `${o.category}: "${o.objection}" (${o.customer_satisfied ? 'resolved' : 'unresolved'})`).join('; ')}\n`;
+        }
+      }
+      if (pc.call_quality_score != null) {
+        prompt += `Call Quality: ${pc.call_quality_score}/100\n`;
       }
       prompt += '\n';
     });
   }
 
-  if (leadState && leadState.journey_summary) {
-    prompt += `=== PREVIOUS JOURNEY SUMMARY ===\n${leadState.journey_summary}\n\n`;
+  // ── Inject existing lead state (accumulated data from all prior calls) ──
+  if (leadState) {
+    if (leadState.journey_summary) {
+      prompt += `=== PREVIOUS JOURNEY SUMMARY (accumulated across all prior calls) ===\n${leadState.journey_summary}\n\n`;
+    }
+    if (leadState.intent_score != null) {
+      prompt += `=== CURRENT LEAD INTENT SCORE: ${leadState.intent_score}/100 ===\n\n`;
+    }
+    if (leadState.bant_insights) {
+      prompt += `=== CURRENT BANT STATUS ===\n`;
+      for (const [dim, val] of Object.entries(leadState.bant_insights)) {
+        if (val) prompt += `- ${dim}: ${val.status} — ${val.details}\n`;
+      }
+      prompt += '\n';
+    }
+    if (leadState.data_capture) {
+      const captured = leadState.data_capture.extracted_fields || [];
+      const missing = leadState.data_capture.missing_mandatory_fields || [];
+      if (captured.length > 0) {
+        prompt += `=== ALREADY CAPTURED DATA (from prior calls — do NOT mark these as missing) ===\n`;
+        captured.forEach(f => { prompt += `- ${f.field}: ${f.value} (${f.confidence} confidence)\n`; });
+        prompt += '\n';
+      }
+      if (missing.length > 0) {
+        prompt += `=== STILL MISSING DATA FIELDS: ${missing.join(', ')} ===\n\n`;
+      }
+    }
   }
 
-  prompt += `=== CURRENT CALL TRANSCRIPT ===\n${transcript}\n\n`;
+  prompt += `=== CURRENT CALL TRANSCRIPT (Call #${callNumber}) ===\n${transcript}\n\n`;
 
   prompt += `=== YOUR TASKS ===\n`;
-  prompt += `1. Calculate an INTENT SCORE (0-100) based on the customer's buying signals.\n`;
-  prompt += `2. List specific HIGH INTENT FACTORS — things the customer said/did that show genuine interest.\n`;
-  prompt += `3. List specific LOW INTENT FACTORS — hesitations, concerns, red flags.\n`;
-  prompt += `4. Identify all OBJECTIONS raised by the customer. For each objection:\n`;
+  prompt += `1. Calculate an INTENT SCORE (0-100) based on the customer's buying signals ACROSS THE ENTIRE JOURNEY (all calls including this one).\n`;
+  if (callNumber > 1) {
+    prompt += `   IMPORTANT: Consider the trajectory. If previous calls showed high intent (e.g. ${leadState?.intent_score || 'N/A'}/100) and this call is just a short scheduling/follow-up call, the intent should remain similar or slightly adjusted — NOT drop to near zero.\n`;
+    prompt += `   Conversely, if the customer explicitly says they're not interested anymore, intent SHOULD drop significantly.\n`;
+  }
+  prompt += `2. List specific HIGH INTENT FACTORS — things the customer said/did that show genuine interest (include factors from THIS call only).\n`;
+  prompt += `3. List specific LOW INTENT FACTORS — hesitations, concerns, red flags (from THIS call only).\n`;
+  prompt += `4. Identify all OBJECTIONS raised by the customer IN THIS CALL. For each objection:\n`;
   prompt += `   - Categorize it (e.g., "Exam Difficulty", "Parental Consent", "Alternative Career")\n`;
   prompt += `   - Describe what the customer said\n`;
   prompt += `   - Describe how the salesperson handled it\n`;
   prompt += `   - Note if the customer was satisfied with the response\n`;
-  prompt += `5. Extract BANT (Budget, Authority, Needs, Timeline) from the conversation.\n`;
-  prompt += `6. Answer the following DATA CAPTURE QUESTIONS:\n`;
+  prompt += `5. Extract BANT (Budget, Authority, Needs, Timeline) — update based on any NEW information from this call. If nothing new was discussed for a dimension, return the same status as before.\n`;
+  prompt += `6. Answer the following DATA CAPTURE QUESTIONS (only extract NEW information from THIS call — already captured data is listed above):\n`;
   dataCaptureQuestions.forEach(q => {
     prompt += `   - ${q.label}: ${q.question}\n`;
   });
-  prompt += `7. Identify the main CONVERSATION TOPICS discussed.\n`;
-  prompt += `8. Write a comprehensive CALL SUMMARY with key points and main takeaways.\n`;
-  prompt += `9. Update the JOURNEY SUMMARY to include insights from all previous calls plus this one.\n`;
+  prompt += `7. Identify the main CONVERSATION TOPICS discussed IN THIS CALL.\n`;
+  prompt += `8. Write a comprehensive CALL SUMMARY with key points and main takeaways FOR THIS CALL.\n`;
+  prompt += `9. Write an updated JOURNEY SUMMARY that incorporates insights from ALL ${callNumber} calls. This must be a complete, rolling narrative covering the entire prospect journey from the first call to now. Include: what was discussed, what was promised, what objections were raised and how they were handled, what commitments were made (e.g., "ES said he will join the meeting"), and whether those commitments were kept.\n`;
   prompt += `10. Suggest concrete NEXT STEPS with suggested dialogue and due dates.\n\n`;
 
   prompt += `Be specific and cite evidence from the transcript wherever possible.\n`;
 
   return prompt;
 }
+
 
 // ═══════════════════════════════════════════════════════════════
 //  QUALITY Schema & Prompt (Quality tab)
@@ -300,7 +415,7 @@ function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls
 function getQualitySchema(qualityChecks) {
   const paramProperties = {};
   qualityChecks.forEach(check => {
-    paramProperties[check.parameter] = {
+    paramProperties[sanitizeKey(check.parameter)] = {
       type: 'object',
       properties: {
         score: { type: 'number', description: `Score awarded (0 to ${check.max_score || 10})` },
@@ -452,63 +567,48 @@ function buildCombinedQualityCoachingPrompt(transcript, source, qualityChecks, p
  * JSON schema for the combined quality + coaching single-pass response.
  */
 function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
-  // Quality properties
-  const qualityParamProps = {};
-  qualityChecks.forEach(check => {
-    qualityParamProps[check.parameter] = {
-      type: 'object',
-      properties: {
-        score: { type: 'number', description: `Score (0 to ${check.max_score || 10})` },
-        max_score: { type: 'number', description: `Max score: ${check.max_score || 10}` },
-        status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'] },
-        reason: { type: 'string', description: 'Evidence-based justification' }
-      }
-    };
-  });
-
-  // Per-param coaching pass/fail
-  const coachingParamProps = {};
-  parameters.forEach(param => {
-    coachingParamProps[param.Parameter] = {
-      type: 'object',
-      properties: {
-        status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
-        reason: { type: 'string' }
-      }
-    };
-  });
-
-  // Per-category coaching scores
-  const categories = groupByCategory(parameters);
-  const categoryScoreProps = {};
-  Object.keys(categories).forEach(cat => {
-    categoryScoreProps[cat] = {
-      type: 'object',
-      properties: {
-        score: { type: 'number', description: `Score 0-100 for ${cat}` },
-        grade: { type: 'string', description: 'A, B, C, D, or F' },
-        what_went_well: { type: 'string' },
-        what_went_wrong: { type: 'string' },
-        coach_tip: { type: 'string' }
-      }
-    };
-  });
-
+  // ARRAY-BASED: Instead of 123 named properties (61KB schema that exceeds Gemini's limit),
+  // we use a single array with a 'parameter' name field. Schema is ~1.2KB regardless of param count.
   return {
     type: 'object',
     properties: {
       quality: {
-        type: 'object',
-        properties: qualityParamProps,
-        description: 'Per-parameter quality scores'
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            parameter: { type: 'string', description: 'Exact parameter name from the evaluation list' },
+            score: { type: 'number', description: 'Score awarded (0 to max_score)' },
+            max_score: { type: 'number', description: 'Maximum possible score for this parameter' },
+            status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'] },
+            coaching_status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
+            reason: { type: 'string', description: 'Evidence-based justification citing the transcript' }
+          },
+          required: ['parameter', 'score', 'max_score', 'status', 'coaching_status', 'reason']
+        },
+        description: 'One entry per quality parameter — evaluate ALL parameters from the list'
       },
       coaching_report: {
         type: 'object',
         properties: {
           overall_score: { type: 'number', description: 'Overall score 0-100' },
           overall_grade: { type: 'string', description: 'Letter grade A-F' },
-          summary: { type: 'string', description: 'One paragraph executive summary — top strength and top improvement area' },
-          category_scores: { type: 'object', properties: categoryScoreProps },
+          summary: { type: 'string', description: 'One paragraph executive summary' },
+          category_scores: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                category: { type: 'string', description: 'Category name' },
+                score: { type: 'number', description: 'Score 0-100' },
+                grade: { type: 'string', description: 'A, B, C, D, or F' },
+                what_went_well: { type: 'string' },
+                what_went_wrong: { type: 'string' },
+                coach_tip: { type: 'string' }
+              },
+              required: ['category', 'score', 'grade', 'what_went_well', 'what_went_wrong', 'coach_tip']
+            }
+          },
           top_strengths: { type: 'array', items: { type: 'string' } },
           critical_improvements: { type: 'array', items: { type: 'string' } },
           prescriptive_coaching: {
@@ -516,20 +616,17 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
             items: {
               type: 'object',
               properties: {
-                situation: { type: 'string', description: 'The context or objection raised by the customer.' },
-                what_associate_said: { type: 'string', description: 'Exact quote of what the associate said (which was suboptimal).' },
-                golden_pitch: { type: 'string', description: 'The exact standard pitch/template the associate SHOULD have used.' },
-                why_it_works: { type: 'string', description: 'Why the golden pitch is better for clearing the sale.' }
-              }
+                situation: { type: 'string' },
+                what_associate_said: { type: 'string' },
+                golden_pitch: { type: 'string' },
+                why_it_works: { type: 'string' }
+              },
+              required: ['situation', 'what_associate_said', 'golden_pitch', 'why_it_works']
             },
-            description: 'Provide 2-4 highly targeted prescriptive coaching corrections based on proven templates.'
-          },
-          parameter_evaluations: {
-            type: 'object',
-            properties: coachingParamProps
+            description: 'Provide 2-4 prescriptive coaching corrections based on proven templates.'
           }
         },
-        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'prescriptive_coaching', 'parameter_evaluations']
+        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'prescriptive_coaching']
       }
     },
     required: ['quality', 'coaching_report']
@@ -751,15 +848,23 @@ function triageCall(callData) {
   // Check for high-risk keywords in the transcript to bump to T2 (Real-time)
   const highRiskKeywords = ['guarantee', '100% placement', 'police', 'scam', 'refund', 'court'];
   if (segments && segments.length > 0) {
-    const transcriptText = segments.map(s => s.text || s.text_en || '').join(' ').toLowerCase();
+    let parsedSegments = segments;
+    if (typeof segments === 'string') {
+      try {
+        parsedSegments = JSON.parse(segments);
+      } catch (e) {
+        parsedSegments = [];
+      }
+    }
+    const transcriptText = Array.isArray(parsedSegments) ? parsedSegments.map(s => s.text || s.text_en || '').join(' ').toLowerCase() : '';
     const hasRisk = highRiskKeywords.some(kw => transcriptText.includes(kw));
     if (hasRisk) {
       return { tier: 'T2', valid: true, reason: 'High-risk keyword detected (Compliance Review Required).' };
     }
   }
 
-  // Default to T1 (Batch Evaluation)
-  return { tier: 'T1', valid: true, reason: 'Standard call profile.' };
+  // Default to T2 (Real-time Evaluation) since the user wants instant results
+  return { tier: 'T2', valid: true, reason: 'Standard call profile (Instant Processing Enabled).' };
 }
 
 module.exports = {
@@ -786,5 +891,7 @@ module.exports = {
   buildCoachingPrompt,
   // Intelligence
   getIntelligenceSchema,
-  triageCall
+  triageCall,
+  // Utilities
+  sanitizeKey
 };

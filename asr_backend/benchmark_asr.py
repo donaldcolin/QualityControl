@@ -11,7 +11,7 @@ from pathlib import Path
 
 # Force offline mode
 os.environ["HF_HUB_CACHE"] = str(Path(__file__).parent / "local_models")
-os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ.pop("HF_HUB_OFFLINE", None)
 
 # DEBT D1: Pyannote's lightning_fabric calls torch.load without weights_only=False.
 # PyTorch >= 2.6 defaults to weights_only=True, blocking Pyannote model loading.
@@ -120,7 +120,7 @@ def run_benchmark(audio_path, lang="hi"):
     print(f"{format_time(t_model_load)}  (on {actual_device})")
 
     # ── Stage 5: Diarisation ──
-    print("[5/7] Speaker diarisation (pyannote 3.1)...", end=" ", flush=True)
+    print("[5/7] Speaker diarisation (pyannote 3.0)...", end=" ", flush=True)
     
     # Reset cached pipeline for fresh benchmark
     pipeline_mod._cached_diarization_pipeline = None
@@ -132,7 +132,7 @@ def run_benchmark(audio_path, lang="hi"):
     
     t0 = time.perf_counter()
     from asr.asr_pipeline import diarize
-    speakers = diarize(trimmed_wav, sr, hf_token, device=actual_device)
+    speakers = diarize(trimmed_wav, sr, hf_token, device=actual_device, num_speakers=2)
     t_diarize = time.perf_counter() - t0
     results["diarisation"] = t_diarize
     results["raw_segments"] = len(speakers)

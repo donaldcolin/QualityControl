@@ -37,18 +37,54 @@ export default function QueueView({ onRunStart }) {
   }, []);
 
   const getStatusBadge = (status) => {
-    switch (status) {
-      case 'completed': 
-        return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-emerald-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Completed</Badge>;
-      case 'processing': 
-        return <Badge variant="secondary" className="text-primary border-primary/20"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Processing</Badge>;
-      case 'failed': 
-        return <Badge variant="destructive" className="bg-destructive/10 text-destructive hover:bg-destructive/20 border-destructive/20"><XCircle className="w-3 h-3 mr-1" /> Failed</Badge>;
-      case 'pending': 
-      case 'pending_manual_review': 
-      default: 
-        return <Badge variant="outline" className="bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-200"><Clock className="w-3 h-3 mr-1" /> {status}</Badge>;
+    if (status === 'completed') return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-emerald-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Completed</Badge>;
+    if (status === 'failed') return <Badge variant="destructive" className="bg-destructive/10 text-destructive hover:bg-destructive/20 border-destructive/20"><XCircle className="w-3 h-3 mr-1" /> Failed</Badge>;
+    if (status === 'pending' || status === 'pending_manual_review') return <Badge variant="outline" className="bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-200"><Clock className="w-3 h-3 mr-1" /> {status}</Badge>;
+    
+    // Process-oriented Active Status
+    const msg = (status || '').toLowerCase();
+    const steps = [
+      { id: 1, label: 'Preparation', activeTerms: ['initializ', 'download', 'load', 'convert', 'trim'] },
+      { id: 2, label: 'Speaker Diarization', activeTerms: ['diarization', 'merg'] },
+      { id: 3, label: 'ASR Transcription', activeTerms: ['transcrib', 'saving', 'insert', 'saved'] },
+      { id: 4, label: 'QC AI Evaluation', activeTerms: ['qc', 'evaluat'] }
+    ];
+
+    let currentLabel = "Processing";
+    let progressPct = null;
+
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (steps[i].activeTerms.some(term => msg.includes(term))) {
+        currentLabel = steps[i].label;
+        break;
+      }
     }
+
+    if (msg.includes('transcribing segment')) {
+      const match = msg.match(/(\d+)\/(\d+)/);
+      if (match) {
+        progressPct = Math.round((parseInt(match[1]) / parseInt(match[2])) * 100);
+      }
+    }
+
+    return (
+      <Badge variant="secondary" className="text-primary border-primary/20 flex items-center gap-2 py-1 px-3 w-48 shadow-sm justify-start">
+        <Loader2 className="w-4 h-4 animate-spin shrink-0" /> 
+        <div className="flex flex-col w-full text-left">
+          <span className="text-[10px] font-bold uppercase tracking-wider truncate leading-tight">{currentLabel}</span>
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex-1 h-1.5 bg-primary/20 rounded-full overflow-hidden shrink-0 mt-0.5">
+              {progressPct !== null ? (
+                <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progressPct}%` }} />
+              ) : (
+                <div className="h-full bg-primary w-full animate-pulse" />
+              )}
+            </div>
+            {progressPct !== null && <span className="text-[9px] font-mono leading-none">{progressPct}%</span>}
+          </div>
+        </div>
+      </Badge>
+    );
   };
 
   const formatDuration = (sec) => {
@@ -85,7 +121,7 @@ export default function QueueView({ onRunStart }) {
               <TableHeader className="bg-muted/50 sticky top-0 z-10">
                 <TableRow>
                   <TableHead className="px-6 py-4">Time Added</TableHead>
-                  <TableHead>Call ID</TableHead>
+                  <TableHead>Lead</TableHead>
                   <TableHead>Associate Name</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Duration</TableHead>
@@ -122,9 +158,14 @@ export default function QueueView({ onRunStart }) {
                           {new Date(item.created_at).toLocaleString()}
                         </TableCell>
                         <TableCell>
-                          <span className="font-mono text-xs bg-muted px-2 py-1 rounded-md text-muted-foreground truncate max-w-[150px] inline-block" title={item.call_id}>
-                            {item.call_id}
-                          </span>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-sm truncate max-w-[150px]" title={item.prospect_name || 'Unknown Lead'}>
+                              {item.prospect_name || 'Unknown Lead'}
+                            </span>
+                            <span className="font-mono text-[10px] text-muted-foreground opacity-50 truncate max-w-[150px]" title={item.call_id}>
+                              {item.call_id}
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell className="font-medium">
                           {assoc ? assoc.emp_name : (item.emp_number || 'Unknown')}

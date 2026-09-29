@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { getQCLead, evaluateCall, evaluateLeadIntelligence, resendCallToASR } from '../api';
-import { ArrowLeft, Play, FileAudio, CheckCircle2, XCircle, Clock, AlertCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle } from 'lucide-react';
+import { getQCLead, getCoachingTemplates } from '../api';
+import { ArrowLeft, Play, FileAudio, CheckCircle2, XCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle, Share2, Trash2, Edit2, PlaySquare, SkipForward, FastForward, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,30 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// Helpers
-function scoreColor(score) {
-  if (score >= 80) return 'text-emerald-500';
-  if (score >= 60) return 'text-blue-500';
-  if (score >= 40) return 'text-amber-500';
-  return 'text-destructive';
-}
-
-function scoreBgColor(score) {
-  if (score >= 80) return 'bg-emerald-500/15 text-emerald-700 border-transparent font-medium shadow-sm';
-  if (score >= 60) return 'bg-blue-500/15 text-blue-700 border-transparent font-medium shadow-sm';
-  if (score >= 40) return 'bg-amber-500/15 text-amber-700 border-transparent font-medium shadow-sm';
-  return 'bg-destructive/15 text-destructive border-transparent font-medium shadow-sm';
-}
-
 function formatDuration(seconds) {
-  if (!seconds) return '0 mins';
+  if (!seconds) return '00:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
-  if (m === 0) return `${s}s`;
-  return `${m}m ${s}s`;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-// Conversation Audio Player & Transcript Component
 function CallPlayer({ call }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -45,17 +28,7 @@ function CallPlayer({ call }) {
         audioRef.current.pause();
         setIsPlaying(false);
       } else {
-        const playPromise = audioRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            setIsPlaying(true);
-          }).catch(error => {
-            console.error("Audio playback failed:", error);
-            setIsPlaying(false);
-          });
-        } else {
-          setIsPlaying(true);
-        }
+        audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
       }
     }
   };
@@ -84,112 +57,119 @@ function CallPlayer({ call }) {
   const audioUrl = `http://localhost:3000/api/calls/${call.id}/audio`;
 
   return (
-    <div className="flex flex-col gap-4 border rounded-lg p-4 bg-background">
-      <div className="flex items-center gap-4 bg-muted/30 p-3 rounded-lg">
-        <Button variant="outline" size="icon" onClick={togglePlay} className="h-10 w-10 shrink-0 rounded-full">
-          {isPlaying ? <PauseCircle className="h-6 w-6" /> : <PlayCircle className="h-6 w-6" />}
-        </Button>
-        <div className="flex-1">
-          <div className="text-sm font-medium mb-1">{call.filename || 'Audio Recording'}</div>
-          <audio 
-            ref={audioRef} 
-            src={audioUrl} 
-            onTimeUpdate={handleTimeUpdate}
-            onEnded={() => setIsPlaying(false)}
-            onPause={() => setIsPlaying(false)}
-            onPlay={() => setIsPlaying(true)}
-            className="w-full h-8"
-            controls
-          />
+    <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex justify-between items-center p-4 border-b">
+        <div>
+          <div className="font-semibold text-foreground flex items-center gap-2">
+            Sep 07, 2026 | 03:30 PM
+          </div>
+          <div className="text-sm text-muted-foreground font-medium mt-0.5">Source: External Recordings</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="text-muted-foreground"><Share2 className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="icon" className="text-muted-foreground"><Trash2 className="w-4 h-4" /></Button>
         </div>
       </div>
-      
-      <ScrollArea className="h-[400px] pr-4" ref={segmentsContainerRef}>
-        <div className="space-y-4">
-          {segments.map((seg, idx) => {
-            const isActive = currentTime >= seg.start && currentTime < seg.end;
-            const isSpeaker0 = seg.speaker === 'SPEAKER_00';
-            
-            return (
-              <div 
-                key={idx} 
-                ref={isActive ? activeSegmentRef : null}
-                onClick={() => handleSegmentClick(seg.start)}
-                className={cn(
-                  "flex gap-3 text-sm transition-colors p-2 rounded-lg cursor-pointer",
-                  isActive ? "bg-primary/10 border-primary/20" : "hover:bg-muted/50",
-                  isSpeaker0 ? "pr-12" : "pl-12 flex-row-reverse"
-                )}
-              >
-                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0 text-xs font-semibold">
-                  {isSpeaker0 ? 'S0' : 'S1'}
-                </div>
-                <div className={cn("flex flex-col", isSpeaker0 ? "" : "items-end text-right")}>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    {formatDuration(seg.start)}
-                  </div>
-                  <div className="bg-muted/40 p-3 rounded-2xl rounded-tl-sm text-foreground">
-                    {seg.text_en || seg.text}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {segments.length === 0 && (
-            <div className="text-center text-muted-foreground py-8">
-              No transcript segments available.
-            </div>
-          )}
+
+      {/* Audio Player */}
+      <div className="p-4 bg-slate-50 border-b">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={togglePlay} className="h-10 w-10 shrink-0 text-slate-700 hover:text-slate-900">
+            {isPlaying ? <PauseCircle className="h-8 w-8 fill-slate-700 text-white" /> : <PlayCircle className="h-8 w-8 fill-slate-700 text-white" />}
+          </Button>
+          <div className="text-sm font-medium tabular-nums">{formatDuration(currentTime)}</div>
+
+          <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden relative">
+            <div
+              className="absolute top-0 left-0 h-full bg-slate-400"
+              style={{ width: `${call.duration_sec ? (currentTime / call.duration_sec) * 100 : 0}%` }}
+            />
+          </div>
+          <div className="text-sm font-medium tabular-nums">{formatDuration(call.duration_sec)}</div>
+          <audio ref={audioRef} src={audioUrl} onTimeUpdate={handleTimeUpdate} onEnded={() => setIsPlaying(false)} className="hidden" />
         </div>
-      </ScrollArea>
+        <div className="flex justify-end gap-2 mt-2">
+          <Badge variant="outline" className="text-xs bg-white text-slate-600">0.5x</Badge>
+          <Badge variant="default" className="text-xs bg-slate-700">1x</Badge>
+          <Badge variant="outline" className="text-xs bg-white text-slate-600">1.5x</Badge>
+          <Badge variant="outline" className="text-xs bg-white text-slate-600">2x</Badge>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs defaultValue="transcript" className="w-full flex-1 flex flex-col min-h-0">
+        <TabsList className="w-full justify-start border-b rounded-none h-12 bg-transparent px-4 gap-6">
+          <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-0 text-sm font-medium text-muted-foreground data-[state=active]:text-primary">Timeline View</TabsTrigger>
+          <TabsTrigger value="transcript" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-0 text-sm font-medium text-muted-foreground data-[state=active]:text-primary">Transcript View</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="transcript" className="flex-1 overflow-hidden mt-0">
+          <ScrollArea className="h-full" ref={segmentsContainerRef}>
+            <div className="p-4 space-y-3">
+              {segments.map((seg, idx) => {
+                const isActive = currentTime >= seg.start && currentTime < seg.end;
+                const participantName = seg.speaker === 'SPEAKER_00' ? 'Participant 1' : 'Participant 2';
+
+                return (
+                  <div
+                    key={idx}
+                    ref={isActive ? activeSegmentRef : null}
+                    onClick={() => handleSegmentClick(seg.start)}
+                    className={cn(
+                      "flex justify-between items-start p-4 rounded-lg border transition-colors cursor-pointer",
+                      isActive ? "bg-slate-100 border-slate-300" : "bg-slate-50 hover:bg-slate-100 border-slate-200"
+                    )}
+                  >
+                    <div className="text-sm">
+                      <span className="text-slate-500 font-mono mr-3 text-xs">{formatDuration(seg.start)}-{formatDuration(seg.end)}</span>
+                      <span className="font-bold text-slate-900 mr-2">{participantName} :</span>
+                      <span className="text-slate-700 leading-relaxed">
+                        {seg.text}
+                        {seg.text_en && seg.text_en !== seg.text && (
+                          <div className="mt-1 text-slate-500 italic">Translated: "{seg.text_en}"</div>
+                        )}
+                      </span>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-slate-600 shrink-0"><Edit2 className="w-3.5 h-3.5" /></Button>
+                  </div>
+                );
+              })}
+              {segments.length === 0 && (
+                <div className="text-center text-muted-foreground p-8">No transcript available.</div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-
 export default function LeadDetails({ leadId, onBack }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [evaluatingCall, setEvaluatingCall] = useState(null);
+  const [templates, setTemplates] = useState([]);
 
   useEffect(() => {
-    loadLeadDetails();
-  }, [leadId]);
-
-  const loadLeadDetails = () => {
-    setLoading(true);
-    getQCLead(leadId).then(data => {
-      if (!data.error) setLead(data);
+    Promise.all([
+      getQCLead(leadId),
+      getCoachingTemplates()
+    ]).then(([leadData, templatesData]) => {
+      if (!leadData.error) setLead(leadData);
+      setTemplates(templatesData || []);
       setLoading(false);
     });
-  };
-
-  const handleRunQC = async (callId) => {
-    setEvaluatingCall(callId);
-    try {
-      await evaluateCall(callId);
-      await loadLeadDetails();
-    } catch (error) {
-      console.error("QC failed", error);
-    }
-    setEvaluatingCall(null);
-  };
+  }, [leadId]);
 
   if (loading || !lead) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <p>Loading Lead History...</p>
-      </div>
-    );
+    return <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin" /><p>Loading Lead History...</p></div>;
   }
 
-  // Aggregate metrics
   const totalDuration = lead.calls?.reduce((acc, c) => acc + (c.duration_sec || 0), 0) || 0;
   const intentScore = lead.intent_score || 0;
   const avgQuality = lead.avg_call_quality_score || 0;
-  
-  // Calculate average talk-to-listen from calls that have it
+
   const ttlCalls = lead.calls?.filter(c => c.talk_to_listen_ratio) || [];
   let avgTtl = "0:0";
   if (ttlCalls.length > 0) {
@@ -201,333 +181,152 @@ export default function LeadDetails({ leadId, onBack }) {
         custSum += cust;
       }
     });
-    avgTtl = `${Math.round(repSum/ttlCalls.length)}:${Math.round(custSum/ttlCalls.length)}`;
+    avgTtl = `${Math.round(repSum / ttlCalls.length)}:${Math.round(custSum / ttlCalls.length)}`;
   }
 
   return (
-    <div className="flex flex-col h-full bg-background min-h-screen">
-      {/* Top Embedded Navigation/Header (Zipteams style) */}
-      <div className="border-b border-border/50 px-8 py-5 bg-background/80 backdrop-blur-md flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-5">
-          <div className="w-14 h-14 bg-gradient-to-br from-amber-400 to-amber-600 text-white rounded-full flex items-center justify-center text-2xl font-bold shadow-md ring-2 ring-background">
+    <div className="flex flex-col h-full bg-white min-h-screen text-slate-900">
+      {/* HEADER SECTION - ZIPTEAMS CLONE */}
+      <div className="border-b px-8 py-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-amber-400 text-white rounded-full flex items-center justify-center text-xl font-bold shadow-sm">
             {lead.name?.charAt(0).toUpperCase() || '?'}
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">{lead.name}</h1>
-            <div className="flex gap-4 text-sm text-muted-foreground mt-1">
-              <span>{lead.phone || lead.email || 'No contact info'}</span>
-              <span>Owner: <span className="font-medium text-foreground">{lead.owner || 'Hemalatha.rajendran'}</span></span>
+            <h1 className="text-xl font-bold tracking-tight mb-1 flex items-center gap-2">
+              {lead.name}
+            </h1>
+            <div className="flex gap-4 text-xs text-muted-foreground items-center">
+              <span className="flex items-center gap-1.5"><Database className="w-3.5 h-3.5" /> {lead.phone || lead.email || '—'}</span>
+              <span className="flex items-center gap-1.5"><UserCheck className="w-3.5 h-3.5" /> Owner Name: <span className="font-semibold text-foreground">{lead.owner || 'Unassigned'}</span></span>
             </div>
           </div>
         </div>
 
-        <div className="flex gap-8 items-center bg-muted/30 p-3.5 px-6 rounded-2xl border border-border/50 shadow-sm">
-          <div className="text-center">
-            <div className="text-xl font-extrabold text-foreground">{formatDuration(totalDuration)}</div>
-            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Total Duration</div>
-          </div>
-          <div className="w-px h-10 bg-border/50"></div>
-          <div className="text-center">
-            <div className="text-xl font-extrabold text-foreground">{avgTtl}</div>
-            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Talk/Listen</div>
-          </div>
-          <div className="w-px h-10 bg-border/50"></div>
-          <div className="text-center">
-            <div className={cn("text-xl font-extrabold", scoreColor(intentScore))}>{intentScore}/100</div>
-            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Intent Score</div>
-          </div>
-          <div className="w-px h-10 bg-border/50"></div>
-          <div className="text-center">
-            <div className={cn("text-xl font-extrabold", scoreColor(avgQuality))}>{avgQuality}%</div>
-            <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">Avg Quality</div>
-          </div>
+        <div className="flex gap-4">
+          {[
+            { value: `${Math.ceil(totalDuration / 60)} mins`, label: 'Total Conversation Duration' },
+            { value: avgTtl, label: 'Talk-to-Listen Ratio', icon: <Info className="w-3 h-3 text-muted-foreground inline-block ml-1" /> },
+            { value: `${intentScore}/100`, label: 'Intent Score' },
+            { value: `${avgQuality}%`, label: 'Avg. Call Quality Score' },
+          ].map((stat, i) => (
+            <div key={i} className="bg-slate-100 rounded-lg p-3 px-4 min-w-[140px]">
+              <div className="text-lg font-bold">{stat.value}</div>
+              <div className="text-xs text-slate-500 mt-1 whitespace-nowrap">{stat.label}{stat.icon}</div>
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="p-8">
-        <Tabs defaultValue="insights" className="w-full">
-          <TabsList className="mb-6 w-full justify-start border-b rounded-none h-12 bg-transparent p-0">
-            <TabsTrigger value="insights" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 h-full data-[state=active]:shadow-none">Insights</TabsTrigger>
-            <TabsTrigger value="conversations" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 h-full data-[state=active]:shadow-none">Conversations ({lead.calls?.length || 0})</TabsTrigger>
+      {/* TABS & MAIN CONTENT WRAPPER */}
+      <Tabs defaultValue="conversations" className="flex-1 flex flex-col min-h-0 w-full" id="top-tabs" onValueChange={() => { }}>
+        <div className="px-8 border-b flex justify-between items-center bg-white">
+          <TabsList className="w-[500px] justify-start h-12 bg-transparent p-0 gap-6">
+            <TabsTrigger value="insights" className="rounded-none border-b-2 border-transparent data-[state=active]:border-slate-800 data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-0 text-sm font-semibold text-slate-500 data-[state=active]:text-slate-900">Insights</TabsTrigger>
+            <TabsTrigger value="conversations" className="rounded-none border-b-2 border-transparent data-[state=active]:border-slate-800 data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-0 text-sm font-semibold text-slate-500 data-[state=active]:text-slate-900">Conversations</TabsTrigger>
+            <TabsTrigger value="coaching" className="rounded-none border-b-2 border-transparent data-[state=active]:border-slate-800 data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-0 text-sm font-semibold text-slate-500 data-[state=active]:text-slate-900">Coaching</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="insights" className="mt-0">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              
-              {/* LEFT COLUMN: Buying Intent & Objections */}
-              <div className="lg:col-span-2 space-y-8">
-                
-                {/* Buying Intent Section */}
-                <section>
-                  <div className="flex items-center gap-2 mb-4">
-                    <Target className="w-5 h-5 text-emerald-500" />
-                    <h3 className="text-lg font-semibold">Buying Intent</h3>
-                  </div>
-                  
-                  <Card className="shadow-md border-border/50 rounded-xl overflow-hidden">
-                    <div className="p-4 border-b border-border/50 bg-muted/30 flex items-center gap-3">
-                      <span className="font-semibold text-sm">Intent Level:</span>
-                      <Badge className={cn("rounded-full px-3 py-0.5", scoreBgColor(intentScore))} variant="outline">
-                        {intentScore >= 80 ? 'High Intent' : intentScore >= 50 ? 'Medium Intent' : 'Low Intent'} {intentScore}/100
-                      </Badge>
-                    </div>
-                    <CardContent className="p-6 space-y-6">
-                      
-                      {/* High Intent Factors */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mb-3">High Intent factors</h4>
-                        <ul className="space-y-3">
-                          {(lead.intent_factors || []).filter(f => f.type === 'high').map((factor, idx) => (
-                            <li key={idx} className="flex gap-3 text-sm">
-                              <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                              <span className="text-muted-foreground">{factor.factor}</span>
-                            </li>
-                          ))}
-                          {(!lead.intent_factors || lead.intent_factors.filter(f => f.type === 'high').length === 0) && (
-                            <li className="text-sm text-muted-foreground italic">No high intent factors identified yet.</li>
-                          )}
-                        </ul>
-                      </div>
+          
+        </div>
 
-                      {/* Low Intent Factors */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-destructive mb-3">Low Intent factors</h4>
-                        <ul className="space-y-3">
-                          {(lead.intent_factors || []).filter(f => f.type === 'low').map((factor, idx) => (
-                            <li key={idx} className="flex gap-3 text-sm">
-                              <TrendingDown className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                              <span className="text-muted-foreground">{factor.factor}</span>
-                            </li>
-                          ))}
-                          {(!lead.intent_factors || lead.intent_factors.filter(f => f.type === 'low').length === 0) && (
-                            <li className="text-sm text-muted-foreground italic">No low intent factors identified yet.</li>
-                          )}
-                        </ul>
-                      </div>
-
-                    </CardContent>
-                  </Card>
-                </section>
-
-                {/* BANT Qualification Section */}
-                {lead.bant_insights && (
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Target className="w-5 h-5 text-blue-500" />
-                      <h3 className="text-lg font-semibold">BANT Qualification</h3>
-                    </div>
-                    <Card className="shadow-md border-border/50 rounded-xl overflow-hidden">
-                      <CardContent className="p-0">
-                        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border/50">
-                          {Object.entries(lead.bant_insights).map(([key, val]) => {
-                            let Icon = Target;
-                            if (key === 'budget') Icon = DollarSign;
-                            if (key === 'authority') Icon = UserCheck;
-                            if (key === 'timeline') Icon = CalendarClock;
-
-                            let statusColor = "text-muted-foreground bg-muted";
-                            if (val.status === 'Qualified') statusColor = "text-emerald-700 bg-emerald-500/15";
-                            if (val.status === 'Unqualified') statusColor = "text-destructive bg-destructive/15";
-                            if (val.status === 'Uncertain') statusColor = "text-amber-700 bg-amber-500/15";
-
-                            return (
-                              <div key={key} className="p-5 hover:bg-muted/20 transition-colors">
-                                <div className="flex justify-between items-start mb-2">
-                                  <div className="flex items-center gap-2">
-                                    <Icon className="w-4 h-4 text-muted-foreground" />
-                                    <div className="text-xs uppercase font-bold text-muted-foreground tracking-wider">{key}</div>
-                                  </div>
-                                  <Badge className={cn("shadow-none border-transparent font-medium", statusColor)}>{val.status}</Badge>
-                                </div>
-                                <div className="text-sm mt-3 text-foreground leading-relaxed">{val.details}</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </section>
-                )}
-
-                {/* Data Capture Section */}
-                {lead.data_capture && (
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Database className="w-5 h-5 text-indigo-500" />
-                      <h3 className="text-lg font-semibold">Captured Data</h3>
-                    </div>
-                    
-                    {lead.data_capture.missing_mandatory_fields?.length > 0 && (
-                      <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex gap-3 items-start">
-                        <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-                        <div>
-                          <h4 className="text-sm font-bold text-destructive mb-1">Missing Mandatory Information</h4>
-                          <p className="text-sm text-destructive/80">
-                            The following required fields have not been captured yet: <span className="font-semibold">{lead.data_capture.missing_mandatory_fields.join(', ')}</span>
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    <Card className="shadow-md border-border/50 rounded-xl overflow-hidden">
-                      <CardContent className="p-0">
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-[1px] bg-border/50">
-                          {lead.data_capture.extracted_fields?.map((field, idx) => (
-                            <div key={idx} className="bg-card p-4">
-                              <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">{field.field}</div>
-                              <div className="text-sm font-semibold">{field.value}</div>
-                              <div className={cn("text-[10px] mt-2 font-medium", 
-                                field.confidence === 'High' ? 'text-emerald-500' : field.confidence === 'Medium' ? 'text-amber-500' : 'text-destructive'
-                              )}>
-                                {field.confidence} Confidence
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </section>
-                )}
-
-                {/* Objections Section */}
-                <section>
-                  <div className="flex items-center gap-2 mb-4">
-                    <MessageSquare className="w-5 h-5 text-blue-500" />
-                    <h3 className="text-lg font-semibold">Objections</h3>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {lead.calls?.map(call => {
-                      const objections = call.insights_data?.objections || [];
-                      return objections.map((obj, idx) => (
-                        <Card key={`${call.id}-${idx}`} className="shadow-sm">
-                          <CardContent className="p-5">
-                            <div className="flex justify-between items-start mb-3">
-                               <div className="font-semibold text-sm">Objection</div>
-                               <Badge variant="outline" className="text-blue-600 bg-blue-500/10 border-blue-500/20">{obj.category || 'General'}</Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground mb-4">{obj.objection}</p>
-                            
-                            <div className="font-semibold text-sm mb-1">How this objection was handled?</div>
-                            <p className="text-sm text-muted-foreground mb-4">{obj.how_handled}</p>
-                            
-                            <div className="font-semibold text-sm mb-1">Was the customer satisfied with the salesperson's response?</div>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                {obj.customer_satisfied ? <CheckCircle2 className="w-4 h-4 text-emerald-500"/> : <AlertCircle className="w-4 h-4 text-amber-500"/>}
-                                {obj.customer_satisfied ? "Customer satisfied with response" : "Customer not fully convinced"}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ));
-                    })}
-                    {(!lead.calls || !lead.calls.some(c => c.insights_data?.objections?.length > 0)) && (
-                      <div className="text-center p-8 bg-muted/10 border border-dashed rounded-lg text-muted-foreground">
-                        No objections captured in the recent calls.
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-              </div>
-
-              {/* RIGHT COLUMN: Path to Conversion & Coaching */}
-              <div className="space-y-8">
+        {/* MAIN TWO-COLUMN CONTENT */}
+        <div className="flex-1 p-6 overflow-hidden">
+          <TabsContent value="insights" className="h-full mt-0">
+            <ScrollArea className="h-full pr-4">
+              <div className="max-w-4xl space-y-8 pb-8">
                 <section>
                   <div className="flex items-center gap-2 mb-4">
                     <BrainCircuit className="w-5 h-5 text-purple-500" />
-                    <h3 className="text-lg font-semibold">Path to Conversion & Coaching</h3>
+                    <h3 className="text-lg font-semibold">Path to Conversion</h3>
                   </div>
 
                   <Card className="shadow-sm bg-purple-500/5 border-purple-500/10">
                     <CardHeader className="pb-3 border-b border-purple-500/10">
-                      <CardTitle className="text-sm">Previous Conversation Summary</CardTitle>
+                      <CardTitle className="text-sm">Conversation Summary</CardTitle>
                     </CardHeader>
                     <CardContent className="p-5">
                       {lead.journey_summary ? (
-                         <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                            {lead.journey_summary}
-                         </div>
-                      ) : (
-                         <div className="text-sm text-muted-foreground italic">No journey summary available yet. Run a call evaluation to generate one.</div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="shadow-sm mt-6 border-blue-500/10">
-                    <CardHeader className="pb-3 border-b bg-blue-500/5">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Lightbulb className="w-4 h-4 text-blue-500" /> What to do next?
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      {lead.next_process_step ? (
-                        <div className="p-5">
-                           <div className="font-semibold text-sm mb-4">{lead.next_process_step}</div>
-                           
-                           {/* Dig into the latest call's next_steps array to find the suggested script */}
-                           {lead.calls?.[lead.calls.length - 1]?.insights_data?.next_steps?.map((step, idx) => (
-                             <div key={idx} className="mb-4 last:mb-0">
-                                <div className="text-sm font-medium mb-2">{idx + 1}. {step.title}</div>
-                                {step.suggested_say && (
-                                    <div className="flex gap-3 bg-muted/30 p-3 rounded-lg border">
-                                        <MessageSquare className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                                        <div>
-                                            <div className="text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Say:</div>
-                                            <div className="text-sm italic">"{step.suggested_say}"</div>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex gap-2 mt-2 items-start text-sm">
-                                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                                   <span className="text-muted-foreground">{step.description}</span>
-                                </div>
-                             </div>
-                           ))}
+                        <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                          {lead.journey_summary}
                         </div>
                       ) : (
-                         <div className="p-5 text-sm text-muted-foreground italic">No recommended next steps.</div>
+                        <div className="text-sm text-slate-500 italic">No journey summary available yet.</div>
                       )}
                     </CardContent>
                   </Card>
 
-                  {/* Golden Pitch / Prescriptive Coaching */}
+                  {/* Buying Intent Analysis */}
                   {(() => {
                     const latestCall = lead.calls?.[lead.calls.length - 1];
-                    const coaching = latestCall?.coaching_report?.prescriptive_coaching;
-                    if (!coaching || coaching.length === 0) return null;
-
+                    const intentScore = latestCall?.insights_data?.intent_score;
+                    const highIntent = latestCall?.insights_data?.high_intent_factors;
+                    const lowIntent = latestCall?.insights_data?.low_intent_factors;
+                    if (!highIntent && !lowIntent) return null;
                     return (
-                      <Card className="shadow-sm mt-6 border-emerald-500/20 bg-emerald-500/5">
-                        <CardHeader className="pb-3 border-b border-emerald-500/10">
-                          <CardTitle className="text-sm flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-                            <Target className="w-4 h-4" /> Golden Pitch Corrections
+                      <Card className="shadow-sm mt-6 border-slate-200">
+                        <CardHeader className="pb-3 border-b bg-slate-50 flex flex-row items-center justify-between">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4 text-blue-500" /> Buying Intent Analysis
+                          </CardTitle>
+                          {intentScore !== undefined && (
+                            <Badge variant="outline" className={cn("bg-white text-xs font-bold", intentScore > 70 ? "text-emerald-600 border-emerald-200" : intentScore > 40 ? "text-amber-600 border-amber-200" : "text-rose-600 border-rose-200")}>
+                              Score: {intentScore}/100
+                            </Badge>
+                          )}
+                        </CardHeader>
+                        <CardContent className="p-5">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                              <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-600 mb-3 flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" /> High Intent Factors</h4>
+                              <ul className="space-y-2">
+                                {highIntent?.map((factor, idx) => (
+                                  <li key={idx} className="flex gap-2 items-start text-sm">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                    <span className="text-slate-600">{factor}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-600 mb-3 flex items-center gap-1.5"><TrendingDown className="w-3.5 h-3.5" /> Low Intent Factors</h4>
+                              <ul className="space-y-2">
+                                {lowIntent?.map((factor, idx) => (
+                                  <li key={idx} className="flex gap-2 items-start text-sm">
+                                    <Minus className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                                    <span className="text-slate-600">{factor}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+
+
+                  {/* BANT Analysis */}
+                  {(() => {
+                    const latestCall = lead.calls?.[lead.calls.length - 1];
+                    const bant = latestCall?.insights_data?.bant;
+                    if (!bant) return null;
+                    return (
+                      <Card className="shadow-sm mt-6 border-slate-200">
+                        <CardHeader className="pb-3 border-b bg-slate-50">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Target className="w-4 h-4 text-indigo-500" /> BANT Analysis
                           </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-0">
-                          <div className="p-5 space-y-6">
-                            {coaching.map((pc, idx) => (
-                              <div key={idx} className="space-y-3">
-                                <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{pc.situation}</div>
-                                
-                                <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 relative">
-                                  <div className="text-[10px] font-bold text-destructive uppercase tracking-widest mb-1 flex items-center gap-1">
-                                    <XCircle className="h-3 w-3" /> You said
-                                  </div>
-                                  <div className="text-sm italic">"{pc.what_associate_said}"</div>
+                        <CardContent className="p-5">
+                          <div className="grid grid-cols-2 gap-4">
+                            {Object.entries(bant).map(([key, data]) => (
+                              <div key={key} className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1 flex justify-between">
+                                  {key}
+                                  <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold", data.status === 'Qualified' ? 'bg-emerald-100 text-emerald-700' : data.status === 'Unqualified' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>{data.status}</span>
                                 </div>
-                                
-                                <div className="bg-emerald-500/15 border border-emerald-500/30 rounded-md p-3">
-                                  <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1 flex items-center gap-1">
-                                    <CheckCircle2 className="h-3 w-3" /> Golden Pitch
-                                  </div>
-                                  <div className="text-sm font-medium">"{pc.golden_pitch}"</div>
-                                </div>
-                                
-                                <div className="text-sm text-muted-foreground bg-muted/50 p-2 rounded flex gap-2">
-                                  <Lightbulb className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                                  <span>{pc.why_it_works}</span>
-                                </div>
-                                {idx < coaching.length - 1 && <hr className="my-4 border-border/50" />}
+                                <div className="text-sm text-slate-700">{data.details}</div>
                               </div>
                             ))}
                           </div>
@@ -536,125 +335,360 @@ export default function LeadDetails({ leadId, onBack }) {
                     );
                   })()}
 
-                </section>
-              </div>
-
-            </div>
-          </TabsContent>
-
-          <TabsContent value="conversations" className="mt-0">
-            <div className="space-y-6 max-w-4xl">
-              {lead.calls?.map((call, index) => {
-                const sourceIcon = call.source === 'google_meet' ? <Video className="w-4 h-4 text-purple-500" /> : <Phone className="w-4 h-4 text-blue-500" />;
-                const sourceLabel = call.source === 'google_meet' ? 'Video Demo' : 'Phone Call';
-                
-                return (
-                  <Card key={call.id} className="shadow-sm overflow-hidden border-l-4 border-l-border focus-within:border-l-primary transition-colors">
-                    <div className="p-5 bg-muted/20 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                       <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-background border flex items-center justify-center shadow-sm">
-                             {sourceIcon}
-                          </div>
-                          <div>
-                             <h4 className="font-semibold text-base flex items-center gap-2">
-                               {sourceLabel} #{index + 1}
-                             </h4>
-                             <div className="text-sm text-muted-foreground flex items-center gap-3 mt-1">
-                                <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5"/> {formatDuration(call.duration_sec)}</span>
-                                {call.talk_to_listen_ratio && <span>• TTL: {call.talk_to_listen_ratio}</span>}
-                             </div>
-                          </div>
-                       </div>
-                       
-                       <div className="flex items-center gap-3">
-                          {call.call_quality_score != null && (
-                             <Badge className={scoreBgColor(call.call_quality_score)} variant="outline">
-                               Quality: {call.call_quality_score}%
-                             </Badge>
+                  {/* Data Capture */}
+                  {(() => {
+                    const latestCall = lead.calls?.[lead.calls.length - 1];
+                    const dc = latestCall?.insights_data?.data_capture;
+                    if (!dc) return null;
+                    return (
+                      <Card className="shadow-sm mt-6 border-slate-200">
+                        <CardHeader className="pb-3 border-b bg-slate-50">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Database className="w-4 h-4 text-blue-500" /> Data Capture
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-5 space-y-4">
+                          {dc.extracted_fields?.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Captured Fields</h4>
+                              <div className="grid grid-cols-2 gap-2">
+                                {dc.extracted_fields.map((f, i) => (
+                                  <div key={i} className="flex justify-between items-center text-sm p-2 bg-slate-50 border rounded-md">
+                                    <span className="font-medium text-slate-700">{f.field}</span>
+                                    <span className="text-slate-900 font-medium">{f.value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           )}
-                          {call.qc_status === 'pending' ? (
-                             <Button onClick={() => handleRunQC(call.id)} disabled={evaluatingCall === call.id} size="sm" variant="secondary" className="gap-2">
-                               {evaluatingCall === call.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Play className="w-3.5 h-3.5" />} Evaluate Call
-                             </Button>
-                          ) : (
-                             <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Evaluated</Badge>
+                          {dc.missing_mandatory_fields?.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-semibold text-rose-500 uppercase tracking-wide mb-2">Missing Mandatory Fields</h4>
+                              <div className="flex gap-2 flex-wrap">
+                                {dc.missing_mandatory_fields.map((f, i) => (
+                                  <Badge key={i} variant="outline" className="bg-rose-50 text-rose-700 border-rose-200">{f}</Badge>
+                                ))}
+                              </div>
+                            </div>
                           )}
-                       </div>
-                    </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
 
-                    <CardContent className="p-0">
-                      <Tabs defaultValue="transcript" className="w-full">
-                        <TabsList className="w-full justify-start border-b rounded-none h-10 bg-transparent px-2">
-                          <TabsTrigger value="transcript" className="rounded-none data-[state=active]:bg-muted/50 data-[state=active]:shadow-none text-xs">Transcript & Audio</TabsTrigger>
-                          <TabsTrigger value="summary" className="rounded-none data-[state=active]:bg-muted/50 data-[state=active]:shadow-none text-xs">Call Summary</TabsTrigger>
-                          <TabsTrigger value="quality" className="rounded-none data-[state=active]:bg-muted/50 data-[state=active]:shadow-none text-xs">Quality Scores</TabsTrigger>
-                        </TabsList>
+                  {/* Objections */}
+                  {(() => {
+                    const latestCall = lead.calls?.[lead.calls.length - 1];
+                    const objections = latestCall?.insights_data?.objections;
+                    if (!objections || objections.length === 0) return null;
+                    return (
+                      <div className="mt-8">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="bg-teal-100/50 p-1 rounded-md">
+                            <MessageSquare className="w-4 h-4 text-teal-600" />
+                          </div>
+                          <h3 className="text-base font-bold text-slate-800">Objections</h3>
+                        </div>
 
-                        <div className="p-5">
-                          <TabsContent value="transcript" className="mt-0">
-                             <CallPlayer call={call} />
-                          </TabsContent>
-                          
-                          <TabsContent value="summary" className="mt-0">
-                            {call.summary_data ? (
-                              <div className="space-y-6">
+                        <div className="space-y-4">
+                          {objections.map((obj, idx) => (
+                            <div key={idx} className="border border-slate-100 rounded-xl p-5 bg-white space-y-5 shadow-sm">
+                              <div className="flex justify-between items-start gap-4">
                                 <div>
-                                   <h5 className="font-semibold text-sm mb-2">Call Summary</h5>
-                                   <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
-                                     {call.summary_data.call_summary?.map((pt, i) => <li key={i}>{pt}</li>)}
-                                   </ul>
+                                  <div className="font-bold text-sm text-slate-900 mb-1.5">Objection</div>
+                                  <div className="text-sm text-slate-600 leading-relaxed">{obj.objection}</div>
                                 </div>
-                                <div>
-                                   <h5 className="font-semibold text-sm mb-2">Key Points</h5>
-                                   <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
-                                     {call.summary_data.key_points?.map((pt, i) => <li key={i}>{pt}</li>)}
-                                   </ul>
+                                {obj.category && (
+                                  <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-100/50 whitespace-nowrap shrink-0 font-bold px-2.5 py-0.5 text-[11px] rounded-md">
+                                    {obj.category}
+                                  </Badge>
+                                )}
+                              </div>
+
+                              <div>
+                                <div className="font-bold text-sm text-slate-900 mb-1.5">How this objection was handled?</div>
+                                <div className="text-sm text-slate-600 leading-relaxed">{obj.how_handled}</div>
+                              </div>
+
+                              <div>
+                                <div className="font-bold text-sm text-slate-900 mb-1.5">Was the customer satisfied with the salesperson's response?</div>
+                                <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                                  {obj.customer_satisfied ? (
+                                    <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
+                                  ) : (
+                                    <XCircle className="w-4 h-4 text-slate-500 shrink-0" />
+                                  )}
+                                  <span>{obj.customer_satisfied ? "Customer satisfied with salesperson's response" : "Customer not satisfied with salesperson's response"}</span>
                                 </div>
                               </div>
-                            ) : (
-                               <div className="text-sm text-muted-foreground italic">No summary generated yet.</div>
-                            )}
-                          </TabsContent>
-
-                          <TabsContent value="quality" className="mt-0">
-                             {call.quality_data ? (
-                               <div className="space-y-4">
-                                  {Object.entries(call.quality_data).map(([paramName, data], idx) => (
-                                     <div key={idx} className="p-4 border rounded-lg bg-muted/10">
-                                        <div className="flex justify-between items-start mb-2">
-                                           <div className="font-semibold text-sm">{paramName}</div>
-                                           <div className="flex items-center gap-2">
-                                              <span className={cn("text-xs font-bold", data.score === data.max_score ? "text-emerald-500" : data.score > 0 ? "text-amber-500" : "text-destructive")}>
-                                                 {data.score} / {data.max_score}
-                                              </span>
-                                              <Badge variant="outline" className={data.status === 'Done' ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : data.status === 'Not Applicable' ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive border-destructive/20"}>
-                                                 {data.status}
-                                              </Badge>
-                                           </div>
-                                        </div>
-                                        <p className="text-sm text-muted-foreground">{data.reason}</p>
-                                     </div>
-                                  ))}
-                               </div>
-                             ) : (
-                                <div className="text-sm text-muted-foreground italic">No quality scores generated yet.</div>
-                             )}
-                          </TabsContent>
+                            </div>
+                          ))}
                         </div>
-                      </Tabs>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-              {(!lead.calls || lead.calls.length === 0) && (
-                 <div className="text-center p-12 bg-muted/10 border border-dashed rounded-lg text-muted-foreground">
-                    No calls recorded for this lead yet.
-                 </div>
-              )}
+                      </div>
+                    );
+                  })()}
+
+
+
+                </section>
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="conversations" className="h-full mt-0">
+            {lead.calls?.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full max-w-full">
+
+                {/* LEFT PANE: Audio & Transcript */}
+                <CallPlayer call={lead.calls[0]} />
+
+                {/* RIGHT PANE: Summary / Insights / Quality */}
+                <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden">
+                  <Tabs defaultValue="quality" className="w-full flex-1 flex flex-col min-h-0">
+                    <TabsList className="w-full justify-between border-b rounded-none h-14 bg-slate-50 px-4">
+                      <TabsTrigger value="summary" className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-slate-300 data-[state=active]:shadow-none data-[state=active]:bg-slate-200/50 bg-transparent text-sm font-bold text-slate-600 data-[state=active]:text-slate-900">Summary</TabsTrigger>
+                      <TabsTrigger value="insights" className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-slate-300 data-[state=active]:shadow-none data-[state=active]:bg-slate-200/50 bg-transparent text-sm font-bold text-slate-600 data-[state=active]:text-slate-900">Insights</TabsTrigger>
+                      <TabsTrigger value="quality" className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:shadow-none data-[state=active]:bg-blue-50 bg-transparent text-sm font-bold text-slate-600 data-[state=active]:text-blue-700">Quality</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="quality" className="flex-1 overflow-hidden mt-0 p-0">
+                      <ScrollArea className="h-full">
+                        <div className="p-6 space-y-8">
+                          <div className="flex justify-between items-center pb-4 border-b">
+                            <div className="font-bold text-sm">
+                              Overall Call Quality Score: <span className="text-emerald-600">{lead.calls[0].call_quality_score}%</span> <span className="text-slate-500 font-normal">({Math.round((lead.calls[0].call_quality_score / 100) * 124)}/124)</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><RefreshCw className="w-4 h-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><Edit2 className="w-4 h-4" /></Button>
+                            </div>
+                          </div>
+
+                          {lead.calls[0].quality_data ? (
+                            Object.entries(lead.calls[0].quality_data).map(([param, data], idx) => {
+                              let badgeClass = "bg-slate-100 text-slate-600";
+                              if (data.status === 'Done') badgeClass = "bg-emerald-50 text-emerald-700";
+                              else if (data.status === 'Missed') badgeClass = "bg-rose-50 text-rose-700";
+                              else if (data.status === 'Partially Done') badgeClass = "bg-amber-50 text-amber-700";
+
+                              return (
+                                <div key={idx} className="space-y-3 pb-6 border-b border-dashed last:border-0">
+                                  <div className="flex justify-between items-center">
+                                    <h4 className="font-bold text-sm text-slate-900">{param}</h4>
+                                    <div className="flex gap-1">
+                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><Edit2 className="w-3.5 h-3.5" /></Button>
+                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><PlayCircle className="w-3.5 h-3.5" /></Button>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2 items-center">
+                                    <Badge className={cn("px-2 font-bold tabular-nums hover:opacity-90 shadow-none border-transparent", data.score === data.max_score ? "bg-emerald-100 text-emerald-700" : data.score > 0 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700")}>
+                                      {data.score}/{data.max_score}
+                                    </Badge>
+                                    <span className={cn("text-xs font-bold", data.status === 'Done' ? "text-emerald-600" : data.status === 'Missed' ? "text-rose-600" : "text-amber-600")}>
+                                      {data.status}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-slate-600 leading-relaxed">
+                                    {data.reason}
+                                  </p>
+                                  <div className="flex gap-2 mt-2 items-center text-xs font-bold">
+                                    <span className="text-slate-900 mr-2">Mark</span>
+                                    <Badge variant="outline" className={cn("cursor-pointer", data.status === 'Done' ? 'bg-emerald-50' : 'bg-white text-slate-500')}>Done</Badge>
+                                    <Badge variant="outline" className={cn("cursor-pointer", data.status === 'Partially Done' ? 'bg-amber-50' : 'bg-white text-slate-500')}>Needs Improvement</Badge>
+                                    <Badge variant="outline" className={cn("cursor-pointer", data.status === 'Not Applicable' ? 'bg-slate-100' : 'bg-white text-slate-500')}>Not Applicable</Badge>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="text-center text-muted-foreground p-8">No quality data available.</div>
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </TabsContent>
+                    <TabsContent value="summary" className="p-6">
+                      {lead.calls[0].summary_data ? (
+                        <div className="space-y-6">
+                          <div>
+                            <h5 className="font-semibold text-sm mb-2">Call Summary</h5>
+                            <ul className="list-disc pl-5 space-y-1 text-sm text-slate-600">
+                              {lead.calls[0].summary_data.call_summary?.map((pt, i) => <li key={i}>{pt}</li>)}
+                            </ul>
+                          </div>
+                          <div>
+                            <h5 className="font-semibold text-sm mb-2">Key Points</h5>
+                            <ul className="list-disc pl-5 space-y-1 text-sm text-slate-600">
+                              {lead.calls[0].summary_data.key_points?.map((pt, i) => <li key={i}>{pt}</li>)}
+                            </ul>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-500 italic">No summary generated yet.</div>
+                      )}
+                    </TabsContent>
+                    <TabsContent value="insights" className="p-0 flex-1 overflow-hidden">
+                      <ScrollArea className="h-full">
+                        <div className="p-6 space-y-6">
+                          {lead.calls[0].coaching_report?.category_scores?.length > 0 ? (
+                            lead.calls[0].coaching_report.category_scores.map((cat, idx) => (
+                              <div key={idx} className="bg-slate-50 border rounded-lg p-4">
+                                <div className="flex justify-between items-center mb-4">
+                                  <h4 className="font-bold text-sm text-slate-800">{cat.category}</h4>
+                                  <Badge variant="outline" className="bg-white">{cat.score}% - Grade {cat.grade}</Badge>
+                                </div>
+                                <div className="space-y-4">
+                                  {cat.what_went_wrong && (
+                                    <div className="flex gap-3">
+                                      <XCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                                      <div>
+                                        <span className="font-semibold text-rose-700 block mb-1 uppercase text-xs tracking-wide">What went wrong</span>
+                                        <span className="text-sm text-slate-600">{cat.what_went_wrong}</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {cat.coach_tip && (
+                                    <div className="flex gap-3">
+                                      <Lightbulb className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                                      <div>
+                                        <span className="font-semibold text-amber-700 block mb-1 uppercase text-xs tracking-wide">How to fix (Coaching Tip)</span>
+                                        <span className="text-sm text-slate-600">{cat.coach_tip}</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {cat.what_went_well && (
+                                    <div className="flex gap-3 pt-2 mt-2 border-t border-slate-200/60">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                      <div>
+                                        <span className="font-semibold text-emerald-700 block mb-1 uppercase text-xs tracking-wide">What went well</span>
+                                        <span className="text-sm text-slate-600">{cat.what_went_well}</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-sm text-slate-500 italic text-center py-8">No insights available for this call.</div>
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </TabsContent>
+                  </Tabs>
+                </div>
+
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                No calls recorded for this lead yet.
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="coaching" className="h-full mt-0">
+            <div className="h-full flex flex-col pt-4">
+              <ScrollArea className="flex-1 pr-4">
+                {/* Top Strengths */}
+                {(() => {
+                  const latestCall = lead.calls?.[lead.calls.length - 1];
+                  const strengths = latestCall?.coaching_report?.top_strengths;
+                  if (!strengths || strengths.length === 0) return null;
+                  return (
+                    <Card className="shadow-sm mb-6 border-emerald-500/10 bg-emerald-500/5">
+                      <CardHeader className="pb-3 border-b border-emerald-500/10">
+                        <CardTitle className="text-sm flex items-center gap-2 text-emerald-700">
+                          <Star className="w-4 h-4" /> Top Strengths
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-5">
+                        <ul className="space-y-2">
+                          {strengths.map((s, idx) => (
+                            <li key={idx} className="flex gap-2 items-start text-sm">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                              <span className="text-slate-600">{s}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
+                {/* Critical Improvements */}
+                {(() => {
+                  const latestCall = lead.calls?.[lead.calls.length - 1];
+                  const improvements = latestCall?.coaching_report?.critical_improvements;
+                  if (!improvements || improvements.length === 0) return null;
+                  return (
+                    <Card className="shadow-sm mb-8 border-destructive/10 bg-destructive/5">
+                      <CardHeader className="pb-3 border-b border-destructive/10">
+                        <CardTitle className="text-sm flex items-center gap-2 text-destructive">
+                          <AlertTriangle className="w-4 h-4" /> Critical Improvements
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-5">
+                        <ul className="space-y-2">
+                          {improvements.map((imp, idx) => (
+                            <li key={idx} className="flex gap-2 items-start text-sm">
+                              <XCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                              <span className="text-slate-600">{imp}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
+                {/* Prescriptive Coaching (Actionable Coaching Templates) */}
+                {(() => {
+                  const latestCall = lead.calls?.[lead.calls.length - 1];
+                  const coaching = latestCall?.coaching_report?.prescriptive_coaching;
+                  if (!coaching || coaching.length === 0) return (
+                    <div className="flex flex-col items-center justify-center p-12 text-slate-400 border-2 border-dashed rounded-xl mt-8">
+                      <Target className="w-10 h-10 mb-4 opacity-50" />
+                      <p className="font-medium">No coaching templates generated for this call.</p>
+                    </div>
+                  );
+                  return (
+                    <Card className="shadow-sm mb-8 border-amber-500/20 bg-amber-50/50">
+                      <CardHeader className="pb-3 border-b border-amber-500/10">
+                        <CardTitle className="text-sm flex items-center gap-2 text-amber-700">
+                          <Target className="w-4 h-4" /> Actionable Coaching Templates
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-5 space-y-6">
+                        {coaching.map((c, idx) => (
+                          <div key={idx} className="space-y-3">
+                            <div className="font-semibold text-sm text-slate-800">{c.situation}</div>
+
+                            <div className="flex gap-3 bg-rose-50/50 p-3 rounded-lg border border-rose-100">
+                              <XCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="text-xs font-semibold text-rose-700 mb-1 uppercase tracking-wide">What went wrong</div>
+                                <div className="text-sm text-slate-700 italic">"{c.what_associate_said}"</div>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-3 bg-emerald-50/50 p-3 rounded-lg border border-emerald-100">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="text-xs font-semibold text-emerald-700 mb-1 uppercase tracking-wide">Golden Pitch (How to fix)</div>
+                                <div className="text-sm text-slate-900 font-medium mb-2">"{c.golden_pitch}"</div>
+                                <div className="text-xs text-emerald-700 font-medium bg-emerald-100/50 p-2 rounded">Why it works: {c.why_it_works}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+              </ScrollArea>
             </div>
           </TabsContent>
-        </Tabs>
-      </div>
+        </div>
+      </Tabs>
     </div>
   );
 }
+

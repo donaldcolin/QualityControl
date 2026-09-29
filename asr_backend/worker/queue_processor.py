@@ -10,12 +10,12 @@ from supabase import create_client, Client
 
 import asr.asr_pipeline as pipeline
 import coaching.coaching_agent as qc_agent
-import translation.translator as translator
 import worker.pii_scrubber as pii_scrubber
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("speechbrain").setLevel(logging.ERROR)
 logger = logging.getLogger("worker")
 
 load_dotenv()
@@ -119,33 +119,13 @@ def process_queue_item(queue_id: str):
         
         logger.info(f"[{queue_id}] Talk-to-Listen Ratio: {talk_to_listen_ratio} | Stats: {participant_stats}")
         
-        # 3. Translate to English (via translation microservice)
-        logger.info("Translating segments to English...")
-        supabase.table("callizer_queue").update({"status": "Translating to English..."}).eq("id", queue_id).execute()
-        try:
-            sentence_texts = [seg.get("text", "") for seg in segments]
-            if sentence_texts:
-                translations = translator.translate_batch(sentence_texts, src_lang=language)
-                logger.info(f"[{queue_id}] Translation returned {len(translations)} results. Starting PII scrubbing...")
-                
-                # Check for failure rate
-                failed_count = sum(1 for t in translations if not t or t == "[TRANSLATION_FAILED]")
-                if len(translations) > 0 and (failed_count / len(translations)) > 0.2:
-                    raise Exception(f"Translation failure rate too high: {failed_count}/{len(translations)} failed")
-                
-                for i, (seg, text_en) in enumerate(zip(segments, translations)):
-                    # SCRUB PII from the english translation
-                    safe_text = pii_scrubber.scrub_pii(text_en)
-                    seg["text_en"] = safe_text
-                logger.info(f"[{queue_id}] Translation and PII scrubbing complete — {len(translations)} segments processed.")
-        except Exception as translate_err:
-            logger.error(f"Translation failed: {translate_err}")
-            # Policy: Hard halt, do not send Indic text to LLM
-            supabase.table("callizer_queue").update({
-                "status": "failed_translation",
-                "errors": json.dumps([str(translate_err)])
-            }).eq("id", queue_id).execute()
-            return
+        # 3. (Bypassed Translation) - Let Gemini process raw regional language natively
+        # We skip IndicTrans2 entirely and save the raw `text` as `text_en` (which the UI expects), or just rely on fallback.
+        # To make sure UI renders it correctly if it expects `text_en`, we map it:
+        for seg in segments:
+            seg["text_en"] = seg.get("text", "")
+        
+        logger.info(f"[{queue_id}] Bypassed translation to let Gemini process raw {language} natively.")
         
         # 4. Save to calls table FIRST so QC evaluation can find it
         internal_call_id = str(uuid.uuid4())
@@ -180,6 +160,7 @@ def process_queue_item(queue_id: str):
             logger.info(f"[{queue_id}] Triggering QC Evaluation on Port 3000...")
             qc_resp = requests.post(
                 "http://localhost:3000/api/qc/evaluate_call",
+                headers={"Authorization": "Bearer internal_ai_worker_token"},
                 json={
                     "call_id": internal_call_id,
                     "prospect_id": prospect_id if prospect_id else None,

@@ -246,3 +246,4 @@ export const deleteDataCaptureQuestion = async (id) => {
   const res = await fetch(`${QC_API_BASE}/data_capture_questions/${id}`, { method: 'DELETE' });
   return res.ok;
 };
+export const getCoachingTemplates = async () => { const res = await fetch(`${API_BASE}/coaching_templates`); return res.json(); };

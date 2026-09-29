@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import RunPanel from './components/RunPanel';
-import Dashboard from './components/Dashboard';
-import ReviewView from './components/ReviewView';
+
 import TeamQC from './components/TeamQC';
 import QueueView from './components/QueueView';
 import LeadsDashboard from './components/LeadsDashboard';
 import LeadDetails from './components/LeadDetails';
+import MeetSyncView from './components/MeetSyncView';
 import ConversationInsights from './components/ConversationInsights';
 import ParametersManager from './components/ParametersManager';
 import Sidebar from './components/Sidebar';
@@ -33,27 +33,7 @@ function AppContent() {
     }
   }, []);
 
-  const handleSelectCall = (id) => {
-    setSelectedCall(id);
-    setCurrentView('review');
-  };
 
-  const NavButton = ({ id, label, icon: Icon }) => (
-    <Button
-      variant={currentView === id ? "secondary" : "ghost"}
-      className={cn(
-        "w-full justify-start gap-3 h-11 px-4 text-sm font-medium transition-all duration-200",
-        currentView === id ? "bg-muted shadow-sm" : "hover:bg-muted/50"
-      )}
-      onClick={() => {
-        if (id !== 'review') setCurrentView(id);
-      }}
-    >
-      <Icon className={cn("w-4 h-4", currentView === id ? "text-primary" : "text-muted-foreground")} />
-      <span className={currentView === id ? "font-semibold" : ""}>{label}</span>
-      {currentView === id && <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground opacity-50" />}
-    </Button>
-  );
 
   // If embedded in an iframe (like LeadSquared), ONLY render the Lead Details view
   if (isEmbedded && embeddedLeadId) {
@@ -106,7 +86,7 @@ function AppContent() {
                 }} 
               />
             )}
-            {currentView === 'dashboard' && <Dashboard onSelectCall={handleSelectCall} />}
+
             {currentView === 'insights_owners' && (
               <ConversationInsights onSelectOwner={(owner) => { setSelectedOwner(owner); setCurrentView('leads'); }} />
             )}
@@ -120,10 +100,9 @@ function AppContent() {
             {currentView === 'lead_details' && (
               <LeadDetails leadId={selectedCall} onBack={() => setCurrentView('leads')} />
             )}
-            {currentView === 'review' && (
-              <ReviewView callId={selectedCall} onBack={() => setCurrentView('dashboard')} />
-            )}
+
             {currentView === 'parameters' && <ParametersManager />}
+            {currentView === 'meet_sync' && <MeetSyncView />}
           </div>
         </main>
       </div>
