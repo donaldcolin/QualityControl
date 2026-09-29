@@ -26,6 +26,8 @@ app.use('/api', queueRoutes);
 app.use('/api', qcRoutes);
 app.use('/api', parametersRoutes);
 
+
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

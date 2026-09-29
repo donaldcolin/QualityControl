@@ -15,10 +15,10 @@ module.exports = {
     },
     {
       name: 'qc-python-worker',
-      script: 'uvicorn',
+      script: 'venv/bin/uvicorn',
       args: 'api.api_webhook:app --host 127.0.0.1 --port 8000',
       cwd: './asr_backend',
-      interpreter: 'python3', // Assumes a global python3 or venv python
+      interpreter: 'venv/bin/python3', // Forces the use of the virtual environment
       instances: 1,
       autorestart: true,
       watch: false,
@@ -26,6 +26,15 @@ module.exports = {
       env: {
         ENVIRONMENT: 'production'
       }
+    },
+    {
+      name: 'qc-frontend-dev',
+      script: 'npm',
+      args: 'run dev',
+      cwd: './frontend',
+      instances: 1,
+      autorestart: true,
+      watch: false
     },
     {
       name: 'qc-db-backup',
