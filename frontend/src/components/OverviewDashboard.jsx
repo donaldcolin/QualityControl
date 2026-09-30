@@ -130,20 +130,7 @@ export default function OverviewDashboard({ leads }) {
           </div>
         </div>
 
-        {/* ROW 2: LEAD METRICS (KALVIUM FUNNEL INTENT) */}
-        <div className="mt-4">
-          <div className="flex flex-wrap justify-between items-end mb-3 gap-2">
-             <h3 className="font-bold text-lg flex items-center gap-2">
-               Active Pipeline & Conversion Intent <span className="text-2xl">{m(metrics.totalLeads)} Leads</span>
-             </h3>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <MetricCard icon={TrendingUp} value={m(metrics.intentPay600)} label="High Intent (Pay ₹600)" color="text-emerald-500" sub={<span className="text-emerald-600 bg-emerald-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentPay600/metrics.totalLeads)*100||0)}%</span>} />
-            <MetricCard icon={TrendingUp} value={m(metrics.intentPayPAC)} label="High Intent (Pay PAC)" color="text-blue-500" sub={<span className="text-blue-600 bg-blue-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentPayPAC/metrics.totalLeads)*100||0)}%</span>} />
-            <MetricCard icon={TrendingUp} value={m(metrics.intentAdmission)} label="High Intent (Admission)" color="text-indigo-500" sub={<span className="text-indigo-600 bg-indigo-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentAdmission/metrics.totalLeads)*100||0)}%</span>} />
-            <MetricCard icon={TrendingDown} value={m(metrics.atRisk)} label="At Risk / Low Intent" color="text-destructive" sub={<span className="text-destructive bg-destructive/10 px-1 rounded text-[10px]">{Math.round((metrics.atRisk/metrics.totalLeads)*100||0)}%</span>} />
-          </div>
-        </div>
+
       </div>
 
       {/* ROW 3: CHARTS */}
