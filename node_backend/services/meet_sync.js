@@ -135,7 +135,10 @@ async function processTranscript(file) {
                 prospect_id: leadNumber,
                 transcript: transcriptText,
                 source: 'google_meet'
-            }, { timeout: 180000 });
+            }, { 
+                timeout: 180000,
+                headers: { 'Authorization': 'Bearer internal_ai_worker_token' }
+            });
             console.log(`🧠 QC Coaching evaluation triggered for Lead ${leadNumber}`);
         } catch (qcErr) {
             console.error(`QC Coaching failed for Lead ${leadNumber} (non-fatal):`, qcErr.message);

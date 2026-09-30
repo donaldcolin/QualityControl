@@ -270,7 +270,7 @@ export default function RunPanel({ activeQueueId, isSidebar = false }) {
               );
             })()}
 
-            {status.errors && status.errors.length > 0 && (
+            {status.errors && status.errors.length > 0 && !(status.errors.length === 1 && status.errors[0] === '[]') && (
               <div className="space-y-1">
                 <span className="text-destructive font-medium text-xs uppercase tracking-wider block mb-1">Errors</span>
                 <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md border border-destructive/20 space-y-1">

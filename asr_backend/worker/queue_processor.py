@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 import asr.asr_pipeline as pipeline
-import coaching.coaching_agent as qc_agent
 import worker.pii_scrubber as pii_scrubber
 
 logging.basicConfig(level=logging.INFO)

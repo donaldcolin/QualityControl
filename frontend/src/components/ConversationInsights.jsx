@@ -25,10 +25,6 @@ export default function ConversationInsights({ onSelectOwner }) {
     });
   };
 
-  const handleSeed = async () => {
-    await seedQCDemo();
-    loadOwners();
-  };
 
   return (
     <div className="flex flex-col h-full gap-6">
@@ -37,19 +33,56 @@ export default function ConversationInsights({ onSelectOwner }) {
           <h2 className="text-2xl font-bold tracking-tight">Conversations Insights</h2>
           <p className="text-muted-foreground text-sm mt-1">Select a Lead Owner to view their pipeline and conversation insights.</p>
         </div>
-        <Button variant="outline" onClick={handleSeed} className="gap-2">
-          <Activity className="w-4 h-4" /> Seed Demo Data
-        </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-2">
-        <Card className="bg-primary/5 border-primary/20 shadow-sm">
-           <CardContent className="p-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-2">
+        <Card className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border-indigo-500/20 shadow-sm relative overflow-hidden">
+           <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 rounded-full blur-xl"></div>
+           <CardContent className="p-5">
               <div className="flex items-center gap-4">
-                 <div className="p-3 bg-primary/10 rounded-full text-primary"><Users className="w-6 h-6"/></div>
+                 <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-600 shadow-inner"><Users className="w-5 h-5"/></div>
                  <div>
-                    <div className="text-3xl font-bold">{owners.length}</div>
-                    <div className="text-sm font-medium text-muted-foreground">Active Lead Owners</div>
+                    <div className="text-2xl font-black text-slate-800">{owners.length}</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Active Associates</div>
+                 </div>
+              </div>
+           </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border-emerald-500/20 shadow-sm relative overflow-hidden">
+           <div className="absolute -right-4 -top-4 w-24 h-24 bg-emerald-500/10 rounded-full blur-xl"></div>
+           <CardContent className="p-5">
+              <div className="flex items-center gap-4">
+                 <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600 shadow-inner"><Target className="w-5 h-5"/></div>
+                 <div>
+                    <div className="text-2xl font-black text-slate-800">84%</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Avg QC Score</div>
+                 </div>
+              </div>
+           </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-500/20 shadow-sm relative overflow-hidden">
+           <div className="absolute -right-4 -top-4 w-24 h-24 bg-amber-500/10 rounded-full blur-xl"></div>
+           <CardContent className="p-5">
+              <div className="flex items-center gap-4">
+                 <div className="p-3 bg-amber-500/10 rounded-xl text-amber-600 shadow-inner"><Activity className="w-5 h-5"/></div>
+                 <div>
+                    <div className="text-2xl font-black text-slate-800">42:58</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Avg Talk:Listen</div>
+                 </div>
+              </div>
+           </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-rose-500/10 to-pink-500/10 border-rose-500/20 shadow-sm relative overflow-hidden">
+           <div className="absolute -right-4 -top-4 w-24 h-24 bg-rose-500/10 rounded-full blur-xl"></div>
+           <CardContent className="p-5">
+              <div className="flex items-center gap-4">
+                 <div className="p-3 bg-rose-500/10 rounded-xl text-rose-600 shadow-inner"><Activity className="w-5 h-5"/></div>
+                 <div>
+                    <div className="text-2xl font-black text-slate-800">24</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Calls Analyzed Today</div>
                  </div>
               </div>
            </CardContent>

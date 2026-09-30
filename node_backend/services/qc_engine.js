@@ -32,14 +32,13 @@ try {
   console.warn("WARNING: knowledge_base.json not found or invalid in config/. Lead Intelligence will lack historical grounding.");
 }
 
-// Load Coaching Templates (Golden Pitches & Flags)
-let coachingTemplates = [];
+// Load BD Coaching Playbook (Real trainer knowledge — replaces AI-generated templates)
+let bdPlaybook = '';
 try {
-  const templateData = fs.readFileSync(path.join(configDir, 'coaching_templates.json'), 'utf8');
-  coachingTemplates = JSON.parse(templateData);
-  console.log(`Loaded ${coachingTemplates.length} predefined Golden Coaching Templates.`);
+  bdPlaybook = fs.readFileSync(path.join(configDir, 'bd_playbook.txt'), 'utf8');
+  console.log(`Loaded BD Playbook (${bdPlaybook.length} chars) — Kalvium-specific coaching active.`);
 } catch (err) {
-  console.warn("WARNING: coaching_templates.json not found. AI will use generic coaching.");
+  console.warn("WARNING: bd_playbook.txt not found in config/. AI coaching will be generic.");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -250,12 +249,13 @@ function getInsightsSchema(dataCaptureQuestions) {
                   properties: {
                     field: { type: 'string', description: 'The name of the field captured' },
                     value: { type: 'string', description: 'The value captured' },
-                    confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] }
+                    confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
+                    timestamp: { type: 'string', description: 'The timestamp (e.g. 02:15) in the transcript when this information was discussed' }
                   }
                 }
               }
             },
-            description: `Answers to specific data capture questions. Expected fields: ${dataCaptureQuestions.map(q => q.label).join(', ')}`
+            description: `Answers to specific data capture questions. Expected fields and their questions:\n${dataCaptureQuestions.map(q => `- ${q.label}: ${q.question}`).join('\n')}`
           },
           conversation_topics: {
             type: 'array',
@@ -523,22 +523,35 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
     block += '\n';
   }
 
-  // ── PART 2: PRESCRIPTIVE COACHING REPORT ──────────────────────────────────────
-  block += `=== PART 2: PRESCRIPTIVE COACHING REPORT ===\n`;
-  block += `You are a strict but helpful Sales Coach. We use standard proven pitches/templates to close sales.\n`;
-  block += `You must evaluate the associate against the following PREDEFINED COMPANY TEMPLATES:\n`;
-  
-  if (coachingTemplates.length > 0) {
-    coachingTemplates.forEach((t, i) => {
-      block += `\n[TEMPLATE ${i+1}]\n- FLAG TO DETECT: ${t.flag}\n- GOLDEN PITCH TO RECOMMEND: ${t.template}\n`;
-    });
+  // ── PART 2: DEEP COACHING REPORT ──────────────────────────────────────
+  block += `=== PART 2: DEEP COACHING REPORT ===\n`;
+  block += `You are an elite BD Trainer coaching Kalvium counsellors on 1:1 Counselling Booking Calls.\n`;
+  block += `You are NOT a checklist auditor. A basic TL can check if someone said hello. Your job is to find INVISIBLE mistakes only an experienced trainer would catch.\n\n`;
+
+  // Inject the real BD playbook if available
+  if (bdPlaybook) {
+    block += `=== KALVIUM BD PLAYBOOK (use this as your coaching reference) ===\n`;
+    block += bdPlaybook + '\n\n';
   }
 
-  block += `\nWhen the associate triggers any of the FLAGS above, you must correct them using the PRESCRIPTIVE COACHING format:\n`;
-  block += `1. Identify the situation based on the FLAG detected.\n`;
-  block += `2. Quote exactly what the associate said (the failure/deviation).\n`;
-  block += `3. Provide the EXACT 'Golden Pitch' provided in the template above.\n`;
-  block += `4. Explain briefly why this Golden Pitch works better.\n\n`;
+  block += `=== COACHING PRIORITIES (most important first) ===\n`;
+  block += `1. CALL FLOW VIOLATIONS: Did the associate follow the 9-stage call structure? Did they skip probing and jump straight to pitching? Did they forget to ask who the decision-maker is?\n`;
+  block += `2. OBJECTION MISHANDLING: When the prospect raised a concern, did the associate use the correct Kalvium-specific response from the playbook? Or did they make up facts, get defensive, or bulldoze past it?\n`;
+  block += `3. RED LINE VIOLATIONS: Did the associate say anything from the RED LINES list (badmouthing competitors, promising 100% placement, guaranteeing salary, claiming internship from 2nd year)?\n`;
+  block += `4. TONE & ENERGY: Did they sound like an admission counselor who cares, or a desperate salesman? Were they patient when explaining? Did they listen when the parent pushed back?\n`;
+  block += `5. MISSED BUYING SIGNALS: Did the prospect show interest (asking about fees, campus, curriculum) and the associate failed to capitalize on it?\n`;
+  block += `6. BOOKING FAILURE: Did the associate secure at least one parent (preferably father) for the 1:1 session? Did they offer two time slots? Did they confirm on WhatsApp?\n`;
+  block += `7. OVER-PITCHING: Did the associate dump Kalvium's value proposition without first understanding the student's situation, priorities, and concerns?\n\n`;
+
+  block += `=== CONTEXT-AWARE REWRITES INSTRUCTIONS ===\n`;
+  block += `CRITICAL: You MUST generate EXACTLY 4 specific rewrites. LLMs often get lazy and only generate 1. You must find 5 distinct coaching moments from across the entire transcript.\n`;
+  block += `For EACH of the 4 rewrites:\n`;
+  block += `- Quote the EXACT words the associate said (in whatever language they used).\n`;
+  block += `- Explain WHY it failed, referencing the specific playbook section they violated.\n`;
+  block += `- Write a GOLDEN REWRITE using the Kalvium-specific response from the playbook. The rewrite must use real Kalvium facts and positioning, not generic sales advice.\n`;
+  block += `- The golden rewrite should sound natural and human, like a real Kalvium top performer would say it.\n`;
+  block += `IMPORTANT: Do NOT give generic coaching like "be more empathetic" or "build rapport". Every piece of feedback must reference specific Kalvium knowledge, call flow stages, objection responses, or red lines from the playbook.\n\n`;
+
   block += `Overall grade scale — A (90-100), B (75-89), C (60-74), D (40-59), F (0-39)\n\n`;
 
   const categories = groupByCategory(parameters);
@@ -552,15 +565,6 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
 
   _staticPromptCache.set(cacheKey, block);
   return block;
-}
-
-/**
- * Builds the full combined prompt — static block + dynamic transcript appended.
- * The static block is served from the in-memory cache after first build.
- */
-function buildCombinedQualityCoachingPrompt(transcript, source, qualityChecks, parameters, leadState = null) {
-  const staticBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState);
-  return `${staticBlock}=== TRANSCRIPT ===\n${transcript}\n\nBe specific. Cite evidence from the transcript for every score and coaching point.`;
 }
 
 /**
@@ -582,11 +586,11 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
             max_score: { type: 'number', description: 'Maximum possible score for this parameter' },
             status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'] },
             coaching_status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
-            reason: { type: 'string', description: 'Evidence-based justification citing the transcript' }
+            reason: { type: 'string', description: 'Max 10 words if Pass/Done. Detailed only if Fail/Needs Improvement.' }
           },
           required: ['parameter', 'score', 'max_score', 'status', 'coaching_status', 'reason']
         },
-        description: 'One entry per quality parameter — evaluate ALL parameters from the list'
+        description: 'EXCEPTION REPORTING ONLY: ONLY output parameters that received LESS THAN max score, FAILED, or NEED IMPROVEMENT. Do NOT include perfectly executed parameters.'
       },
       coaching_report: {
         type: 'object',
@@ -609,24 +613,40 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
               required: ['category', 'score', 'grade', 'what_went_well', 'what_went_wrong', 'coach_tip']
             }
           },
-          top_strengths: { type: 'array', items: { type: 'string' } },
-          critical_improvements: { type: 'array', items: { type: 'string' } },
-          prescriptive_coaching: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                situation: { type: 'string' },
-                what_associate_said: { type: 'string' },
-                golden_pitch: { type: 'string' },
-                why_it_works: { type: 'string' }
+          top_strengths: { type: 'array', items: { type: 'string' }, description: 'Top 3-5 specific things the associate did well, with evidence' },
+          critical_improvements: { type: 'array', items: { type: 'string' }, description: 'Top 3-5 critical things to improve, with evidence' },
+          advanced_coaching: {
+            type: 'object',
+            properties: {
+              context_aware_rewrites: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    timestamp: { type: 'string', description: 'The exact timestamp range when this occurred, e.g. "02:05 - 03:59"' },
+                    what_they_said: { type: 'string', description: 'The exact phrase the associate used (in original language)' },
+                    why_it_failed: { type: 'string', description: 'Why this phrase was ineffective, referencing the playbook' },
+                    golden_rewrite: { type: 'string', description: 'A tailored rewrite using the Kalvium-specific response from the playbook' }
+                  },
+                  required: ['timestamp', 'what_they_said', 'why_it_failed', 'golden_rewrite']
+                },
+                description: 'Generate EXACTLY 5 specific rewrites. Finding only 1 is unacceptable. You MUST include the exact timestamp range from the transcript.'
               },
-              required: ['situation', 'what_associate_said', 'golden_pitch', 'why_it_works']
+              conversational_dynamics: { type: 'string', description: 'Deep analysis of talk-to-listen ratio, pacing, monologuing, interrupting, and whether the associate created space for the prospect to speak' },
+              tone_and_empathy: { type: 'string', description: 'Analysis of emotional intelligence — did the associate match the prospect energy? Did they sound defensive when challenged? Did they show genuine care or read from a script?' },
+              missed_opportunities: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Buying signals, emotional cues, or interest indicators the associate completely missed or talked over'
+              },
+              prospect_persona: { type: 'string', description: 'Identify the persona (e.g., The Analytical Parent, The Anxious First-Gen Parent, The Price-Sensitive Father) and how the associate should have adapted' },
+              competitor_deflection: { type: 'string', description: 'If a competitor was mentioned, how well did they handle it? If not mentioned, was there a moment where proactively addressing competition would have helped?' },
+              micro_agreements: { type: 'string', description: 'Did the associate use trial closes and check-ins throughout the call? If they monologued for 3+ minutes without checking understanding, call it out.' }
             },
-            description: 'Provide 2-4 prescriptive coaching corrections based on proven templates.'
+            required: ['context_aware_rewrites', 'conversational_dynamics', 'tone_and_empathy', 'missed_opportunities', 'prospect_persona']
           }
         },
-        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'prescriptive_coaching']
+        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'advanced_coaching']
       }
     },
     required: ['quality', 'coaching_report']
@@ -661,122 +681,6 @@ function groupByCategory(parameters) {
     groups[cat].push(p);
   });
   return groups;
-}
-
-function getCoachingSchema(parameters) {
-  const categories = groupByCategory(parameters);
-  const categoryNames = Object.keys(categories);
-
-  const categoryScoreProps = {};
-  categoryNames.forEach(cat => {
-    categoryScoreProps[cat] = {
-      type: 'object',
-      properties: {
-        score: { type: 'number', description: `Score 0-100 for ${cat}` },
-        grade: { type: 'string', description: 'Letter grade: A, B, C, D, or F' },
-        what_went_well: { type: 'string', description: `What the associate did well in the ${cat} section. Be specific with transcript evidence.` },
-        what_went_wrong: { type: 'string', description: `What went wrong or was missed in the ${cat} section. Be specific.` },
-        coach_tip: { type: 'string', description: `Actionable coaching tip for improving ${cat}. Give a specific phrase or technique they can use next time.` }
-      }
-    };
-  });
-
-  const paramProperties = {};
-  parameters.forEach(param => {
-    paramProperties[param.Parameter] = {
-      type: 'object',
-      properties: {
-        status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
-        reason: { type: 'string', description: 'Reason for the pass/fail status based on the transcript' }
-      }
-    };
-  });
-
-  return {
-    type: 'object',
-    properties: {
-      coaching_report: {
-        type: 'object',
-        properties: {
-          overall_score: { type: 'number', description: 'Overall score 0-100 across all categories' },
-          overall_grade: { type: 'string', description: 'Overall letter grade: A (90-100), B (75-89), C (60-74), D (40-59), F (0-39)' },
-          summary: { type: 'string', description: 'One paragraph executive summary of the coaching evaluation. Mention top strength and top improvement area.' },
-          category_scores: {
-            type: 'object',
-            properties: categoryScoreProps,
-            description: 'Per-category coaching breakdown'
-          },
-          top_strengths: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Top 3-5 specific things the associate did well, with evidence from the transcript'
-          },
-          critical_improvements: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Top 3-5 specific things the associate must improve, with evidence from the transcript'
-          },
-          suggested_script_lines: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                situation: { type: 'string', description: 'The situation or moment in the call where this applies' },
-                suggested_response: { type: 'string', description: 'What the associate should say in this situation' }
-              }
-            },
-            description: '2-4 suggested script lines for situations where the associate struggled'
-          },
-          parameter_evaluations: {
-            type: 'object',
-            properties: paramProperties,
-            description: 'Detailed pass/fail evaluation of each individual parameter'
-          }
-        },
-        required: ['overall_score', 'overall_grade', 'summary', 'category_scores', 'top_strengths', 'critical_improvements', 'suggested_script_lines', 'parameter_evaluations']
-      }
-    },
-    required: ['coaching_report']
-  };
-}
-
-function buildCoachingPrompt(transcript, source, parameters) {
-  const role = source === 'google_meet' ? 'Expert Video Demo Coach' : 'Expert Counselling Coach';
-  const context = getKalviumContext(source);
-  const categories = groupByCategory(parameters);
-
-  let prompt = `You are an ${role}. You are evaluating ${context}.\n\n`;
-  prompt += `Your job is NOT just to find mistakes — you are a COACH. For every section:\n`;
-  prompt += `1. Acknowledge what was done well (be specific, quote the transcript)\n`;
-  prompt += `2. Point out what was missed or done poorly (be specific)\n`;
-  prompt += `3. Give a concrete, actionable coaching tip with an example phrase they can use next time\n`;
-  prompt += `4. Suggest actual script lines for situations where they struggled\n\n`;
-
-  prompt += `--- TRANSCRIPT ---\n`;
-  prompt += `${transcript}\n\n`;
-
-  prompt += `--- QC PARAMETERS (grouped by category) ---\n`;
-  prompt += `Evaluate each parameter as Pass/Fail/Not Applicable with a reason.\n`;
-  prompt += `Then provide a coaching summary per category.\n\n`;
-
-  for (const [category, params] of Object.entries(categories)) {
-    prompt += `== ${category} ==\n`;
-    params.forEach(p => {
-      prompt += `- ${p.Parameter}: ${p.Description}\n`;
-    });
-    prompt += `\n`;
-  }
-
-  prompt += `--- SCORING GUIDELINES ---\n`;
-  prompt += `- A (90-100): Excellent — nearly all parameters passed, strong execution\n`;
-  prompt += `- B (75-89): Good — most parameters passed, minor gaps\n`;
-  prompt += `- C (60-74): Average — several parameters failed, clear coaching needed\n`;
-  prompt += `- D (40-59): Below Average — significant gaps, urgent coaching needed\n`;
-  prompt += `- F (0-39): Poor — most parameters failed, fundamental issues\n\n`;
-
-  prompt += `Be encouraging but honest. This is coaching, not punishment.\n`;
-
-  return prompt;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -867,6 +771,51 @@ function triageCall(callData) {
   return { tier: 'T2', valid: true, reason: 'Standard call profile (Instant Processing Enabled).' };
 }
 
+/**
+ * Combine insights and quality schemas into a single Omni-Schema
+ */
+function getOmniSchema(dataCaptureQuestions, qualityChecks, parameters) {
+  const insightsSchema = getInsightsSchema(dataCaptureQuestions);
+  const qualitySchema = getCombinedQualityCoachingSchema(qualityChecks, parameters);
+  return {
+    type: 'object',
+    properties: {
+      ...insightsSchema.properties,
+      ...qualitySchema.properties
+    },
+    required: [
+      ...(insightsSchema.required || []),
+      'quality',
+      'coaching_report'
+    ]
+  };
+}
+
+/**
+ * Combine insights and quality prompts into a single Omni-Prompt
+ */
+function buildOmniPrompt(transcript, source, dataCaptureQuestions, pastCalls, leadState, qualityChecks, parameters) {
+  // Build insights context without the transcript appended
+  const insightsBase = buildInsightsPrompt("", source, dataCaptureQuestions, pastCalls, leadState);
+  // Remove the empty transcript section from the end of insightsBase
+  const cleanInsightsBase = insightsBase.replace(/=== CURRENT CALL TRANSCRIPT \(Call #[0-9]+\) ===\n\n\nExtract all required JSON fields carefully based on the transcript and the accumulated context\./, "");
+  
+  // Build quality context
+  const qualityBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState);
+  
+  return `${cleanInsightsBase}
+${qualityBlock}
+
+=== FULL CALL TRANSCRIPT ===
+${transcript}
+
+IMPORTANT INSTRUCTIONS:
+1. Extract all Insights (BANT, Intent, Next Steps, etc.).
+2. Evaluate Quality (Exception Reporting only - only output parameters that missed points).
+3. Generate the Deep Coaching Report.
+Be specific. Cite evidence from the transcript for every score and coaching point.`;
+}
+
 module.exports = {
   ai,
   GEMINI_MODEL,
@@ -876,19 +825,19 @@ module.exports = {
   getDataCaptureQuestions,
   getPastCalls,
   getLeadState,
+  // OmniPrompt
+  getOmniSchema,
+  buildOmniPrompt,
   // Insights (Pass 1 — unchanged)
   getInsightsSchema,
   buildInsightsPrompt,
-  // Merged Quality + Coaching (Pass 2+3 combined)
-  buildCombinedQualityCoachingPrompt,
+  // Merged Quality + Coaching Schema (used by Omni)
   getCombinedQualityCoachingSchema,
   // Legacy quality-only (kept for fallback)
   getQualitySchema,
   buildQualityPrompt,
-  // Legacy coaching-only (kept for backward compat)
+  // Fetch params
   getParametersForSource,
-  getCoachingSchema,
-  buildCoachingPrompt,
   // Intelligence
   getIntelligenceSchema,
   triageCall,

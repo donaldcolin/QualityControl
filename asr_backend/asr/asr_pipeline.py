@@ -122,11 +122,11 @@ def _trim_silence(wav, sr, threshold_db=-40.0, min_silence_sec=0.5):
 
 # ── Segment Merging ────────────────────────────────────────────────────────
 
-def _merge_short_segments(segments, gap_threshold=0.3, min_duration=0.3):
+def _merge_short_segments(segments, gap_threshold=0.3, min_duration=0.3, max_duration=15.0):
     """
     Merge consecutive segments from the same speaker that are separated
     by less than gap_threshold seconds, or that are shorter than min_duration.
-    This reduces the number of transcription calls.
+    Prevents merged segments from exceeding max_duration to ensure ASR accuracy.
     """
     if not segments:
         return segments
@@ -138,8 +138,10 @@ def _merge_short_segments(segments, gap_threshold=0.3, min_duration=0.3):
         same_speaker = seg["speaker"] == prev["speaker"]
         prev_too_short = (prev["end"] - prev["start"]) < min_duration
         seg_too_short = (seg["end"] - seg["start"]) < min_duration
+        
+        would_exceed_max = (seg["end"] - prev["start"]) > max_duration
 
-        if same_speaker and (gap < gap_threshold or prev_too_short or seg_too_short):
+        if same_speaker and (gap < gap_threshold or prev_too_short or seg_too_short) and not would_exceed_max:
             # Merge: extend the previous segment
             prev["end"] = seg["end"]
         else:
@@ -252,28 +254,50 @@ def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers: int = 2):
         sampling_rate=sr,
         return_seconds=True,
         min_speech_duration_ms=250,
-        min_silence_duration_ms=100
+        min_silence_duration_ms=100,
+        max_speech_duration_s=15.0  # Force split long monologues so ASR doesn't drop text
     )
     
     if not speech_timestamps:
         return []
         
-    # 3. Extract embeddings
-    embeddings = []
-    valid_segments = []
-    
-    for seg in speech_timestamps:
+    # 3. Extract embeddings (Batched for massive RTF speedup)
+    valid_segments = speech_timestamps
+    crops = []
+    for seg in valid_segments:
         start_sample = int(seg['start'] * sr)
         end_sample = int(seg['end'] * sr)
         
-        crop = wav[:, start_sample:end_sample]
-        
-        with torch.inference_mode():
-            emb = _cached_ecapa_model.encode_batch(crop)
-            emb = emb.squeeze().cpu().numpy()
+        # Max 4 seconds per crop to extract speaker embedding (prevents OOM on huge padded tensors)
+        if end_sample - start_sample > 4 * sr:
+            end_sample = start_sample + 4 * sr
             
-        embeddings.append(emb)
-        valid_segments.append(seg)
+        # extract 1D crop
+        crops.append(wav[0, start_sample:end_sample])
+        
+    embeddings = []
+    batch_size = 16  # smaller mini-batch to prevent unified memory spikes on Apple Silicon
+    
+    with torch.inference_mode():
+        from torch.nn.utils.rnn import pad_sequence
+        for i in range(0, len(crops), batch_size):
+            batch_crops = crops[i:i+batch_size]
+            
+            # Pad sequences with zeros to match longest segment in the batch
+            padded_batch = pad_sequence(batch_crops, batch_first=True)
+            
+            # Compute relative lengths so the model ignores the zero-padding (ensures identical quality)
+            lengths = torch.tensor([len(c) for c in batch_crops], dtype=torch.float32, device=device)
+            relative_lengths = lengths / lengths.max()
+            
+            # Extract embeddings for the entire batch in one pass
+            emb = _cached_ecapa_model.encode_batch(padded_batch, wav_lens=relative_lengths)
+            emb = emb.squeeze(1).cpu().numpy() # [batch_size, 192]
+            
+            if emb.ndim == 1:
+                emb = emb[np.newaxis, :] # Handle edge case where batch_size=1
+                
+            embeddings.extend(emb)
         
     if not embeddings:
         return []
@@ -370,15 +394,16 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
         turn["speaker"] = speaker_map[raw_label]
 
     # ── Step 6: Merge short segments ──
-    speakers = _merge_short_segments(speakers)
+    # Increase gap_threshold from 0.3s to 2.0s to massively reduce transcription overhead
+    speakers = _merge_short_segments(speakers, gap_threshold=2.0, min_duration=0.5)
     total = len(speakers)
     _update(f"Merged to {total} segments for transcription")
 
     # ── Step 7: Transcribe (concurrently) ──
     _update(f"Transcribing {total} segments...")
     
-    # Use the trimmed waveform for transcription
-    transcription_wav = trimmed_wav
+    # Push the entire trimmed waveform to the GPU once to avoid PCI-e overhead per segment
+    transcription_wav = trimmed_wav.to(device)
 
     with ThreadPoolExecutor(max_workers=_CONCURRENT_WORKERS) as executor:
         futures = {}

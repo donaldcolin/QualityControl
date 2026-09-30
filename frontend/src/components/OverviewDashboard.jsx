@@ -109,6 +109,8 @@ export default function OverviewDashboard({ leads }) {
 
   if (leads.length === 0) return null;
 
+  const m = (val) => val === 0 || val === "0m 0s" || val === "0:0" || val === "0.0" || val === 0.0 || val === '-' ? "-" : val;
+
   return (
     <div className="space-y-8 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex flex-col gap-4">
@@ -116,15 +118,15 @@ export default function OverviewDashboard({ leads }) {
         {/* ROW 1: CALL METRICS */}
         <div>
           <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
-            Total Calls <span className="text-2xl">{metrics.totalCalls}</span>
+            Total Calls <span className="text-2xl">{m(metrics.totalCalls)}</span>
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <MetricCard icon={Clock} value={formatDuration(metrics.totalDurationSec)} label="Total Call Duration" color="text-blue-500" />
-            <MetricCard icon={Clock} value={formatDuration(metrics.avgDurationSec)} label="Avg. Call Duration" color="text-blue-500" />
-            <MetricCard icon={Volume2} value={metrics.avgTtl} label="Talk-to-listen Ratio" color="text-purple-500" />
-            <MetricCard icon={PhoneCall} value={metrics.callsOver2Mins} label="Detailed Calls > 2 mins" color="text-emerald-500" />
-            <MetricCard icon={TrendingUp} value={metrics.avgCallQuality} label="Call Quality Score" color="text-indigo-500" />
-            <MetricCard icon={PhoneCall} value={metrics.connectedCallsPerLead} label="Connected Calls per Lead" color="text-blue-500" />
+            <MetricCard icon={Clock} value={m(formatDuration(metrics.totalDurationSec))} label="Total Call Duration" color="text-blue-500" />
+            <MetricCard icon={Clock} value={m(formatDuration(metrics.avgDurationSec))} label="Avg. Call Duration" color="text-blue-500" />
+            <MetricCard icon={Volume2} value={m(metrics.avgTtl)} label="Talk-to-listen Ratio" color="text-purple-500" />
+            <MetricCard icon={PhoneCall} value={m(metrics.callsOver2Mins)} label="Detailed Calls > 2 mins" color="text-emerald-500" />
+            <MetricCard icon={TrendingUp} value={m(metrics.avgCallQuality)} label="Call Quality Score" color="text-indigo-500" />
+            <MetricCard icon={PhoneCall} value={m(metrics.connectedCallsPerLead)} label="Connected Calls per Lead" color="text-blue-500" />
           </div>
         </div>
 
@@ -132,14 +134,14 @@ export default function OverviewDashboard({ leads }) {
         <div className="mt-4">
           <div className="flex flex-wrap justify-between items-end mb-3 gap-2">
              <h3 className="font-bold text-lg flex items-center gap-2">
-               Active Pipeline & Conversion Intent <span className="text-2xl">{metrics.totalLeads} Leads</span>
+               Active Pipeline & Conversion Intent <span className="text-2xl">{m(metrics.totalLeads)} Leads</span>
              </h3>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <MetricCard icon={TrendingUp} value={metrics.intentPay600} label="High Intent (Pay ₹600)" color="text-emerald-500" sub={<span className="text-emerald-600 bg-emerald-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentPay600/metrics.totalLeads)*100||0)}%</span>} />
-            <MetricCard icon={TrendingUp} value={metrics.intentPayPAC} label="High Intent (Pay PAC)" color="text-blue-500" sub={<span className="text-blue-600 bg-blue-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentPayPAC/metrics.totalLeads)*100||0)}%</span>} />
-            <MetricCard icon={TrendingUp} value={metrics.intentAdmission} label="High Intent (Admission)" color="text-indigo-500" sub={<span className="text-indigo-600 bg-indigo-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentAdmission/metrics.totalLeads)*100||0)}%</span>} />
-            <MetricCard icon={TrendingDown} value={metrics.atRisk} label="At Risk / Low Intent" color="text-destructive" sub={<span className="text-destructive bg-destructive/10 px-1 rounded text-[10px]">{Math.round((metrics.atRisk/metrics.totalLeads)*100||0)}%</span>} />
+            <MetricCard icon={TrendingUp} value={m(metrics.intentPay600)} label="High Intent (Pay ₹600)" color="text-emerald-500" sub={<span className="text-emerald-600 bg-emerald-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentPay600/metrics.totalLeads)*100||0)}%</span>} />
+            <MetricCard icon={TrendingUp} value={m(metrics.intentPayPAC)} label="High Intent (Pay PAC)" color="text-blue-500" sub={<span className="text-blue-600 bg-blue-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentPayPAC/metrics.totalLeads)*100||0)}%</span>} />
+            <MetricCard icon={TrendingUp} value={m(metrics.intentAdmission)} label="High Intent (Admission)" color="text-indigo-500" sub={<span className="text-indigo-600 bg-indigo-500/10 px-1 rounded text-[10px]">{Math.round((metrics.intentAdmission/metrics.totalLeads)*100||0)}%</span>} />
+            <MetricCard icon={TrendingDown} value={m(metrics.atRisk)} label="At Risk / Low Intent" color="text-destructive" sub={<span className="text-destructive bg-destructive/10 px-1 rounded text-[10px]">{Math.round((metrics.atRisk/metrics.totalLeads)*100||0)}%</span>} />
           </div>
         </div>
       </div>
@@ -229,20 +231,38 @@ export default function OverviewDashboard({ leads }) {
 }
 
 function MetricCard({ icon: Icon, value, label, color, sub }) {
+  let gradientClass = "from-slate-500/10 to-slate-500/10";
+  let bgClass = "bg-slate-500/10";
+  
+  if (color.includes("emerald")) {
+    gradientClass = "from-emerald-500/10 to-teal-500/10";
+    bgClass = "bg-emerald-500/10";
+  } else if (color.includes("blue")) {
+    gradientClass = "from-blue-500/10 to-cyan-500/10";
+    bgClass = "bg-blue-500/10";
+  } else if (color.includes("indigo") || color.includes("purple")) {
+    gradientClass = "from-indigo-500/10 to-purple-500/10";
+    bgClass = "bg-indigo-500/10";
+  } else if (color.includes("destructive") || color.includes("rose") || color.includes("red")) {
+    gradientClass = "from-rose-500/10 to-pink-500/10";
+    bgClass = "bg-rose-500/10";
+  }
+
+  const borderClass = color === "text-destructive" ? "border-destructive/20" : color.replace('text-', 'border-').replace('500', '200');
+
   return (
-    <Card className="shadow-sm border-border/50 rounded-xl bg-background/50 backdrop-blur-sm overflow-hidden">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <Icon className={cn("w-4 h-4", color)} />
-          {sub && sub}
-        </div>
-        <div className="text-xl font-bold text-foreground mb-1">
-          {value}
-        </div>
-        <div className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider leading-tight">
-          {label}
-        </div>
-      </CardContent>
+    <Card className={cn("shadow-sm relative overflow-hidden bg-gradient-to-br", gradientClass, borderClass)}>
+       <div className={cn("absolute -right-4 -top-4 w-24 h-24 rounded-full blur-xl", bgClass)}></div>
+       <CardContent className="p-5 flex flex-col justify-between h-full relative z-10">
+          <div className="flex items-center justify-between mb-4">
+             <div className={cn("p-2.5 rounded-xl shadow-inner", bgClass, color)}><Icon className="w-5 h-5"/></div>
+             {sub && sub}
+          </div>
+          <div>
+             <div className="text-2xl font-black text-slate-800 leading-none">{value}</div>
+             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-1.5">{label}</div>
+          </div>
+       </CardContent>
     </Card>
   );
 }

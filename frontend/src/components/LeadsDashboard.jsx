@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getQCLeads, seedQCDemo } from '../api';
-import { ArrowLeft, Users, Activity, TrendingUp, TrendingDown, Minus, Calendar, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Users, Activity, TrendingUp, TrendingDown, Minus, Calendar, CheckCircle2, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,10 +37,9 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
           console.error("Backend error:", data.error);
         }
         let fetchedLeads = Array.isArray(data) ? data : [];
-        // If an owner was passed, ideally the API would filter it, but we can filter on the client for now 
-        // assuming `owner` string matches `emp_name` or similar, but the backend doesn't officially tie leads to owners yet.
-        // For demo purposes, if owner is passed, we just show all leads but act like they belong to them, 
-        // OR we just display them. The screenshot requirement dictates this view.
+        if (owner) {
+          fetchedLeads = fetchedLeads.filter(l => l.owner === owner.emp_name);
+        }
         setLeads(fetchedLeads);
         setLoading(false);
       })
@@ -50,10 +49,6 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
       });
   };
 
-  const handleSeed = async () => {
-    await seedQCDemo();
-    loadLeads();
-  };
 
   const getIntentBadge = (score) => {
     if (score == null) return <Badge variant="outline" className="text-muted-foreground bg-muted/50 font-medium text-[11px] px-2.5 py-0.5 rounded-full">Pending</Badge>;
@@ -83,9 +78,6 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
           </div>
           <p className="text-muted-foreground text-sm ml-11">Overview of pipeline and conversion predictions based on call history</p>
         </div>
-        <Button variant="outline" onClick={handleSeed} className="gap-2 shadow-sm hover:shadow-md transition-all rounded-full px-5">
-          <Activity className="w-4 h-4 text-primary" /> Seed Demo Lead
-        </Button>
       </div>
 
       {!loading && leads.length > 0 && <OverviewDashboard leads={leads} />}
@@ -110,7 +102,7 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
                 {loading ? (
                   <TableRow><TableCell colSpan={8} className="h-48 text-center text-muted-foreground">Loading leads...</TableCell></TableRow>
                 ) : leads.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="h-48 text-center text-muted-foreground">No leads found. Click "Seed Demo Lead".</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="h-48 text-center text-muted-foreground">No leads found.</TableCell></TableRow>
                 ) : (
                   leads.map((l) => {
                     const callCount = l.calls?.length || l.total_calls || 0;
@@ -118,14 +110,49 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
                     const qs = l.avg_call_quality_score;
                     const intent = l.intent_score;
 
+                    const sqlStatus = (() => {
+                      const allFields = l.data_capture?.extracted_fields || [];
+                      const gradeFields = allFields.filter(f => f.field.toLowerCase().includes('grade') || f.field.toLowerCase().includes('class'));
+                      const streamFields = allFields.filter(f => f.field.toLowerCase().includes('stream') || f.field.toLowerCase().includes('group') || f.field.toLowerCase().includes('subject'));
+
+                      const notMentionedKeywords = ['not mentioned', 'n/a', 'none', 'null', 'unknown', ''];
+                      const validGrade = gradeFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
+                      const validStream = streamFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
+
+                      if (!validGrade || !validStream) return 'Not Mentioned';
+                      
+                      const gradeVal = String(validGrade.value).toLowerCase();
+                      const streamVal = String(validStream.value).toLowerCase();
+                      
+                      const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
+                      const isPCM = streamVal.includes('pcm') || streamVal.includes('science');
+                      
+                      return (is12 && isPCM) ? 'SQL' : 'No SQL';
+                    })();
+
                     return (
                       <TableRow
                         key={l.id}
                         className="cursor-pointer hover:bg-muted/30 transition-all group border-b-border/50"
                         onClick={() => onSelectLead(l.id)}
                       >
-                        <TableCell className="px-6 py-4 font-semibold text-sm group-hover:text-primary transition-colors">
+                        <TableCell className="px-6 py-4 font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
                           {l.name}
+                          {sqlStatus === 'SQL' && (
+                            <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border-emerald-200 py-0 h-5 px-1.5 text-[10px]">
+                              <Star className="w-2.5 h-2.5 mr-1 fill-emerald-500" /> SQL
+                            </Badge>
+                          )}
+                          {sqlStatus === 'No SQL' && (
+                            <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-200 border-rose-200 py-0 h-5 px-1.5 text-[10px]">
+                              No SQL
+                            </Badge>
+                          )}
+                          {sqlStatus === 'Not Mentioned' && (
+                            <Badge className="bg-slate-100 text-slate-500 hover:bg-slate-200 border-slate-200 py-0 h-5 px-1.5 text-[10px]">
+                              Not Mentioned
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
                           {callCount} Conversations
@@ -138,9 +165,9 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
                         </TableCell>
                         <TableCell className="text-sm font-medium flex items-center gap-3">
                           <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] uppercase shadow-sm">
-                            {(owner?.emp_name || l.owner || 'U').substring(0, 1)}
+                            {(l.owner || 'U').substring(0, 1)}
                           </div>
-                          <span className="text-muted-foreground">{owner?.emp_name || l.owner || 'Unassigned'}</span>
+                          <span className="text-muted-foreground">{l.owner || 'Unassigned'}</span>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           In-Progress Calls

@@ -105,55 +105,59 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       return true;
     });
 
-    // 3. Run INSIGHTS evaluation (Summary + Insights + Next Steps)
-    const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions);
-    const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
-
-    const insightsResponse = await qcEngine.ai.models.generateContent({
-      model: qcEngine.GEMINI_MODEL,
-      contents: insightsPrompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: insightsSchema,
-        temperature: 0.15
-      }
-    });
-
-    const insightsResult = JSON.parse(insightsResponse.text);
-
-    // 4. Run COMBINED Quality + Coaching evaluation (single API call, 2-in-1)
+    // 3 & 4. Run OMNI EVALUATION (Insights + Quality + Coaching in one single pass)
+    let insightsResult = {};
     let qualityResult = { quality: {} };
     let coachingReport = null;
+    let combinedResult = {};
+
     if (filteredQualityChecks.length > 0) {
       try {
         const { params } = await qcEngine.getParametersForSource(effectiveSource);
         if (params.length > 0) {
-          // MERGED: quality scoring + coaching report in ONE Gemini call
-          // Transcript is sent once instead of twice — saves ~33% input tokens
-          const combinedSchema = qcEngine.getCombinedQualityCoachingSchema(filteredQualityChecks, params);
-          const combinedPrompt = qcEngine.buildCombinedQualityCoachingPrompt(
-            transcriptText, effectiveSource, filteredQualityChecks, params, leadState
+          // OMNI-PROMPT: One massive prompt to extract everything at once (saves 2,700+ tokens)
+          const omniSchema = qcEngine.getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params);
+          const omniPrompt = qcEngine.buildOmniPrompt(
+            transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params
           );
 
-          const combinedResponse = await qcEngine.ai.models.generateContent({
+          const omniResponse = await qcEngine.ai.models.generateContent({
             model: qcEngine.GEMINI_MODEL,
-            contents: combinedPrompt,
+            contents: omniPrompt,
             config: {
               responseMimeType: 'application/json',
-              responseSchema: combinedSchema,
+              responseSchema: omniSchema,
               temperature: 0.15
             }
           });
 
-          const combinedResult = JSON.parse(combinedResponse.text);
+          const omniResult = JSON.parse(omniResponse.text);
+          
+          insightsResult = {
+            insights: omniResult.insights,
+            summary: omniResult.summary,
+            next_steps: omniResult.next_steps
+          };
+          combinedResult = omniResult;
           
           // Convert quality array back to object keyed by parameter name (for DB storage compatibility)
+          // PRE-FILL: Assume all parameters passed perfectly. The AI will only return exceptions.
           const qualityObj = {};
+          filteredQualityChecks.forEach(check => {
+            qualityObj[check.parameter] = {
+              score: check.max_score || 5,
+              max_score: check.max_score || 5,
+              status: 'Done',
+              coaching_status: 'Pass',
+              reason: 'Standard Execution'
+            };
+          });
+
           if (Array.isArray(combinedResult.quality)) {
             combinedResult.quality.forEach(item => {
               qualityObj[item.parameter] = {
                 score: item.score,
-                max_score: item.max_score,
+                max_score: item.max_score || (qualityObj[item.parameter] ? qualityObj[item.parameter].max_score : 5),
                 status: item.status,
                 coaching_status: item.coaching_status,
                 reason: item.reason
@@ -165,6 +169,20 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           coachingReport = combinedResult.coaching_report || null;
         } else {
           // No coaching params yet — fall back to quality-only pass
+          // MUST run insights manually first!
+          const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions);
+          const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
+          const insightsResponse = await qcEngine.ai.models.generateContent({
+            model: qcEngine.GEMINI_MODEL,
+            contents: insightsPrompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: insightsSchema,
+              temperature: 0.15
+            }
+          });
+          insightsResult = JSON.parse(insightsResponse.text);
+
           const qualitySchema = qcEngine.getQualitySchema(filteredQualityChecks);
           const qualityPrompt = qcEngine.buildQualityPrompt(transcriptText, effectiveSource, filteredQualityChecks);
           const qualityResponse = await qcEngine.ai.models.generateContent({
@@ -190,8 +208,23 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           qualityResult = { quality: restoredQuality };
         }
       } catch (combinedErr) {
-        console.error('Combined quality+coaching evaluation failed (non-fatal):', combinedErr.message);
+        console.error('Combined omni evaluation failed (non-fatal):', combinedErr.message);
       }
+    } else {
+      // 4b. Fallback: No quality checks for this source, so run Insights only
+      const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions);
+      const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
+
+      const insightsResponse = await qcEngine.ai.models.generateContent({
+        model: qcEngine.GEMINI_MODEL,
+        contents: insightsPrompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: insightsSchema,
+          temperature: 0.15
+        }
+      });
+      insightsResult = JSON.parse(insightsResponse.text);
     }
 
     // 5. Compute overall quality score from merged result
@@ -873,11 +906,18 @@ router.post('/activities/push_to_qc', async (req, res) => {
 
     // Upsert lead so it's immediately tracked on the QC Leads Dashboard
     if (prospect_id) {
+      let resolvedOwnerName = 'Unassigned';
+      if (emp_number) {
+        const { data: assoc } = await supabase.from('qc_associates').select('emp_name').eq('emp_number', emp_number).maybeSingle();
+        if (assoc && assoc.emp_name) resolvedOwnerName = assoc.emp_name;
+      }
+      
       await supabase.from('leads').upsert({
         id: prospect_id,
         name: lead_name || 'Unknown',
         phone: client_number || null,
-        lead_source: lead_source || 'Phone'
+        lead_source: lead_source || 'Phone',
+        owner: resolvedOwnerName
       }, { onConflict: 'id' });
     }
 

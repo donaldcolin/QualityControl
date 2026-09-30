@@ -9,8 +9,8 @@ router.get('/', async (req, res) => {
   const { data: leads, error } = await supabase.from('leads').select('*').order('updated_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
 
-  const { data: calls, error: callsError } = await supabase.from('calls').select('id, prospect_id, created_at').order('created_at', { ascending: true });
-  
+  const { data: calls, error: callsError } = await supabase.from('calls').select('id, prospect_id, qc_status, duration_sec, call_quality_score, talk_to_listen_ratio, insights_data, quality_data');
+  if (callsError) console.error("Error fetching calls:", callsError);
   // 1. Fetch queues to find emp_number
   const { data: queues } = await supabase.from('callizer_queue').select('prospect_id, emp_number');
   
@@ -43,8 +43,10 @@ router.get('/', async (req, res) => {
 
   const leadsWithCounts = (leads || []).map(l => {
     const prospectCalls = callsByProspect[l.id] || [];
-    // If not found in queue, fallback to 'Unassigned'
-    const resolvedOwner = prospectOwnerMap[l.id] || 'Unassigned';
+    // Use owner from database if valid, else fallback to queue mapper, else 'Unassigned'
+    const resolvedOwner = (l.owner && l.owner !== 'Unassigned') 
+      ? l.owner 
+      : (prospectOwnerMap[l.id] || 'Unassigned');
     
     return {
       ...l,
