@@ -79,3 +79,4 @@ storage/
 *.tar.gz
 *.whl
 *.zip
+node_backend/config/credentials.json
