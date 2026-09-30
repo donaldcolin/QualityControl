@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 export default function TeamQC({ onPushToQueue }) {
@@ -225,21 +224,21 @@ export default function TeamQC({ onPushToQueue }) {
         <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 flex-1 min-w-[300px]">
              <span className="text-sm font-medium text-muted-foreground">QC Team Associate:</span>
-             <Select value={selectedEmp || ""} onValueChange={selectAssociate}>
-               <SelectTrigger className="w-[300px] h-9">
-                 <SelectValue placeholder="Select an associate..." />
-               </SelectTrigger>
-               <SelectContent>
+             <select 
+               value={selectedEmp || ""} 
+               onChange={(e) => selectAssociate(e.target.value)}
+               className="w-[300px] h-9 flex text-sm rounded-md border border-input bg-transparent px-3 py-1 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+             >
+                 <option value="" disabled>Select an associate...</option>
                  {associates.map(a => (
-                   <SelectItem key={a.emp_number} value={a.emp_number}>
+                   <option key={a.emp_number} value={a.emp_number}>
                      {a.emp_name} ({a.emp_number})
-                   </SelectItem>
+                   </option>
                  ))}
                  {associates.length === 0 && (
-                   <SelectItem value="" disabled>No associates tracked</SelectItem>
+                   <option value="" disabled>No associates tracked</option>
                  )}
-               </SelectContent>
-             </Select>
+             </select>
              
              {selectedEmp && (
                <Button variant="ghost" size="icon" onClick={() => handleRemove(selectedEmp)} className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Remove tracking for this associate">
@@ -281,22 +280,19 @@ export default function TeamQC({ onPushToQueue }) {
                             <TableCell className="px-6 font-medium whitespace-nowrap">{emp.emp_name}</TableCell>
                             <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate" title={emp.emp_tags}>{emp.emp_tags}</TableCell>
                             <TableCell>
-                              <Select
+                              <select
                                 disabled={isAdded}
                                 value={empLang}
-                                onValueChange={(val) => setSyncLanguages({...syncLanguages, [emp.emp_number]: val})}
+                                onChange={(e) => setSyncLanguages({...syncLanguages, [emp.emp_number]: e.target.value})}
+                                className="w-[120px] h-8 text-xs flex rounded-md border border-input bg-transparent px-3 py-1 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                <SelectTrigger className="w-[120px] h-8 text-xs">
-                                  <SelectValue placeholder="Language" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="hi">Hindi</SelectItem>
-                                  <SelectItem value="ta">Tamil</SelectItem>
-                                  <SelectItem value="kn">Kannada</SelectItem>
-                                  <SelectItem value="te">Telugu</SelectItem>
-                                  <SelectItem value="ml">Malayalam</SelectItem>
-                                </SelectContent>
-                              </Select>
+                                  <option value="" disabled>Language</option>
+                                  <option value="hi">Hindi</option>
+                                  <option value="ta">Tamil</option>
+                                  <option value="kn">Kannada</option>
+                                  <option value="te">Telugu</option>
+                                  <option value="ml">Malayalam</option>
+                              </select>
                             </TableCell>
                             <TableCell className="text-right px-6">
                               <Button
@@ -342,8 +338,9 @@ export default function TeamQC({ onPushToQueue }) {
                     <RefreshCw className="w-6 h-6 text-primary animate-spin" />
                   </div>
                 ) : !selectedEmp ? (
-                  <div className="h-32 flex items-center justify-center text-center text-sm text-muted-foreground p-6 border border-dashed rounded-lg bg-muted/30">
-                    ← Select an associate from the left panel to view their assigned leads.
+                  <div className="h-32 flex flex-col gap-2 items-center justify-center text-center text-sm text-muted-foreground p-6 border border-dashed rounded-lg bg-muted/30">
+                    <span>↑</span>
+                    <span>Select an associate from the top bar to view their assigned leads.</span>
                   </div>
                 ) : leads.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground text-sm border border-dashed rounded-lg bg-muted/30">
@@ -428,7 +425,7 @@ export default function TeamQC({ onPushToQueue }) {
                 <div className="bg-muted p-4 rounded-full mb-4">
                   <Headphones className="w-10 h-10 text-muted-foreground/50" />
                 </div>
-                <p>Select a lead from the middle panel to view their call history.</p>
+                <p>← Select a lead from the left panel to view their call history.</p>
                 <p className="mt-2 text-xs opacity-70">Only calls with recordings &gt; 60s can be pushed to QC.</p>
               </div>
             ) : loadingActivities ? (

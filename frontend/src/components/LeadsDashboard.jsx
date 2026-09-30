@@ -90,8 +90,6 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
                 <TableRow className="border-b-border/50">
                   <TableHead className="px-6 py-4 font-semibold">Name</TableHead>
                   <TableHead className="font-semibold">Conversations</TableHead>
-                  <TableHead className="font-semibold">Last Conversation</TableHead>
-                  <TableHead className="max-w-[200px] font-semibold">Next Task Due Date</TableHead>
                   <TableHead className="font-semibold">Conversation owner</TableHead>
                   <TableHead className="font-semibold">Status</TableHead>
                   <TableHead className="font-semibold">Intent</TableHead>
@@ -100,9 +98,9 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={8} className="h-48 text-center text-muted-foreground">Loading leads...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="h-48 text-center text-muted-foreground">Loading leads...</TableCell></TableRow>
                 ) : leads.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="h-48 text-center text-muted-foreground">No leads found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="h-48 text-center text-muted-foreground">No leads found.</TableCell></TableRow>
                 ) : (
                   leads.map((l) => {
                     const callCount = l.calls?.length || l.total_calls || 0;
@@ -156,12 +154,6 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
                         </TableCell>
                         <TableCell className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
                           {callCount} Conversations
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(lastCallDate)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate" title={l.next_process_step}>
-                          {l.next_process_step || '—'}
                         </TableCell>
                         <TableCell className="text-sm font-medium flex items-center gap-3">
                           <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] uppercase shadow-sm">
