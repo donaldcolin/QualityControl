@@ -14,12 +14,15 @@ const queueRoutes = require('./routes/queue');
 const qcRoutes = require('./routes/qc');
 const orchestratorRoutes = require('./routes/orchestrator');
 const parametersRoutes = require('./routes/parameters');
+const driveRoutes = require('./routes/drive');
 
 // Mount prefixed routes
 app.use('/api/associates', associatesRoutes);
 app.use('/api/leads', leadsRoutes);
+app.use('/api/search', require('./routes/search'));
 app.use('/api/calls', callsRoutes);
 app.use('/api/orchestrate', orchestratorRoutes);
+app.use('/api/drive', driveRoutes);
 
 // Mount non-prefixed routes (the routes themselves have the prefix like /queue, /qc, /coaching inside)
 app.use('/api', queueRoutes);

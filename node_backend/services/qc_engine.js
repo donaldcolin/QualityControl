@@ -62,7 +62,7 @@ function getKalviumContext(source, leadState = null) {
   const base = source === 'google_meet'
     ? 'a product demonstration meeting via Google Meet'
     : 'a university admissions sales counselling phone call';
-  
+
   let ctx = `${base} for Kalvium. 
 Kalvium is a higher-education startup offering a Work-Integrated Computer Science Engineering degree. Key features include a 100% placement guarantee, hands-on paid internships starting from Year 2, and an aptitude-based entrance exam called K-NET (we do not require JEE/NEET).
 
@@ -94,10 +94,10 @@ Evaluate the associate's adherence to this flow.`;
     if (leadState.kalvium_funnel_stage) ctx += `\n- Funnel Stage: ${leadState.kalvium_funnel_stage}`;
     if (leadState.next_process_step) ctx += `\n- Next Scheduled Activity: ${leadState.next_process_step}`;
     if (leadState.journey_summary) ctx += `\n- CRM Journey Summary (Past Calls): ${leadState.journey_summary}`;
-    
+
     ctx += `\n\nIMPORTANT: The CRM "Lead Stage" might statically say "New Lead", so you MUST rely on the Funnel Stage, Next Activity, and Journey Summary above to determine where they actually are in the sales cycle. Do NOT penalize the associate for skipping introductory steps if the Journey Summary proves the customer already completed them!`;
   }
-  
+
   return ctx;
 }
 
@@ -138,13 +138,19 @@ async function getDataCaptureQuestions(source) {
   return data;
 }
 
-async function getPastCalls(prospectId) {
+async function getPastCalls(prospectId, currentCallId) {
   if (!prospectId) return [];
-  const { data, error } = await supabase
+  let query = supabase
     .from('calls')
     .select('*')
     .eq('prospect_id', prospectId)
     .order('id', { ascending: true });
+
+  if (currentCallId) {
+    query = query.neq('id', currentCallId);
+  }
+
+  const { data, error } = await query;
   if (error) {
     console.error("Failed to fetch past calls:", error.message);
     return [];
@@ -399,10 +405,15 @@ function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls
   });
   prompt += `7. Identify the main CONVERSATION TOPICS discussed IN THIS CALL.\n`;
   prompt += `8. Write a comprehensive CALL SUMMARY with key points and main takeaways FOR THIS CALL.\n`;
-  prompt += `9. Write an updated JOURNEY SUMMARY that incorporates insights from ALL ${callNumber} calls. This must be a complete, rolling narrative covering the entire prospect journey from the first call to now. Include: what was discussed, what was promised, what objections were raised and how they were handled, what commitments were made (e.g., "ES said he will join the meeting"), and whether those commitments were kept.\n`;
+  if (callNumber === 1) {
+    prompt += `9. Write a JOURNEY SUMMARY summarizing this conversation. Treat this as the very first interaction with the prospect. Focus only on what happened in this transcript.\n`;
+  } else {
+    prompt += `9. Write an updated JOURNEY SUMMARY that incorporates insights from ALL ${callNumber} calls. This must be a complete, rolling narrative covering the entire prospect journey from the first call to now. Include: what was discussed, what was promised, what objections were raised and how they were handled, what commitments were made (e.g., "ES said he will join the meeting"), and whether those commitments were kept.\n`;
+  }
   prompt += `10. Suggest concrete NEXT STEPS with suggested dialogue and due dates.\n\n`;
 
   prompt += `Be specific and cite evidence from the transcript wherever possible.\n`;
+  prompt += `CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.\n`;
 
   return prompt;
 }
@@ -449,6 +460,7 @@ function buildQualityPrompt(transcript, source, qualityChecks) {
   prompt += `=== QUALITY PARAMETERS TO EVALUATE ===\n`;
   prompt += `For each parameter, assign a score (0 to max_score), a status, and a detailed reason.\n`;
   prompt += `Statuses: Done (full marks), Partially Done (partial marks), Needs Improvement (low marks), Not Applicable.\n\n`;
+  prompt += `CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.\n\n`;
 
   // Group by category for clarity
   const groups = {};
@@ -544,7 +556,7 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   block += `7. OVER-PITCHING: Did the associate dump Kalvium's value proposition without first understanding the student's situation, priorities, and concerns?\n\n`;
 
   block += `=== CONTEXT-AWARE REWRITES INSTRUCTIONS ===\n`;
-  block += `CRITICAL: You MUST generate EXACTLY 4 specific rewrites. LLMs often get lazy and only generate 1. You must find 5 distinct coaching moments from across the entire transcript.\n`;
+  block += `CRITICAL: You MUST generate EXACTLY 3 specific rewrites. LLMs often get lazy and only generate 1. You must find 5 distinct coaching moments from across the entire transcript.\n`;
   block += `For EACH of the 4 rewrites:\n`;
   block += `- Quote the EXACT words the associate said (in whatever language they used).\n`;
   block += `- Explain WHY it failed, referencing the specific playbook section they violated.\n`;
@@ -736,12 +748,12 @@ function getIntelligenceSchema() {
  */
 function triageCall(callData) {
   const { duration_sec, talk_to_listen_ratio, segments } = callData;
-  
+
   // T0: Automatically fail calls that are clearly not genuine conversations
   if (duration_sec < 30) {
     return { tier: 'T0', valid: false, reason: 'Call duration under 30 seconds.' };
   }
-  
+
   if (talk_to_listen_ratio) {
     const [agentPct, customerPct] = talk_to_listen_ratio.split(':').map(Number);
     if (customerPct === 0) {
@@ -799,10 +811,10 @@ function buildOmniPrompt(transcript, source, dataCaptureQuestions, pastCalls, le
   const insightsBase = buildInsightsPrompt("", source, dataCaptureQuestions, pastCalls, leadState);
   // Remove the empty transcript section from the end of insightsBase
   const cleanInsightsBase = insightsBase.replace(/=== CURRENT CALL TRANSCRIPT \(Call #[0-9]+\) ===\n\n\nExtract all required JSON fields carefully based on the transcript and the accumulated context\./, "");
-  
+
   // Build quality context
   const qualityBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState);
-  
+
   return `${cleanInsightsBase}
 ${qualityBlock}
 
@@ -813,7 +825,8 @@ IMPORTANT INSTRUCTIONS:
 1. Extract all Insights (BANT, Intent, Next Steps, etc.).
 2. Evaluate Quality (Exception Reporting only - only output parameters that missed points).
 3. Generate the Deep Coaching Report.
-Be specific. Cite evidence from the transcript for every score and coaching point.`;
+Be specific. Cite evidence from the transcript for every score and coaching point.
+CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.`;
 }
 
 module.exports = {

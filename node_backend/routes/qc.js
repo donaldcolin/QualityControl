@@ -22,6 +22,10 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
   }
   if (!qcEngine.ai) return res.status(500).json({ error: 'Gemini not configured' });
 
+  if (call_id) {
+    await supabase.from('calls').update({ qc_status: 'processing' }).eq('id', call_id);
+  }
+
   // Return 202 Accepted immediately so the Python worker is not blocked for 3 minutes
   res.status(202).json({
     success: true,
@@ -95,9 +99,16 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     const [qualityChecks, dataCaptureQuestions, pastCalls, leadState] = await Promise.all([
       qcEngine.getQualityChecks(effectiveSource),
       qcEngine.getDataCaptureQuestions(effectiveSource),
-      qcEngine.getPastCalls(prospect_id),
+      qcEngine.getPastCalls(prospect_id, callIdToUpdate),
       qcEngine.getLeadState(prospect_id),
     ]);
+
+    // If there are no past calls, this is effectively the first call.
+    // Wipe any existing journey summary from the state so the AI doesn't hallucinate deleted calls.
+    if (leadState && pastCalls.length === 0) {
+      leadState.journey_summary = null;
+      leadState.call_history_snapshot = [];
+    }
 
     // Filter out "applicable_only_once_per_customer" checks if prospect has prior calls
     const filteredQualityChecks = qualityChecks.filter(check => {
@@ -208,7 +219,8 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           qualityResult = { quality: restoredQuality };
         }
       } catch (combinedErr) {
-        console.error('Combined omni evaluation failed (non-fatal):', combinedErr.message);
+        console.error('Combined omni evaluation failed:', combinedErr.message);
+        throw combinedErr;
       }
     } else {
       // 4b. Fallback: No quality checks for this source, so run Insights only
@@ -291,12 +303,6 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           input_snapshot: { transcript_length: transcriptText.length, source: effectiveSource },
           results: resultsPayload
         });
-        
-      // Update the call pointer only
-      await supabase
-        .from('calls')
-        .update({ qc_status: 'evaluated', call_quality_score: callQualityScore })
-        .eq('id', callIdToUpdate);
     }
 
     // 8. Update leads table with latest prospect state
@@ -416,7 +422,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       };
 
       // ── 5. PER-CALL INTENT HISTORY (for trend tracking) ───────────────
-      const existingHistory = existingLead?.call_history_snapshot || [];
+      const existingHistory = pastCalls.length === 0 ? [] : (existingLead?.call_history_snapshot || []);
       const callSnapshot = {
         call_number: thisCallNumber,
         call_id: callIdToUpdate,
@@ -455,6 +461,15 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           });
       }
     }
+    
+    if (callIdToUpdate) {
+      // Update the call pointer only AFTER the leads table is updated
+      // to prevent frontend polling from terminating prematurely.
+      await supabase
+        .from('calls')
+        .update({ qc_status: 'evaluated', call_quality_score: callQualityScore })
+        .eq('id', callIdToUpdate);
+    }
 
     // 9. Push to LeadSquared via CRM Outbox Pattern
     if (finalProspectId && prospect_id) { // Only push if it was an actual LSQ prospect
@@ -477,6 +492,9 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     console.log(`✅ Background evaluation complete for call: ${callIdToUpdate}`);
   } catch (err) {
     console.error("Async Evaluation Error:", err);
+    if (call_id) {
+      await supabase.from('calls').update({ qc_status: 'failed' }).eq('id', call_id);
+    }
   }
   }); // End Promise.resolve().then()
 });
@@ -520,6 +538,8 @@ router.get('/leads', async (req, res) => {
            c.quality_data = evaluation.results.quality_data;
            c.insights_data = evaluation.results.insights_data;
            c.coaching_report = evaluation.results.coaching_report;
+           c.summary_data = evaluation.results.summary_data;
+           c.qc_results = evaluation.results.qc_results;
         }
 
         if (!callsByProspect[c.prospect_id]) callsByProspect[c.prospect_id] = [];
@@ -918,7 +938,7 @@ router.post('/activities/push_to_qc', async (req, res) => {
         phone: client_number || null,
         lead_source: lead_source || 'Phone',
         owner: resolvedOwnerName
-      }, { onConflict: 'id' });
+      }, { onConflict: 'id', ignoreDuplicates: true });
     }
 
     const { data: existing } = await supabase

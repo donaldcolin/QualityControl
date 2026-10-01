@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC } from '../api';
-import { RefreshCw, Trash2, Plus, PhoneCall, Headphones, Clock, ArrowRight, Play, Users } from 'lucide-react';
+import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC, searchLeadsByPhone, getDriveTranscript } from '../api';
+import { RefreshCw, Trash2, Plus, PhoneCall, Headphones, Clock, ArrowRight, Play, Users, Search, User, CheckCircle2, ExternalLink, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { toast } from 'sonner';
 
 export default function TeamQC({ onPushToQueue }) {
   // Level 1: Associates
@@ -22,11 +23,13 @@ export default function TeamQC({ onPushToQueue }) {
   const [selectedLead, setSelectedLead] = useState(null);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [leadActivityCounts, setLeadActivityCounts] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Level 3: Activities
   const [activities, setActivities] = useState([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [pushingId, setPushingId] = useState(null);
+  const [fetchingTranscriptId, setFetchingTranscriptId] = useState(null);
   const [syncLanguages, setSyncLanguages] = useState({});
 
 
@@ -114,12 +117,12 @@ export default function TeamQC({ onPushToQueue }) {
                   if (t === 'Inbound' || t === 'Outbound') {
                     const status = (a.status || '').toLowerCase();
                     if (status === 'complete' || status === 'answered') counts.calls++;
-                  } else if (t.toLowerCase() === 'conversion call' && a.resource_url) {
-                    // Demo conducted = Conversion call with Recording Link of Demo populated
+                  } else if ((t.toLowerCase() === 'conversion call' && a.resource_url) || t.toLowerCase() === 'demo conducted') {
+                    // Demo conducted = Conversion call with Recording Link, OR explicit Demo Conducted activity
                     counts.meetings++;
                   }
                   // Knet check across all activity types
-                  if (String(a.data?.ApplicationPaymentStatus || a.data?.['Application Payment Status'] || a.data?.mx_Custom_16 || '').toLowerCase() === 'completed') {
+                  if (String(a.data?.ApplicationPaymentStatus || a.data?.['Application Payment Status'] || a.data?.mx_Custom_16 || a.data?.['16'] || '').toLowerCase() === 'completed') {
                     counts.knet++;
                   }
                 });
@@ -142,6 +145,52 @@ export default function TeamQC({ onPushToQueue }) {
     }
   };
 
+  const handleGlobalSearch = async (e) => {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      try {
+        setLoadingLeads(true);
+        const res = await searchLeadsByPhone(searchQuery.trim());
+        if (res && res.length > 0) {
+          // Merge with existing leads, removing duplicates
+          setLeads(prev => {
+            const newLeads = res.filter(newLead => !prev.some(p => p.prospect_id === newLead.prospect_id));
+            return [...newLeads, ...prev];
+          });
+          
+          toast.success("Lead found and loaded!");
+
+          // Fetch activity counts for newly added leads
+          for (const l of res) {
+            const acts = await getActivitiesForLead(l.prospect_id);
+            if (Array.isArray(acts)) {
+              const counts = { calls: 0, meetings: 0, knet: 0 };
+              acts.forEach(a => {
+                const t = a.type || '';
+                if (t === 'Inbound' || t === 'Outbound') {
+                  const status = (a.status || '').toLowerCase();
+                  if (status === 'complete' || status === 'answered') counts.calls++;
+                } else if (t.toLowerCase() === 'conversion call' || t.toLowerCase() === 'demo conducted') {
+                  counts.meetings++;
+                }
+                if (String(a.data?.ApplicationPaymentStatus || a.data?.['Application Payment Status'] || a.data?.mx_Custom_16 || a.data?.['16'] || a.data?.mx_Custom_3 || a.data?.['3'] || '').toLowerCase() === 'completed') {
+                  counts.knet++;
+                }
+              });
+              setLeadActivityCounts(prev => ({ ...prev, [l.prospect_id]: counts }));
+            }
+          }
+        } else {
+          toast.error("No lead found globally with that phone number.");
+        }
+      } catch (err) {
+        console.error("Global search failed:", err);
+        toast.error("Search failed. Please try again.");
+      } finally {
+        setLoadingLeads(false);
+      }
+    }
+  };
+
   const selectLead = async (prospectId) => {
     setSelectedLead(prospectId);
     setLoadingActivities(true);
@@ -153,6 +202,20 @@ export default function TeamQC({ onPushToQueue }) {
       setActivities([]);
     } finally {
       setLoadingActivities(false);
+    }
+  };
+
+  const handleFetchTranscript = async (activity) => {
+    try {
+      setFetchingTranscriptId(activity.activity_id);
+      const res = await getDriveTranscript(selectedLeadObj.phone, selectedLeadObj.name);
+      if (res.webViewLink) {
+        window.open(res.webViewLink, '_blank');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Transcript not found in Google Drive');
+    } finally {
+      setFetchingTranscriptId(null);
     }
   };
 
@@ -201,18 +264,41 @@ export default function TeamQC({ onPushToQueue }) {
     const s = sec % 60;
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
   };
-  // Filter activities: strictly whitelist BDA Activity, Application Status, Conversion call, and completed calls
+  // Filter activities: strictly whitelist Application Status, Conversion call, Demo Conducted, and completed calls
   const filteredActivities = activities.filter(a => {
     const t = (a.type || '').toLowerCase();
     if (t === 'inbound' || t === 'outbound') {
       const status = (a.status || '').toLowerCase();
       return status === 'complete' || status === 'answered';
     }
-    return t === 'bda activity' || t === 'application status' || t === 'conversion call';
+    return t === 'application status' || t === 'conversion call' || t === 'demo conducted';
   });
 
   const selectedAssoc = associates.find(a => a.emp_number === selectedEmp);
   const selectedLeadObj = leads.find(l => l.prospect_id === selectedLead);
+
+  const displayLeads = [...leads]
+    .filter(l => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase().trim();
+      const digitsOnly = q.replace(/\D/g, '');
+      return (l.name || '').toLowerCase().includes(q) || 
+             (l.phone || '').toLowerCase().includes(q) ||
+             (digitsOnly && (l.phone || '').replace(/\D/g, '').includes(digitsOnly));
+    })
+    .sort((a, b) => {
+      const ca = leadActivityCounts[a.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
+      const cb = leadActivityCounts[b.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
+      // Sort: knet > meetings > calls
+      if (cb.knet !== ca.knet) return cb.knet - ca.knet;
+      if (cb.meetings !== ca.meetings) return cb.meetings - ca.meetings;
+      return cb.calls - ca.calls;
+    })
+    .filter(l => {
+      const c = leadActivityCounts[l.prospect_id];
+      // Show if they have calls OR meetings OR knet, or if they searched for it explicitly
+      return c && (c.calls > 0 || c.meetings > 0 || c.knet > 0 || searchQuery);
+    });
 
 
   return (
@@ -320,14 +406,29 @@ export default function TeamQC({ onPushToQueue }) {
       <div className="flex flex-col md:flex-row flex-1 gap-6 min-h-0">
         {/* Panel 2: Leads for selected Associate */}
         <Card className="w-full md:w-[320px] flex-shrink-0 flex flex-col min-h-0 shadow-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Users className="w-5 h-5 text-primary" />
-              New Leads
-            </CardTitle>
-            <CardDescription>
-              {selectedAssoc ? `For ${selectedAssoc.emp_name}` : "Select an associate"}
-            </CardDescription>
+          <CardHeader className="pb-4 space-y-3">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Users className="w-5 h-5 text-primary" />
+                New Leads
+              </CardTitle>
+              <CardDescription>
+                {selectedAssoc ? `For ${selectedAssoc.emp_name}` : "Select an associate"}
+              </CardDescription>
+            </div>
+            {selectedEmp && (
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-2.5 top-3 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search name or phone... (Press Enter for global search)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleGlobalSearch}
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-muted/30 border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            )}
           </CardHeader>
 
           <CardContent className="flex-1 min-h-0 p-4 pt-0">
@@ -346,57 +447,49 @@ export default function TeamQC({ onPushToQueue }) {
                   <div className="text-center py-12 text-muted-foreground text-sm border border-dashed rounded-lg bg-muted/30">
                     No leads found in "New Lead" stage for this associate.
                   </div>
+                ) : displayLeads.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground text-sm border border-dashed rounded-lg bg-muted/30">
+                    No leads match your search criteria.
+                  </div>
                 ) : (
-                  [...leads]
-                    .sort((a, b) => {
-                      const ca = leadActivityCounts[a.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
-                      const cb = leadActivityCounts[b.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
-                      // Sort: knet > meetings > calls
-                      if (cb.knet !== ca.knet) return cb.knet - ca.knet;
-                      if (cb.meetings !== ca.meetings) return cb.meetings - ca.meetings;
-                      return cb.calls - ca.calls;
-                    })
-                    .filter(l => {
-                      const c = leadActivityCounts[l.prospect_id];
-                      return c && c.calls > 0;
-                    })
-                    .map((l) => {
+                  displayLeads.map((l) => {
                     const c = leadActivityCounts[l.prospect_id] || { calls: 0, meetings: 0, knet: 0 };
                     return (
                     <div
                       key={l.prospect_id}
                       onClick={() => selectLead(l.prospect_id)}
                       className={cn(
-                        "p-3 rounded-lg border cursor-pointer transition-all duration-200 relative",
+                        "flex flex-col gap-1.5 p-3 rounded-lg border cursor-pointer transition-all duration-200",
                         selectedLead === l.prospect_id 
                           ? "border-primary bg-primary/5 shadow-sm" 
                           : "border-border hover:bg-muted/50"
                       )}
                     >
-                      <div className="font-medium text-sm">{l.name}</div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="outline" className="font-mono text-[10px] py-0">{l.phone}</Badge>
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider truncate">
-                          {l.source}
-                        </span>
-                      </div>
+                      <div className="font-semibold text-sm text-foreground truncate pr-2">{l.name || 'Unknown Lead'}</div>
                       
-                      <div className="flex items-center gap-1.5 absolute top-2.5 right-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         {c.calls > 0 && (
-                          <Badge className="bg-blue-500 hover:bg-blue-600 text-[10px] px-1.5 py-0">
+                          <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200 text-[10px] px-1.5 py-0 h-4 font-medium">
                             {c.calls} Calls
                           </Badge>
                         )}
                         {c.meetings > 0 && (
-                          <Badge className="bg-purple-500 hover:bg-purple-600 text-[10px] px-1.5 py-0">
-                            Meeting
+                          <Badge variant="secondary" className="bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200 text-[10px] px-1.5 py-0 h-4 font-medium">
+                            Demo
                           </Badge>
                         )}
                         {c.knet > 0 && (
-                          <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[10px] px-1.5 py-0">
-                            Knet ✓
+                          <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-emerald-200 text-[10px] px-1.5 py-0 h-4 font-medium">
+                            KNET Reg
                           </Badge>
                         )}
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-muted-foreground font-mono">{l.phone}</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider truncate border-l border-border pl-2">
+                          {l.source}
+                        </span>
                       </div>
                     </div>
                     );
@@ -409,14 +502,27 @@ export default function TeamQC({ onPushToQueue }) {
 
         {/* Panel 3: Activities for selected Lead */}
         <Card className="flex-1 flex flex-col min-h-0 overflow-hidden shadow-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <PhoneCall className="w-5 h-5 text-primary" />
-              Call Activities
-            </CardTitle>
-            <CardDescription>
-              {selectedLeadObj ? `${selectedLeadObj.name} (${selectedLeadObj.phone})` : "Select a lead"}
-            </CardDescription>
+          <CardHeader className="pb-4 flex flex-row items-start justify-between space-y-0">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <PhoneCall className="w-5 h-5 text-primary" />
+                Call Activities
+              </CardTitle>
+              <CardDescription className="mt-1.5">
+                {selectedLeadObj ? `${selectedLeadObj.name} (${selectedLeadObj.phone})` : "Select a lead"}
+              </CardDescription>
+            </div>
+            {selectedLeadObj && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="gap-2 h-8 text-xs text-muted-foreground hover:text-primary shrink-0"
+                onClick={() => window.open(`https://app-in21.leadsquared.com/LeadDetails?LeadID=${selectedLeadObj.prospect_id}`, '_blank')}
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                View in LSQ
+              </Button>
+            )}
           </CardHeader>
 
           <CardContent className="flex-1 min-h-0 p-0 flex flex-col">
@@ -440,113 +546,108 @@ export default function TeamQC({ onPushToQueue }) {
               <div className="flex-1 overflow-y-auto border-t bg-muted/5">
                 <div className="p-6 space-y-4">
                   {filteredActivities.map((a) => (
-                    <div key={a.activity_id} className="relative pl-8 before:absolute before:left-[15px] before:top-2 before:bottom-[-32px] last:before:hidden before:w-[2px] before:bg-border group">
-                      <div className="absolute left-0 top-1.5 w-[32px] h-[32px] rounded-full bg-background border-2 border-primary/20 flex items-center justify-center shadow-sm z-10 group-hover:border-primary group-hover:scale-110 transition-all">
+                    <div key={a.activity_id} className="relative pl-10 py-3 group">
+                      {/* Vertical Line */}
+                      <div className="absolute left-[19px] top-8 bottom-[-12px] w-[2px] bg-border group-last:hidden" />
+                      
+                      {/* Icon */}
+                      <div className="absolute left-1 top-4 w-9 h-9 rounded-full bg-background border-2 border-muted flex items-center justify-center text-muted-foreground group-hover:border-primary group-hover:text-primary transition-colors z-10 shadow-sm">
                         {a.type === 'Conversion call' ? (
-                          <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                          <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm" />
                         ) : a.type === 'Inbound' || a.type === 'Outbound' ? (
-                          <PhoneCall className="w-4 h-4 text-primary" />
+                          <PhoneCall className="w-4 h-4" />
                         ) : (
                           <div className="w-2.5 h-2.5 rounded-full bg-slate-400" />
                         )}
                       </div>
                       
-                      <Card className="shadow-sm border border-border/50 hover:shadow-md transition-shadow bg-background">
-                        <CardHeader className="py-3 px-4 flex flex-row items-center justify-between space-y-0 bg-muted/20 border-b border-border/50">
-                          <div>
-                            <CardTitle className="text-sm font-semibold flex items-center gap-2 flex-wrap">
-                              {a.type}
-                              {a.type === 'Conversion call' && a.resource_url && (
-                                <Badge variant="secondary" className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200 text-[10px] h-5">
-                                  Demo Conducted ✓
-                                </Badge>
-                              )}
-                              {a.type === 'Conversion call' && !a.resource_url && (
-                                <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200 text-[10px] h-5">
-                                  Conversion Call
-                                </Badge>
-                              )}
-                              {a.data && (String(a.data.ApplicationPaymentStatus || a.data['Application Payment Status'] || a.data.mx_Custom_16 || '').toLowerCase() === 'completed') && (
-                                <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border-emerald-200 text-[10px] h-5">
-                                  Knet Registered
-                                </Badge>
-                              )}
-                            </CardTitle>
-                            <CardDescription className="text-xs mt-1 text-foreground/70">
-                              {new Date(a.created_on).toLocaleString()}
-                            </CardDescription>
+                      {/* Content Row */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-transparent group-hover:bg-muted/30 p-3 -ml-2 rounded-lg transition-colors">
+                        <div className="flex flex-col gap-1.5">
+                          {/* Title and Badges */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-foreground">{a.type}</span>
+                            {((a.type === 'Conversion call' && a.resource_url) || a.type === 'Demo Conducted') && (
+                              <Badge variant="secondary" className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200 text-[10px] h-5">
+                                Demo Conducted ✓
+                              </Badge>
+                            )}
+                            {a.type === 'Conversion call' && !a.resource_url && (
+                              <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200 text-[10px] h-5">
+                                Conversion Call
+                              </Badge>
+                            )}
+                            {a.data && (String(a.data.ApplicationPaymentStatus || a.data['Application Payment Status'] || a.data.mx_Custom_16 || a.data['16'] || a.data.mx_Custom_3 || a.data['3'] || '').toLowerCase() === 'completed') && (
+                              <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border-emerald-200 text-[10px] h-5">
+                                KNET Registered
+                              </Badge>
+                            )}
                           </div>
                           
-                          {/* Action Button for Audio/Meet calls */}
-                          {(a.type === 'Inbound' || a.type === 'Outbound' || a.type === 'Conversion call') && a.resource_url && (
-                            <div className="flex flex-col items-end gap-2">
-                              <Button
-                                size="sm"
-                                variant={a.type === 'Conversion call' ? 'outline' : 'default'}
-                                className="h-8 shadow-sm text-xs gap-1.5"
-                                onClick={() => {
-                                  if (a.type === 'Conversion call') {
-                                    window.open(a.resource_url, '_blank');
-                                  } else {
-                                    handlePushToQC(a);
-                                  }
-                                }}
-                                disabled={pushingId === a.activity_id || (a.type !== 'Conversion call' && a.duration < 60)}
-                              >
-                                {pushingId === a.activity_id ? (
-                                  <><RefreshCw className="w-3 h-3 animate-spin" /> Pushing</>
-                                ) : a.type === 'Conversion call' ? (
-                                  <><Play className="w-3 h-3" /> View Recording</>
-                                ) : (
-                                  <>Push <ArrowRight className="w-3 h-3" /></>
+                          {/* Sub-info (Timestamp, Status, Duration, Agent) inline */}
+                          <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-x-4 gap-y-1">
+                            <span className="font-medium">{new Date(a.created_on).toLocaleString()}</span>
+                            {(a.type === 'Inbound' || a.type === 'Outbound' || a.type === 'Conversion call' || a.type === 'Demo Conducted') && (
+                              <>
+                                {a.status && (
+                                  <span className="flex items-center gap-1.5 capitalize"><CheckCircle2 className="w-3.5 h-3.5 opacity-70" /> {a.status}</span>
                                 )}
-                              </Button>
-                            </div>
-                          )}
-                        </CardHeader>
-                        <CardContent className="py-3 px-4 text-sm flex flex-col gap-2">
-                          <div className="flex flex-wrap gap-x-6 gap-y-2">
-                            {a.status && (
-                              <div className="flex flex-col">
-                                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Status</span>
-                                <span className="font-medium capitalize text-sm">{a.status}</span>
-                              </div>
-                            )}
-                            {a.duration > 0 && (
-                              <div className="flex flex-col">
-                                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Duration</span>
-                                <span className="font-medium text-sm flex items-center gap-1.5">
-                                  <Clock className="w-3.5 h-3.5 opacity-70" />
-                                  {formatDuration(a.duration)}
-                                </span>
-                              </div>
-                            )}
-                            {a.caller && (
-                              <div className="flex flex-col">
-                                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Agent</span>
-                                <span className="font-medium text-sm">{a.caller}</span>
-                              </div>
+                                {a.duration > 0 && (
+                                  <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 opacity-70" /> {formatDuration(a.duration)}</span>
+                                )}
+                                {a.caller && (
+                                  <span className="flex items-center gap-1.5"><User className="w-3.5 h-3.5 opacity-70" /> {a.caller}</span>
+                                )}
+                              </>
                             )}
                           </div>
-                          
-                          {/* Raw Data Attributes for non-call events */}
-                          {a.data && Object.keys(a.data).length > 0 && a.type !== 'Inbound' && a.type !== 'Outbound' && (
-                            <div className="mt-2 p-3 bg-muted/40 rounded-md border border-border/50 grid grid-cols-2 gap-3">
-                              {Object.entries(a.data)
-                                .filter(([k,v]) => v && k !== 'ActivityType' && k !== 'Duration' && k !== 'CallType' && k !== 'Conversioncallstatus' && k !== 'ResourceUrl' && k !== 'ResourceURL')
-                                .slice(0, 8)
-                                .map(([key, value]) => (
-                                <div key={key} className="flex flex-col truncate">
-                                  <span className="text-[10px] text-muted-foreground font-semibold tracking-wider uppercase truncate">
-                                    {key.replace(/mx_Custom_/, '').replace(/([A-Z])/g, ' $1').trim()}
-                                  </span>
-                                  <span className="font-medium text-sm truncate" title={String(value)}>{String(value)}</span>
-                                </div>
-                              ))}
-                            </div>
+                        </div>
+                        
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {/* Fetch Transcript Button (No resource_url required, searches Drive by phone/name) */}
+                          {(a.type === 'Conversion call' || a.type === 'Demo Conducted') && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 shadow-sm text-xs gap-1.5"
+                              onClick={() => handleFetchTranscript(a)}
+                              disabled={fetchingTranscriptId === a.activity_id}
+                            >
+                              {fetchingTranscriptId === a.activity_id ? (
+                                <><RefreshCw className="w-3 h-3 animate-spin" /> Finding...</>
+                              ) : (
+                                <><FileText className="w-3 h-3" /> Transcript</>
+                              )}
+                            </Button>
                           )}
-                        </CardContent>
-                      </Card>
+
+                          {/* View Recording or Push to QC Button (Requires resource_url) */}
+                          {(a.type === 'Inbound' || a.type === 'Outbound' || a.type === 'Conversion call' || a.type === 'Demo Conducted') && a.resource_url && (
+                            <Button
+                              size="sm"
+                              variant={a.type === 'Conversion call' || a.type === 'Demo Conducted' ? 'outline' : 'default'}
+                              className="h-8 shadow-sm text-xs gap-1.5"
+                              onClick={() => {
+                                if (a.type === 'Conversion call' || a.type === 'Demo Conducted') {
+                                  window.open(a.resource_url, '_blank');
+                                } else {
+                                  handlePushToQC(a);
+                                }
+                              }}
+                              disabled={pushingId === a.activity_id || (a.type !== 'Conversion call' && a.type !== 'Demo Conducted' && a.duration < 60)}
+                            >
+                              {pushingId === a.activity_id ? (
+                                <><RefreshCw className="w-3 h-3 animate-spin" /> Pushing</>
+                              ) : (a.type === 'Conversion call' || a.type === 'Demo Conducted') ? (
+                                <><Play className="w-3 h-3" /> View Recording</>
+                              ) : (
+                                <>Push <ArrowRight className="w-3 h-3" /></>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

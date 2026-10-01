@@ -1,34 +1,16 @@
-Category,Parameter,Description
-DemoSetup,Screen shared promptly,Presenter shares their screen within the first 2 minutes of the meeting.
-DemoSetup,Audio and video quality acceptable,"No significant audio or video issues that impaired the demo experience (echo, lag, muting problems)."
-DemoSetup,Agenda set at the start,Presenter briefly previews what the demo will cover before diving in.
-DemoSetup,Attendees acknowledged,Presenter acknowledges attendees by name and confirms who is on the call.
-DemoSetup,Platform/tool introduced,Presenter names the product/platform being demonstrated.
-ProductWalkthrough,Core product explained clearly,The main product offering is explained in a way a first-time viewer would understand.
-ProductWalkthrough,Key features demonstrated,At least the core features of the product are shown with live examples.
-ProductWalkthrough,Navigation was logical,The demo follows a logical flow rather than jumping between unrelated sections.
-ProductWalkthrough,Real examples used,Presenter uses real or realistic data/examples rather than placeholder/dummy content.
-ProductWalkthrough,Pace was appropriate,Demo moves at a pace the audience can follow — not too fast or too slow.
-Engagement,Questions encouraged during demo,"Presenter pauses to ask if attendees have questions, rather than only at the end."
-Engagement,Attendee questions answered,When attendees ask questions they are answered directly and not deflected.
-Engagement,Interactive elements used,"Presenter invites attendees to participate (e.g., 'what would you like to see next?')."
-Engagement,Audience attention maintained,No long monologues without checking in with attendees.
-Engagement,Enthusiasm and energy conveyed,Presenter shows genuine enthusiasm about the product rather than a flat monotone delivery.
-TechnicalAccuracy,Features described accurately,No incorrect claims about what the product can or cannot do.
-TechnicalAccuracy,No technical errors during demo,"Demo runs without crashes, errors, or broken features that undermine credibility."
-TechnicalAccuracy,Data shown is accurate,Numbers and data shown on screen are realistic and accurate.
-TechnicalAccuracy,Limitations acknowledged honestly,"When asked about missing features, presenter is honest rather than making false promises."
-Objections,Pricing questions handled if raised,"If pricing comes up, it is addressed clearly or deferred to a documented next step."
-Objections,Comparison questions handled,"If attendees compare to competitors, presenter responds confidently without disparagement."
-Objections,Hesitation acknowledged,Presenter acknowledges concerns rather than talking over them.
-Objections,No pressure tactics used,Presenter does not use guilt or false urgency to push for a decision.
-Closure,Demo summarised before ending,Presenter briefly recaps what was shown and key takeaways.
-Closure,Clear next step defined,"A concrete next step is proposed (trial signup, follow-up call, send materials)."
-Closure,Follow-up timing set,A specific date/time for follow-up is agreed rather than leaving it open-ended.
-Closure,Thanks and polite sign-off,Demo ends with a courteous thank-you and goodbye.
-Closure,Recording or materials offered,Presenter offers to share the recording or supplementary materials.
-SoftSkills,Professional language throughout,No unprofessional language or inappropriate remarks.
-SoftSkills,Active listening signals present,Presenter paraphrases or references what attendees said.
-SoftSkills,Patience with repeated questions,"If an attendee repeats a question, presenter re-explains patiently."
-SoftSkills,Clear and confident delivery,Presenter speaks clearly without excessive filler words or uncertainty on core facts.
-SoftSkills,Smooth screen transitions,Presenter navigates between screens and tabs smoothly without confusion.
+Category,Parameter,Description,max_score
+Discovery,Student Background Probed,Counselor asked about the student's current academic status and interest in Computer Science.,10
+Discovery,Goals Identified,Counselor asked about the student's long-term career or learning goals.,10
+Discovery,Pain Points Discussed,Counselor identified why traditional engineering programs might not be sufficient for the student.,10
+ValuePitch,Work-Integrated Learning Explained,Counselor clearly explained how the learn-and-earn/work-integrated model works.,10
+ValuePitch,Curriculum Highlighted,Counselor mentioned the hands-on software development focus of the curriculum.,10
+ValuePitch,Placement Outcomes Emphasized,Counselor discussed career prospects and placements effectively.,10
+ObjectionHandling,Fee Concerns Addressed,If fees were brought up counselor justified the ROI and discussed financial options calmly.,10
+ObjectionHandling,Degree Validity Clarified,If asked counselor clearly explained the university partnership and UGC recognition.,10
+ObjectionHandling,Competitor Comparisons Handled,If compared to traditional colleges counselor confidently explained Kalvium's differentiator.,10
+ObjectionHandling,Hesitations Explored,Counselor actively explored underlying hesitations instead of ignoring them.,10
+IntentSignals,Buying Signals Acknowledged,Counselor picked up on positive signals (e.g. asking about admission deadlines or fee structures).,10
+IntentSignals,Parental Buy-in Verified,Counselor asked about or confirmed the parent's alignment with the program.,10
+NextSteps,Application Process Outlined,Counselor explained the KNET registration and admission steps clearly.,10
+NextSteps,Clear Timeline Set,Counselor established a concrete timeline for the next action (test date document submission etc).,10
+NextSteps,Follow-up Scheduled,A specific date/time for the next touchpoint was agreed upon.,10

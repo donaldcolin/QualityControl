@@ -247,3 +247,20 @@ export const deleteDataCaptureQuestion = async (id) => {
   return res.ok;
 };
 export const getCoachingTemplates = async () => { const res = await fetch(`${API_BASE}/coaching_templates`); return res.json(); };
+
+export const searchLeadsByPhone = async (phone) => {
+  const res = await fetch(`${API_BASE}/search/${encodeURIComponent(phone)}`);
+  return res.json();
+};
+
+export const getDriveTranscript = async (phone, name) => {
+  const url = new URL(`${API_BASE}/drive/transcript`);
+  if (phone) url.searchParams.append('phone', phone);
+  if (name) url.searchParams.append('name', name);
+  const response = await fetch(url);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch transcript from Google Drive');
+  }
+  return response.json();
+};

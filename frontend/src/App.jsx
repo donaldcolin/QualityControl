@@ -9,9 +9,10 @@ import MeetSyncView from './components/MeetSyncView';
 import ConversationInsights from './components/ConversationInsights';
 import ParametersManager from './components/ParametersManager';
 import Sidebar from './components/Sidebar';
-import { PlaySquare } from 'lucide-react';
+import { PlaySquare, X } from 'lucide-react';
 import { cn } from './lib/utils';
 import { Button } from '@/components/ui/button';
+import { Toaster } from '@/components/ui/sonner';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState('teamqc');
@@ -39,51 +40,37 @@ function AppContent() {
   if (isEmbedded && embeddedLeadId) {
     return (
       <div className="h-screen w-screen overflow-y-auto bg-background text-foreground font-sans">
-        <LeadDetails leadId={embeddedLeadId} onBack={() => {}} />
+        <LeadDetails leadId={embeddedLeadId} onBack={() => { }} />
       </div>
     );
   }
 
   return (
     <div className="h-screen flex overflow-hidden bg-background text-foreground font-sans">
-      
+
       {/* LEFT SIDEBAR (Collapsible Component) */}
       <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
 
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-muted/10 relative">
-        {/* Top Header to Toggle Run Panel */}
-        <header className="h-16 border-b flex items-center justify-between px-6 flex-shrink-0 bg-background/80 backdrop-blur-md sticky top-0 z-10 shadow-sm">
-          <div className="text-sm font-medium text-muted-foreground">
-             {/* Simple breadcrumb or empty space */}
-          </div>
-          <Button 
-            variant={isRunPanelOpen ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => setIsRunPanelOpen(!isRunPanelOpen)}
-            className="gap-2 h-9 shadow-sm transition-all"
-          >
-            <PlaySquare className={cn("w-4 h-4", isRunPanelOpen ? "text-primary" : "")} />
-            {isRunPanelOpen ? "Hide Runner" : "Show Runner"}
-          </Button>
-        </header>
+
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-thin">
           <div className="max-w-7xl mx-auto pb-12 animate-in fade-in duration-500">
             {currentView === 'teamqc' && (
-              <TeamQC 
+              <TeamQC
                 onPushToQueue={(queueId) => {
                   setActiveQueueId(queueId);
                   setIsRunPanelOpen(true);
-                }} 
+                }}
               />
             )}
             {currentView === 'queue' && (
-              <QueueView 
+              <QueueView
                 onRunStart={(queueId) => {
                   setActiveQueueId(queueId);
                   setIsRunPanelOpen(true);
-                }} 
+                }}
               />
             )}
 
@@ -91,9 +78,9 @@ function AppContent() {
               <ConversationInsights onSelectOwner={(owner) => { setSelectedOwner(owner); setCurrentView('leads'); }} />
             )}
             {currentView === 'leads' && (
-              <LeadsDashboard 
+              <LeadsDashboard
                 owner={selectedOwner}
-                onSelectLead={(id) => { setSelectedCall(id); setCurrentView('lead_details'); }} 
+                onSelectLead={(id) => { setSelectedCall(id); setCurrentView('lead_details'); }}
                 onBack={() => setCurrentView('insights_owners')}
               />
             )}
@@ -109,15 +96,40 @@ function AppContent() {
 
       {/* RIGHT SIDEBAR (Run Panel) */}
       {isRunPanelOpen && (
-        <div className="w-[320px] flex-shrink-0 border-l bg-muted/10 h-screen overflow-y-auto animate-in slide-in-from-right-1/4 duration-300 shadow-2xl">
+        <div className="w-[320px] flex-shrink-0 border-l bg-muted/10 h-screen overflow-y-auto animate-in slide-in-from-right-1/4 duration-300 shadow-2xl relative">
+          <Button
+            onClick={() => setIsRunPanelOpen(false)}
+            size="icon"
+            variant="ghost"
+            className="absolute top-4 right-4 z-50 h-8 w-8 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background"
+          >
+            <X className="h-4 w-4" />
+          </Button>
           <RunPanel isSidebar={true} activeQueueId={activeQueueId} />
         </div>
       )}
-      
+
+      {/* Floating Toggle Button */}
+      {!isRunPanelOpen && (
+        <Button
+          onClick={() => setIsRunPanelOpen(true)}
+          size="lg"
+          className="fixed bottom-6 right-6 shadow-xl gap-2 rounded-full z-50 px-6 py-6 animate-in fade-in zoom-in duration-300 bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          <PlaySquare className="w-5 h-5" />
+
+        </Button>
+      )}
+
     </div>
   );
 }
 
 export default function App() {
-  return <AppContent />;
+  return (
+    <>
+      <AppContent />
+      <Toaster position="bottom-right" richColors />
+    </>
+  );
 }

@@ -209,8 +209,21 @@ export default function LeadDetails({ leadId, onBack }) {
     return <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin" /><p>Loading Lead History...</p></div>;
   }
 
-  const evaluatedCalls = (lead.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.coaching_report);
+  const evaluatedCalls = (lead.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.coaching_report);
   const activeCall = evaluatedCalls[selectedCallIdx] || evaluatedCalls[0];
+
+  if (!activeCall) {
+    return (
+      <div className="flex flex-col h-full bg-slate-50 min-h-screen text-slate-900 items-center justify-center p-8">
+        <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mb-4">
+          <Phone className="w-8 h-8 text-slate-400" />
+        </div>
+        <h2 className="text-xl font-bold mb-2">No Analyzed Calls Found</h2>
+        <p className="text-slate-500 mb-6 text-center max-w-md">This lead has no calls that have been evaluated by the AI yet. Once a call is uploaded and evaluated, its insights will appear here.</p>
+        <Button onClick={onBack} variant="outline"><ArrowLeft className="w-4 h-4 mr-2" /> Go Back</Button>
+      </div>
+    );
+  }
 
   const totalDuration = evaluatedCalls.reduce((acc, c) => acc + (c.duration_sec || 0), 0) || 0;
   const intentScore = lead.intent_score || 0;
@@ -372,9 +385,12 @@ export default function LeadDetails({ leadId, onBack }) {
 
                   {/* Buying Intent Analysis */}
                   {(() => {
-                    const intentScore = activeCall?.insights_data?.intent_score;
-                    const highIntent = Array.from(new Set(evaluatedCalls.flatMap(c => c.insights_data?.high_intent_factors || [])));
-                    const lowIntent = Array.from(new Set(evaluatedCalls.flatMap(c => c.insights_data?.low_intent_factors || [])));
+                    const highIntent = [];
+                    const lowIntent = [];
+                    evaluatedCalls.forEach((c, idx) => {
+                      (c.insights_data?.high_intent_factors || []).forEach(f => highIntent.push({ text: f, callLabel: `Call ${idx + 1}` }));
+                      (c.insights_data?.low_intent_factors || []).forEach(f => lowIntent.push({ text: f, callLabel: `Call ${idx + 1}` }));
+                    });
                     if (highIntent.length === 0 && lowIntent.length === 0) return null;
                     return (
                       <Card className="shadow-sm mt-6 border-slate-200">
@@ -396,7 +412,10 @@ export default function LeadDetails({ leadId, onBack }) {
                                 {highIntent.map((factor, idx) => (
                                   <li key={idx} className="flex gap-2 items-start text-sm">
                                     <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                                    <span className="text-slate-600">{factor}</span>
+                                    <div className="text-slate-600">
+                                      <span className="font-bold text-xs text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded mr-2">{factor.callLabel}</span>
+                                      {factor.text}
+                                    </div>
                                   </li>
                                 ))}
                               </ul>
@@ -407,7 +426,10 @@ export default function LeadDetails({ leadId, onBack }) {
                                 {lowIntent.map((factor, idx) => (
                                   <li key={idx} className="flex gap-2 items-start text-sm">
                                     <Minus className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                                    <span className="text-slate-600">{factor}</span>
+                                    <div className="text-slate-600">
+                                      <span className="font-bold text-xs text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded mr-2">{factor.callLabel}</span>
+                                      {factor.text}
+                                    </div>
                                   </li>
                                 ))}
                               </ul>
@@ -422,11 +444,13 @@ export default function LeadDetails({ leadId, onBack }) {
                   {/* BANT Analysis */}
                   {(() => {
                     const bant = {};
-                    evaluatedCalls.forEach(c => {
+                    evaluatedCalls.forEach((c, idx) => {
                        const cBant = c.insights_data?.bant;
                        if (cBant) {
                            Object.keys(cBant).forEach(k => {
-                               bant[k] = cBant[k];
+                               // For BANT, since it's an object structure per key, we can append it
+                               if (!bant[k]) bant[k] = [];
+                               bant[k].push({ ...cBant[k], callLabel: `Call ${idx + 1}` });
                            });
                        }
                     });
@@ -440,13 +464,20 @@ export default function LeadDetails({ leadId, onBack }) {
                         </CardHeader>
                         <CardContent className="p-5">
                           <div className="grid grid-cols-2 gap-4">
-                            {Object.entries(bant).map(([key, data]) => (
-                              <div key={key} className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                            {Object.entries(bant).map(([key, items]) => (
+                              <div key={key} className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex flex-col gap-3">
                                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1 flex justify-between">
                                   {key}
-                                  <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold", data.status === 'Qualified' ? 'bg-emerald-100 text-emerald-700' : data.status === 'Unqualified' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>{data.status}</span>
                                 </div>
-                                <div className="text-sm text-slate-700">{data.details}</div>
+                                {items.map((data, i) => (
+                                  <div key={i} className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-100 shadow-sm relative">
+                                    <div className="flex justify-between items-center mb-1">
+                                      <Badge variant="outline" className="text-[9px] h-4 px-1 text-slate-500 bg-slate-50">{data.callLabel}</Badge>
+                                      <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold", data.status === 'Qualified' ? 'bg-emerald-100 text-emerald-700' : data.status === 'Unqualified' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>{data.status}</span>
+                                    </div>
+                                    <div>{data.details}</div>
+                                  </div>
+                                ))}
                               </div>
                             ))}
                           </div>
@@ -522,7 +553,9 @@ export default function LeadDetails({ leadId, onBack }) {
 
                   {/* Objections */}
                   {(() => {
-                    const objections = evaluatedCalls.flatMap(c => c.insights_data?.objections || []);
+                    const objections = evaluatedCalls.flatMap((c, idx) => 
+                      (c.insights_data?.objections || []).map(obj => ({ ...obj, callLabel: `Call ${idx + 1}` }))
+                    );
                     if (objections.length === 0) return null;
                     return (
                       <div className="mt-8">
@@ -538,7 +571,10 @@ export default function LeadDetails({ leadId, onBack }) {
                             <div key={idx} className="border border-slate-100 rounded-xl p-5 bg-white space-y-5 shadow-sm">
                               <div className="flex justify-between items-start gap-4">
                                 <div>
-                                  <div className="font-bold text-sm text-slate-900 mb-1.5">Objection</div>
+                                  <div className="font-bold text-sm text-slate-900 mb-1.5 flex items-center gap-2">
+                                    Objection
+                                    <Badge variant="outline" className="text-[10px] h-5 bg-slate-50">{obj.callLabel}</Badge>
+                                  </div>
                                   <div className="text-sm text-slate-600 leading-relaxed">{obj.objection}</div>
                                 </div>
                                 {obj.category && (
@@ -599,7 +635,7 @@ export default function LeadDetails({ leadId, onBack }) {
                         <div className="p-6 space-y-8">
                           <div className="flex justify-between items-center pb-4 border-b">
                             <div className="font-bold text-sm">
-                              Overall Call Quality Score: <span className="text-emerald-600">{activeCall.call_quality_score}%</span> <span className="text-slate-500 font-normal">({Math.round((activeCall.call_quality_score / 100) * 124)}/124)</span>
+                              Overall Call Quality Score: <span className="text-emerald-600">{activeCall?.call_quality_score ?? 0}%</span> <span className="text-slate-500 font-normal">({Math.round(((activeCall?.call_quality_score ?? 0) / 100) * 124)}/124)</span>
                             </div>
                             <div className="flex gap-2">
                               <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><RefreshCw className="w-4 h-4" /></Button>
@@ -607,7 +643,7 @@ export default function LeadDetails({ leadId, onBack }) {
                             </div>
                           </div>
 
-                          {activeCall.quality_data ? (
+                          {activeCall?.quality_data ? (
                             Object.entries(activeCall.quality_data).map(([param, data], idx) => {
                               let badgeClass = "bg-slate-100 text-slate-600";
                               if (data.status === 'Done') badgeClass = "bg-emerald-50 text-emerald-700";
@@ -733,8 +769,12 @@ export default function LeadDetails({ leadId, onBack }) {
                 {/* Top Strengths */}
                 {(() => {
                   // FIX: Aggregate strengths & improvements across ALL evaluated calls like an array
-                  const strengths = evaluatedCalls.flatMap(c => c.coaching_report?.top_strengths || []);
-                  const improvements = evaluatedCalls.flatMap(c => c.coaching_report?.critical_improvements || []);
+                  const strengths = evaluatedCalls.flatMap((c, idx) => 
+                    (c.coaching_report?.top_strengths || []).map(s => ({ text: s, callLabel: `Call ${idx + 1}` }))
+                  );
+                  const improvements = evaluatedCalls.flatMap((c, idx) => 
+                    (c.coaching_report?.critical_improvements || []).map(imp => ({ text: imp, callLabel: `Call ${idx + 1}` }))
+                  );
                   if (strengths.length === 0 && improvements.length === 0) return null;
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -752,7 +792,10 @@ export default function LeadDetails({ leadId, onBack }) {
                                 <div className="bg-emerald-100/80 p-1 rounded-full shrink-0 mt-0.5 group-hover:scale-110 transition-transform">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                 </div>
-                                <span className="text-slate-700 leading-relaxed font-medium">{s}</span>
+                                <div className="text-slate-700 leading-relaxed font-medium">
+                                  <span className="font-bold text-[10px] uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded mr-2">{s.callLabel}</span>
+                                  {s.text}
+                                </div>
                               </li>
                             ))}
                           </ul>
@@ -773,7 +816,10 @@ export default function LeadDetails({ leadId, onBack }) {
                                 <div className="bg-rose-100/80 p-1 rounded-full shrink-0 mt-0.5 group-hover:scale-110 transition-transform">
                                   <XCircle className="w-3.5 h-3.5 text-rose-600" />
                                 </div>
-                                <span className="text-slate-700 leading-relaxed font-medium">{imp}</span>
+                                <div className="text-slate-700 leading-relaxed font-medium">
+                                  <span className="font-bold text-[10px] uppercase tracking-wide text-rose-700 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded mr-2">{imp.callLabel}</span>
+                                  {imp.text}
+                                </div>
                               </li>
                             ))}
                           </ul>
@@ -787,7 +833,7 @@ export default function LeadDetails({ leadId, onBack }) {
                 {(() => {
                   // FIX: Aggregate rewrites across ALL evaluated calls
                   let allRewrites = [];
-                  evaluatedCalls.forEach(c => {
+                  evaluatedCalls.forEach((c, idx) => {
                     let coaching = c.coaching_report?.advanced_coaching;
                     if (!coaching && c.coaching_report?.prescriptive_coaching) {
                       coaching = {
@@ -799,7 +845,7 @@ export default function LeadDetails({ leadId, onBack }) {
                       };
                     }
                     if (coaching?.context_aware_rewrites) {
-                      allRewrites.push(...coaching.context_aware_rewrites);
+                      allRewrites.push(...coaching.context_aware_rewrites.map(rw => ({ ...rw, callLabel: `Call ${idx + 1}` })));
                     }
                   });
 
@@ -832,7 +878,10 @@ export default function LeadDetails({ leadId, onBack }) {
                                   </div>
                                   <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-4 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition-shadow">
                                     <div className="flex items-center justify-between mb-2">
-                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Associate Said</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Associate Said</span>
+                                        <Badge variant="outline" className="text-[9px] h-4 px-1 text-slate-500 bg-slate-50">{c.callLabel}</Badge>
+                                      </div>
                                       {c.timestamp && (
                                         <Badge variant="secondary" className="bg-slate-100 text-slate-500 font-mono text-[10px] px-1.5 py-0 h-5">
                                           <Clock className="w-3 h-3 mr-1 inline-block" />{c.timestamp}

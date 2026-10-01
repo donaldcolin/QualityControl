@@ -100,6 +100,8 @@ router.get('/:id', async (req, res) => {
       c.insights_data = evaluation.results.insights_data;
       c.quality_data = evaluation.results.quality_data;
       c.coaching_report = evaluation.results.coaching_report;
+      c.summary_data = evaluation.results.summary_data;
+      c.qc_results = evaluation.results.qc_results;
     }
     return c;
   });
@@ -146,9 +148,13 @@ router.get('/:prospect_id/activities', async (req, res) => {
         if (a.EventCode === 22) type = 'Outbound';
         if (a.EventCode === 21) type = 'Inbound';
         
-        // Handle Conversion Call (BDA Activity where ActivityType = 'Conversion call')
-        if (dataMap.ActivityType === 'Conversion call' || dataMap.mx_Custom_1 === 'Conversion call') {
+        const activityTypeLower = String(dataMap.ActivityType || dataMap.mx_Custom_1 || dataMap['1'] || '').toLowerCase();
+        
+        // Handle Conversion Call & Demo Conducted
+        if (activityTypeLower === 'conversion call') {
            type = 'Conversion call';
+        } else if (activityTypeLower === 'demo conducted') {
+           type = 'Demo Conducted';
         }
         // Google Meet Meeting (event code 216) is just auto-scheduling, NOT a confirmed demo
 
@@ -166,6 +172,28 @@ router.get('/:prospect_id/activities', async (req, res) => {
           prospect_id: a.RelatedProspectId,
           data: dataMap // Include raw data for flexible UI rendering
         };
+      })
+      .filter(a => {
+        if (!a) return false;
+        const t = (a.type || '').toLowerCase();
+        
+        // Attended calls only
+        if (t === 'inbound' || t === 'outbound') {
+           const stat = (a.status || '').toLowerCase();
+           return stat === 'complete' || stat === 'answered';
+        }
+        
+        // Meetings (keep them whether they have recordings or not)
+        if (t === 'conversion call' || t === 'demo conducted') {
+           return true;
+        }
+        
+        // Application Status
+        if (t === 'application status') {
+           return true;
+        }
+        
+        return false; // drop everything else
       });
 
     res.json(mappedActivities);

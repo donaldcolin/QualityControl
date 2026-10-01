@@ -15,7 +15,9 @@ import LogoLarge from '../assets/LogoLarge.png';
 import LogoSmall from '../assets/LogoSmall.png';
 
 export default function Sidebar({ currentView, setCurrentView }) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const isCollapsed = !isHovered;
 
   const NavButton = ({ id, label, icon: Icon }) => (
     <Button
@@ -46,20 +48,14 @@ export default function Sidebar({ currentView, setCurrentView }) {
 
   return (
     <div 
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       className={cn(
-        "flex-shrink-0 flex flex-col border-r bg-background/50 backdrop-blur-xl transition-all duration-300 ease-in-out relative shadow-sm z-20",
+        "flex-shrink-0 flex flex-col border-r bg-background/50 backdrop-blur-xl transition-all duration-300 ease-in-out relative shadow-sm z-20 overflow-hidden",
         isCollapsed ? "w-[72px]" : "w-[260px]"
       )}
     >
-      {/* Toggle Button */}
-      <Button
-        variant="outline"
-        size="icon"
-        className="absolute -right-3 top-16 h-6 w-6 rounded-full shadow-md bg-background z-50 border border-border/50 text-muted-foreground hover:text-foreground"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-      >
-        {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
-      </Button>
+
 
       {/* Header */}
       <div className={cn("h-16 flex items-center border-b border-border/50 transition-all", isCollapsed ? "justify-center px-0" : "px-4")}>
