@@ -86,4 +86,6 @@ node_backend/database.sqlite
 node_backend/golden_leads.csv
 node_backend/leads_to_transcribe.json
 asr_backend/final_transcripts.json
+asr_backend/final_transcripts_curated.json
+asr_backend/tmp_output/
 *.csv
