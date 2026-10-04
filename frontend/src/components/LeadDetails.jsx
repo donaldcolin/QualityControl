@@ -55,7 +55,7 @@ function CallPlayer({ call }) {
   }, [currentTime]);
 
   const segments = typeof call.segments === 'string' ? JSON.parse(call.segments) : (call.segments || []);
-  const audioUrl = `http://localhost:3000/api/calls/${call.id}/audio`;
+  const audioUrl = `/api/calls/${call.id}/audio`;
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden">
@@ -147,12 +147,12 @@ function CallPlayer({ call }) {
   );
 }
 
-export default function LeadDetails({ leadId, onBack }) {
+export default function LeadDetails({ leadId, onBack, embedded = false }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [templates, setTemplates] = useState([]);
-  const [selectedCallIdx, setSelectedCallIdx] = useState(0);
+  const [selectedCallIdx, setSelectedCallIdx] = useState('all');
 
   const fetchLead = () => {
     getQCLead(leadId).then((leadData) => {
@@ -170,23 +170,23 @@ export default function LeadDetails({ leadId, onBack }) {
     // Include 'processing' so they don't disappear if a previous run was interrupted
     const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.coaching_report);
     if (evCalls.length === 0) return;
-    
+
     setIsEvaluating(true);
     try {
       // Trigger background evaluation for ALL calls in parallel
       await Promise.all(evCalls.map(c => evaluateCall(c.id)));
-      
+
       // Poll until ALL calls' qc_status is no longer 'processing'
       // Wait a moment first since evaluateCall is async
       let attempts = 0;
       const pollInterval = setInterval(async () => {
         attempts++;
         const leadData = await getQCLead(leadId);
-        
-        const anyProcessing = (leadData?.calls || []).some(c => 
+
+        const anyProcessing = (leadData?.calls || []).some(c =>
           evCalls.find(ec => ec.id === c.id) && c.qc_status === 'processing'
         );
-        
+
         if (!anyProcessing && attempts > 1) { // ensure at least one check passed after status was set to processing
           clearInterval(pollInterval);
           setLead(leadData);
@@ -194,11 +194,11 @@ export default function LeadDetails({ leadId, onBack }) {
         } else if (attempts >= 40) {
           // Timeout after ~80 seconds
           clearInterval(pollInterval);
-          fetchLead(); 
+          fetchLead();
           setIsEvaluating(false);
         }
       }, 2000);
-      
+
     } catch (e) {
       console.error(e);
       setIsEvaluating(false);
@@ -210,9 +210,8 @@ export default function LeadDetails({ leadId, onBack }) {
   }
 
   const evaluatedCalls = (lead.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.coaching_report);
-  const activeCall = evaluatedCalls[selectedCallIdx] || evaluatedCalls[0];
-
-  if (!activeCall) {
+  
+  if (evaluatedCalls.length === 0) {
     return (
       <div className="flex flex-col h-full bg-slate-50 min-h-screen text-slate-900 items-center justify-center p-8">
         <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mb-4">
@@ -220,16 +219,25 @@ export default function LeadDetails({ leadId, onBack }) {
         </div>
         <h2 className="text-xl font-bold mb-2">No Analyzed Calls Found</h2>
         <p className="text-slate-500 mb-6 text-center max-w-md">This lead has no calls that have been evaluated by the AI yet. Once a call is uploaded and evaluated, its insights will appear here.</p>
-        <Button onClick={onBack} variant="outline"><ArrowLeft className="w-4 h-4 mr-2" /> Go Back</Button>
+        {!embedded && <Button onClick={onBack} variant="outline"><ArrowLeft className="w-4 h-4 mr-2" /> Go Back</Button>}
       </div>
     );
   }
 
-  const totalDuration = evaluatedCalls.reduce((acc, c) => acc + (c.duration_sec || 0), 0) || 0;
-  const intentScore = lead.intent_score || 0;
-  const avgQuality = lead.avg_call_quality_score || 0;
+  const activeCall = selectedCallIdx === 'all' ? null : evaluatedCalls[selectedCallIdx];
+  const callsToDisplay = selectedCallIdx === 'all' ? evaluatedCalls : (activeCall ? [activeCall] : []);
 
-  const ttlCalls = evaluatedCalls.filter(c => c.talk_to_listen_ratio);
+  const totalDuration = callsToDisplay.reduce((acc, c) => acc + (c.duration_sec || 0), 0) || 0;
+  
+  const intentScore = selectedCallIdx === 'all' 
+    ? (lead.intent_score || 0) 
+    : (activeCall?.insights_data?.overall_score?.score || activeCall?.insights_data?.intent_score || 0);
+    
+  const avgQuality = selectedCallIdx === 'all'
+    ? (lead.avg_call_quality_score || 0)
+    : (activeCall?.coaching_report?.quality?.overall_score || 0);
+
+  const ttlCalls = callsToDisplay.filter(c => c.talk_to_listen_ratio);
   let avgTtl = "0:0";
   if (ttlCalls.length > 0) {
     let repSum = 0, custSum = 0;
@@ -244,13 +252,13 @@ export default function LeadDetails({ leadId, onBack }) {
   }
 
   const sqlStatus = (() => {
-    const allFields = evaluatedCalls.flatMap(c => c.insights_data?.data_capture?.extracted_fields || []);
-    
+    const allFields = callsToDisplay.flatMap(c => c.insights_data?.data_capture?.extracted_fields || []);
+
     const gradeFields = allFields.filter(f => f.field.toLowerCase().includes('grade') || f.field.toLowerCase().includes('class'));
     const streamFields = allFields.filter(f => f.field.toLowerCase().includes('stream') || f.field.toLowerCase().includes('group') || f.field.toLowerCase().includes('subject'));
 
     const notMentionedKeywords = ['not mentioned', 'n/a', 'none', 'null', 'unknown', ''];
-    
+
     const validGrade = gradeFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
     const validStream = streamFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
 
@@ -268,52 +276,119 @@ export default function LeadDetails({ leadId, onBack }) {
   return (
     <div className="flex flex-col h-full bg-white min-h-screen text-slate-900">
       {/* HEADER SECTION - ZIPTEAMS CLONE */}
-      <div className="border-b px-8 py-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-amber-400 text-white rounded-full flex items-center justify-center text-xl font-bold shadow-sm">
-            {lead.name?.charAt(0).toUpperCase() || '?'}
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight mb-1 flex items-center gap-2">
-              {lead.name}
-              {sqlStatus === 'SQL' && (
-                <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 ml-2 border-emerald-200">
-                  <Star className="w-3 h-3 mr-1 fill-emerald-500" /> Sales Qualified Lead
-                </Badge>
-              )}
-              {sqlStatus === 'No SQL' && (
-                <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-200 ml-2 border-rose-200">
-                  No SQL
-                </Badge>
-              )}
-              {sqlStatus === 'Not Mentioned' && (
-                <Badge className="bg-slate-100 text-slate-500 hover:bg-slate-200 ml-2 border-slate-200">
-                  Not Mentioned
-                </Badge>
-              )}
-            </h1>
-            <div className="flex gap-4 text-xs text-muted-foreground items-center">
-              <span className="flex items-center gap-1.5"><Database className="w-3.5 h-3.5" /> {lead.phone || lead.email || '—'}</span>
-              <span className="flex items-center gap-1.5"><UserCheck className="w-3.5 h-3.5" /> Owner Name: <span className="font-semibold text-foreground">{lead.owner || 'Unassigned'}</span></span>
+      {!embedded ? (
+        <div className="border-b px-8 py-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-amber-400 text-white rounded-full flex items-center justify-center text-xl font-bold shadow-sm">
+              {lead.name?.charAt(0).toUpperCase() || '?'}
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight mb-1 flex items-center gap-2">
+                {lead.name}
+                {sqlStatus === 'SQL' && (
+                  <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 ml-2 border-emerald-200">
+                    <Star className="w-3 h-3 mr-1 fill-emerald-500" /> Sales Qualified Lead
+                  </Badge>
+                )}
+                {sqlStatus === 'No SQL' && (
+                  <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-200 ml-2 border-rose-200">
+                    No SQL
+                  </Badge>
+                )}
+                {sqlStatus === 'Not Mentioned' && (
+                  <Badge className="bg-slate-100 text-slate-500 hover:bg-slate-200 ml-2 border-slate-200">
+                    Not Mentioned
+                  </Badge>
+                )}
+              </h1>
+              <div className="flex gap-4 text-xs text-muted-foreground items-center">
+                <span className="flex items-center gap-1.5"><Database className="w-3.5 h-3.5" /> {lead.phone || lead.email || '—'}</span>
+                <span className="flex items-center gap-1.5"><UserCheck className="w-3.5 h-3.5" /> Owner Name: <span className="font-semibold text-foreground">{lead.owner || 'Unassigned'}</span></span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex gap-4">
-          {[
-            { value: `${Math.ceil(totalDuration / 60)} mins`, label: 'Total Conversation Duration' },
-            { value: avgTtl, label: 'Talk-to-Listen Ratio', icon: <Info className="w-3 h-3 text-muted-foreground inline-block ml-1" /> },
-            { value: `${intentScore}/100`, label: 'Intent Score' },
-            { value: `${avgQuality}%`, label: 'Avg. Call Quality Score' },
-          ].map((stat, i) => (
-            <div key={i} className="bg-slate-100 rounded-lg p-3 px-4 min-w-[140px]">
-              <div className="text-lg font-bold">{stat.value}</div>
-              <div className="text-xs text-slate-500 mt-1 whitespace-nowrap">{stat.label}{stat.icon}</div>
-            </div>
-          ))}
+          <div className="flex flex-wrap gap-3">
+            {[
+              { value: `${Math.ceil(totalDuration / 60)} mins`, label: 'Total Conversation Duration' },
+              { value: avgTtl, label: 'Talk-to-Listen Ratio', icon: <Info className="w-3 h-3 text-muted-foreground inline-block ml-1" /> },
+              { value: `${intentScore}/100`, label: 'Intent Score' },
+              { value: `${avgQuality}%`, label: 'Avg. Call Quality Score' },
+            ].map((stat, i) => (
+              <div key={i} className="bg-slate-100 rounded-lg p-3 px-4 min-w-[140px]">
+                <div className="text-lg font-bold">{stat.value}</div>
+                <div className="text-xs text-slate-500 mt-1 whitespace-nowrap">{stat.label}{stat.icon}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-slate-50/80 border-b px-8 py-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            
+            {/* Lead Status Card */}
+            <Card className={`shadow-sm ${sqlStatus === 'SQL' ? 'border-emerald-200 bg-emerald-50/30' : sqlStatus === 'No SQL' ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
+                <CardTitle className={`text-[10px] font-bold uppercase tracking-wider ${sqlStatus === 'SQL' ? 'text-emerald-700' : sqlStatus === 'No SQL' ? 'text-rose-700' : 'text-slate-500'}`}>
+                  Lead Status
+                </CardTitle>
+                {sqlStatus === 'SQL' ? <Star className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500" /> : sqlStatus === 'No SQL' ? <XCircle className="w-3.5 h-3.5 text-rose-500" /> : <Info className="w-3.5 h-3.5 text-slate-400" />}
+              </CardHeader>
+              <CardContent className="px-3.5 pb-3">
+                <div className={`text-[15px] font-bold leading-tight ${sqlStatus === 'SQL' ? 'text-emerald-800' : sqlStatus === 'No SQL' ? 'text-rose-800' : 'text-slate-700'}`}>
+                  {sqlStatus === 'SQL' ? 'Sales Qualified Lead' : sqlStatus === 'No SQL' ? 'No SQL' : 'Not Mentioned'}
+                </div>
+              </CardContent>
+            </Card>
 
+            {/* Total Duration Card */}
+            <Card className="shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
+                <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Duration</CardTitle>
+                <Clock className="w-3.5 h-3.5 text-blue-500" />
+              </CardHeader>
+              <CardContent className="px-3.5 pb-3">
+                <div className="text-xl font-bold text-slate-800">{Math.ceil(totalDuration / 60)} mins</div>
+              </CardContent>
+            </Card>
+
+            {/* Talk-to-Listen Ratio Card */}
+            <Card className="shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
+                <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Rep : Cust Ratio</CardTitle>
+                <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
+              </CardHeader>
+              <CardContent className="px-3.5 pb-3">
+                <div className="text-xl font-bold text-slate-800">{avgTtl}</div>
+              </CardContent>
+            </Card>
+
+            {/* Intent Score Card */}
+            <Card className="shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
+                <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Intent Score</CardTitle>
+                <Target className="w-3.5 h-3.5 text-amber-500" />
+              </CardHeader>
+              <CardContent className="px-3.5 pb-3">
+                <div className="text-xl font-bold text-slate-800">{intentScore}/100</div>
+              </CardContent>
+            </Card>
+
+            {/* Avg. Call Quality Score Card */}
+            <Card className="shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
+                <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Avg Quality</CardTitle>
+                <Star className="w-3.5 h-3.5 text-purple-500" />
+              </CardHeader>
+              <CardContent className="px-3.5 pb-3">
+                <div className="text-xl font-bold text-slate-800">{avgQuality}%</div>
+              </CardContent>
+            </Card>
+
+          </div>
+        </div>
+      )}
+ 
       {/* TABS & MAIN CONTENT WRAPPER */}
       <Tabs defaultValue="conversations" className="flex-1 flex flex-col min-h-0 w-full" id="top-tabs" onValueChange={() => { }}>
         <div className="px-8 border-b flex items-center bg-white">
@@ -324,20 +399,22 @@ export default function LeadDetails({ leadId, onBack }) {
             <TabsTrigger value="coaching" className="rounded-none border-b-2 border-transparent data-[state=active]:border-slate-800 data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-2 pb-3 pt-4 text-[15px] font-semibold text-slate-500 data-[state=active]:text-slate-900 transition-colors hover:text-slate-700">Coaching</TabsTrigger>
           </TabsList>
           <div className="flex-1 flex justify-end items-center gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleReEvaluate} 
-              disabled={isEvaluating || evaluatedCalls.length === 0}
-              className="h-9 bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 font-medium"
-            >
-              {isEvaluating ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-2" />}
-              {isEvaluating ? 'Evaluating...' : (evaluatedCalls.length > 1 ? 'Re-Evaluate All Calls' : 'Re-Evaluate')}
-            </Button>
+            {!embedded && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleReEvaluate}
+                disabled={isEvaluating || evaluatedCalls.length === 0}
+                className="h-9 bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 font-medium"
+              >
+                {isEvaluating ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-2" />}
+                {isEvaluating ? 'Evaluating...' : (evaluatedCalls.length > 1 ? 'Re-Evaluate All Calls' : 'Re-Evaluate')}
+              </Button>
+            )}
             {evaluatedCalls.length > 1 && (
-              <Select 
-                value={selectedCallIdx.toString()} 
-                onValueChange={(val) => setSelectedCallIdx(parseInt(val))}
+              <Select
+                value={selectedCallIdx.toString()}
+                onValueChange={(val) => setSelectedCallIdx(val === 'all' ? 'all' : parseInt(val))}
               >
                 <SelectTrigger className="w-[180px] bg-slate-50 border-slate-200 text-slate-700 font-medium h-9">
                   <div className="flex items-center gap-2">
@@ -346,6 +423,9 @@ export default function LeadDetails({ leadId, onBack }) {
                   </div>
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">
+                    All Calls <span className="text-muted-foreground ml-2 text-xs">({evaluatedCalls.length})</span>
+                  </SelectItem>
                   {evaluatedCalls.map((c, idx) => (
                     <SelectItem key={idx} value={idx.toString()}>
                       Call {idx + 1} <span className="text-muted-foreground ml-2 text-xs">({c.duration_sec ? formatDuration(c.duration_sec) : '00:00'})</span>
@@ -387,9 +467,11 @@ export default function LeadDetails({ leadId, onBack }) {
                   {(() => {
                     const highIntent = [];
                     const lowIntent = [];
-                    evaluatedCalls.forEach((c, idx) => {
-                      (c.insights_data?.high_intent_factors || []).forEach(f => highIntent.push({ text: f, callLabel: `Call ${idx + 1}` }));
-                      (c.insights_data?.low_intent_factors || []).forEach(f => lowIntent.push({ text: f, callLabel: `Call ${idx + 1}` }));
+                    callsToDisplay.forEach((c) => {
+                      const absoluteIdx = evaluatedCalls.findIndex(ec => ec.id === c.id);
+                      const callLabel = callsToDisplay.length > 1 ? `Call ${absoluteIdx + 1}` : null;
+                      (c.insights_data?.high_intent_factors || []).forEach(f => highIntent.push({ text: f, callLabel }));
+                      (c.insights_data?.low_intent_factors || []).forEach(f => lowIntent.push({ text: f, callLabel }));
                     });
                     if (highIntent.length === 0 && lowIntent.length === 0) return null;
                     return (
@@ -413,7 +495,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                   <li key={idx} className="flex gap-2 items-start text-sm">
                                     <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                                     <div className="text-slate-600">
-                                      <span className="font-bold text-xs text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded mr-2">{factor.callLabel}</span>
+                                      {factor.callLabel && <span className="font-bold text-xs text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded mr-2">{factor.callLabel}</span>}
                                       {factor.text}
                                     </div>
                                   </li>
@@ -427,7 +509,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                   <li key={idx} className="flex gap-2 items-start text-sm">
                                     <Minus className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                                     <div className="text-slate-600">
-                                      <span className="font-bold text-xs text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded mr-2">{factor.callLabel}</span>
+                                      {factor.callLabel && <span className="font-bold text-xs text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded mr-2">{factor.callLabel}</span>}
                                       {factor.text}
                                     </div>
                                   </li>
@@ -444,15 +526,17 @@ export default function LeadDetails({ leadId, onBack }) {
                   {/* BANT Analysis */}
                   {(() => {
                     const bant = {};
-                    evaluatedCalls.forEach((c, idx) => {
-                       const cBant = c.insights_data?.bant;
-                       if (cBant) {
-                           Object.keys(cBant).forEach(k => {
-                               // For BANT, since it's an object structure per key, we can append it
-                               if (!bant[k]) bant[k] = [];
-                               bant[k].push({ ...cBant[k], callLabel: `Call ${idx + 1}` });
-                           });
-                       }
+                    callsToDisplay.forEach((c) => {
+                      const absoluteIdx = evaluatedCalls.findIndex(ec => ec.id === c.id);
+                      const callLabel = callsToDisplay.length > 1 ? `Call ${absoluteIdx + 1}` : null;
+                      const cBant = c.insights_data?.bant;
+                      if (cBant) {
+                        Object.keys(cBant).forEach(k => {
+                          // For BANT, since it's an object structure per key, we can append it
+                          if (!bant[k]) bant[k] = [];
+                          bant[k].push({ ...cBant[k], callLabel });
+                        });
+                      }
                     });
                     if (Object.keys(bant).length === 0) return null;
                     return (
@@ -472,7 +556,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                 {items.map((data, i) => (
                                   <div key={i} className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-100 shadow-sm relative">
                                     <div className="flex justify-between items-center mb-1">
-                                      <Badge variant="outline" className="text-[9px] h-4 px-1 text-slate-500 bg-slate-50">{data.callLabel}</Badge>
+                                      {data.callLabel ? <Badge variant="outline" className="text-[9px] h-4 px-1 text-slate-500 bg-slate-50">{data.callLabel}</Badge> : <div></div>}
                                       <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold", data.status === 'Qualified' ? 'bg-emerald-100 text-emerald-700' : data.status === 'Unqualified' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>{data.status}</span>
                                     </div>
                                     <div>{data.details}</div>
@@ -490,24 +574,24 @@ export default function LeadDetails({ leadId, onBack }) {
                   {(() => {
                     const uniqueFields = {};
                     const allMissing = new Set();
-                    evaluatedCalls.forEach(c => {
+                    callsToDisplay.forEach(c => {
                       const cDc = c.insights_data?.data_capture;
                       if (!cDc) return;
                       (cDc.extracted_fields || []).forEach(f => {
-                         if (!uniqueFields[f.field] || (f.value !== 'N/A' && f.value !== 'Not mentioned')) {
-                           uniqueFields[f.field] = f;
-                         }
+                        if (!uniqueFields[f.field] || (f.value !== 'N/A' && f.value !== 'Not mentioned')) {
+                          uniqueFields[f.field] = f;
+                        }
                       });
                       (cDc.missing_mandatory_fields || []).forEach(f => {
-                         allMissing.add(f);
+                        allMissing.add(f);
                       });
                     });
-                    
+
                     const extractedFields = Object.values(uniqueFields).filter(f => f.value && f.value !== 'N/A' && f.value !== 'Not mentioned');
                     extractedFields.forEach(f => allMissing.delete(f.field));
-                    
+
                     if (extractedFields.length === 0 && allMissing.size === 0) return null;
-                    
+
                     return (
                       <Card className="shadow-sm mt-6 border-slate-200">
                         <CardHeader className="pb-3 border-b bg-slate-50">
@@ -553,9 +637,11 @@ export default function LeadDetails({ leadId, onBack }) {
 
                   {/* Objections */}
                   {(() => {
-                    const objections = evaluatedCalls.flatMap((c, idx) => 
-                      (c.insights_data?.objections || []).map(obj => ({ ...obj, callLabel: `Call ${idx + 1}` }))
-                    );
+                    const objections = callsToDisplay.flatMap((c) => {
+                      const absoluteIdx = evaluatedCalls.findIndex(ec => ec.id === c.id);
+                      const callLabel = callsToDisplay.length > 1 ? `Call ${absoluteIdx + 1}` : null;
+                      return (c.insights_data?.objections || []).map(obj => ({ ...obj, callLabel }));
+                    });
                     if (objections.length === 0) return null;
                     return (
                       <div className="mt-8">
@@ -573,7 +659,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                 <div>
                                   <div className="font-bold text-sm text-slate-900 mb-1.5 flex items-center gap-2">
                                     Objection
-                                    <Badge variant="outline" className="text-[10px] h-5 bg-slate-50">{obj.callLabel}</Badge>
+                                    {obj.callLabel && <Badge variant="outline" className="text-[10px] h-5 bg-slate-50">{obj.callLabel}</Badge>}
                                   </div>
                                   <div className="text-sm text-slate-600 leading-relaxed">{obj.objection}</div>
                                 </div>
@@ -615,7 +701,15 @@ export default function LeadDetails({ leadId, onBack }) {
           </TabsContent>
 
           <TabsContent value="conversations" className="h-full mt-0">
-            {lead.calls?.length > 0 ? (
+            {selectedCallIdx === 'all' ? (
+              <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-slate-50 border rounded-xl m-6 border-dashed">
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 border">
+                  <MessageSquare className="w-8 h-8 text-slate-400" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-700 mb-2">Select a Specific Call</h3>
+                <p className="text-slate-500 max-w-md">To view the transcript, audio playback, and detailed quality scoring, please select a specific call from the dropdown in the top right.</p>
+              </div>
+            ) : lead.calls?.length > 0 ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full max-w-full">
 
                 {/* LEFT PANE: Audio & Transcript */}
@@ -666,6 +760,9 @@ export default function LeadDetails({ leadId, onBack }) {
                                     <span className={cn("text-xs font-bold", data.status === 'Done' ? "text-emerald-600" : data.status === 'Missed' ? "text-rose-600" : "text-amber-600")}>
                                       {data.status}
                                     </span>
+                                    {data.breach_flag && (
+                                      <Badge variant="destructive" className="ml-auto text-[10px] px-1.5 py-0 h-5 font-bold animate-pulse">GUARDRAIL BREACH</Badge>
+                                    )}
                                   </div>
                                   <p className="text-sm text-slate-600 leading-relaxed">
                                     {data.reason}
@@ -764,17 +861,20 @@ export default function LeadDetails({ leadId, onBack }) {
           </TabsContent>
 
           <TabsContent value="coaching" className="h-full mt-0">
-            <div className="h-full flex flex-col pt-4">
-              <ScrollArea className="flex-1 pr-4">
+            <ScrollArea className="h-full pr-4 pt-4">
                 {/* Top Strengths */}
                 {(() => {
                   // FIX: Aggregate strengths & improvements across ALL evaluated calls like an array
-                  const strengths = evaluatedCalls.flatMap((c, idx) => 
-                    (c.coaching_report?.top_strengths || []).map(s => ({ text: s, callLabel: `Call ${idx + 1}` }))
-                  );
-                  const improvements = evaluatedCalls.flatMap((c, idx) => 
-                    (c.coaching_report?.critical_improvements || []).map(imp => ({ text: imp, callLabel: `Call ${idx + 1}` }))
-                  );
+                  const strengths = callsToDisplay.flatMap((c) => {
+                    const absoluteIdx = evaluatedCalls.findIndex(ec => ec.id === c.id);
+                    const callLabel = callsToDisplay.length > 1 ? `Call ${absoluteIdx + 1}` : null;
+                    return (c.coaching_report?.top_strengths || []).map(s => ({ text: s, callLabel }));
+                  });
+                  const improvements = callsToDisplay.flatMap((c) => {
+                    const absoluteIdx = evaluatedCalls.findIndex(ec => ec.id === c.id);
+                    const callLabel = callsToDisplay.length > 1 ? `Call ${absoluteIdx + 1}` : null;
+                    return (c.coaching_report?.critical_improvements || []).map(imp => ({ text: imp, callLabel }));
+                  });
                   if (strengths.length === 0 && improvements.length === 0) return null;
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -793,7 +893,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                 </div>
                                 <div className="text-slate-700 leading-relaxed font-medium">
-                                  <span className="font-bold text-[10px] uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded mr-2">{s.callLabel}</span>
+                                  {s.callLabel && <span className="font-bold text-[10px] uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded mr-2">{s.callLabel}</span>}
                                   {s.text}
                                 </div>
                               </li>
@@ -801,7 +901,7 @@ export default function LeadDetails({ leadId, onBack }) {
                           </ul>
                         </CardContent>
                       </Card>
-                      
+
                       <Card className="shadow-[0_2px_15px_-3px_rgba(239,68,68,0.15)] border-rose-500/20 bg-gradient-to-br from-white to-rose-50/30 overflow-hidden relative">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-rose-400/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
                         <CardHeader className="pb-3 border-b border-rose-100/50 bg-white/50 backdrop-blur-sm">
@@ -817,7 +917,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                   <XCircle className="w-3.5 h-3.5 text-rose-600" />
                                 </div>
                                 <div className="text-slate-700 leading-relaxed font-medium">
-                                  <span className="font-bold text-[10px] uppercase tracking-wide text-rose-700 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded mr-2">{imp.callLabel}</span>
+                                  {imp.callLabel && <span className="font-bold text-[10px] uppercase tracking-wide text-rose-700 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded mr-2">{imp.callLabel}</span>}
                                   {imp.text}
                                 </div>
                               </li>
@@ -833,7 +933,9 @@ export default function LeadDetails({ leadId, onBack }) {
                 {(() => {
                   // FIX: Aggregate rewrites across ALL evaluated calls
                   let allRewrites = [];
-                  evaluatedCalls.forEach((c, idx) => {
+                  callsToDisplay.forEach((c) => {
+                    const absoluteIdx = evaluatedCalls.findIndex(ec => ec.id === c.id);
+                    const callLabel = callsToDisplay.length > 1 ? `Call ${absoluteIdx + 1}` : null;
                     let coaching = c.coaching_report?.advanced_coaching;
                     if (!coaching && c.coaching_report?.prescriptive_coaching) {
                       coaching = {
@@ -845,7 +947,7 @@ export default function LeadDetails({ leadId, onBack }) {
                       };
                     }
                     if (coaching?.context_aware_rewrites) {
-                      allRewrites.push(...coaching.context_aware_rewrites.map(rw => ({ ...rw, callLabel: `Call ${idx + 1}` })));
+                      allRewrites.push(...coaching.context_aware_rewrites.map(rw => ({ ...rw, callLabel })));
                     }
                   });
 
@@ -855,9 +957,9 @@ export default function LeadDetails({ leadId, onBack }) {
                       <p className="font-medium">No advanced coaching generated for this lead's calls.</p>
                     </div>
                   );
-                  
+
                   const coaching = activeCall?.coaching_report?.advanced_coaching || {};
-                  
+
                   return (
                     <div className="space-y-6 mb-8">
                       {/* Context-Aware Rewrites */}
@@ -880,7 +982,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                     <div className="flex items-center justify-between mb-2">
                                       <div className="flex items-center gap-2">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Associate Said</span>
-                                        <Badge variant="outline" className="text-[9px] h-4 px-1 text-slate-500 bg-slate-50">{c.callLabel}</Badge>
+                                        {c.callLabel && <Badge variant="outline" className="text-[9px] h-4 px-1 text-slate-500 bg-slate-50">{c.callLabel}</Badge>}
                                       </div>
                                       {c.timestamp && (
                                         <Badge variant="secondary" className="bg-slate-100 text-slate-500 font-mono text-[10px] px-1.5 py-0 h-5">
@@ -891,7 +993,7 @@ export default function LeadDetails({ leadId, onBack }) {
                                     <p className="text-sm text-slate-700 italic leading-relaxed">"{c.what_they_said}"</p>
                                     <div className="mt-3 pt-3 border-t border-dashed border-slate-200">
                                       <p className="text-xs text-rose-600 font-medium leading-relaxed">
-                                        <span className="uppercase font-bold tracking-wider opacity-70 block mb-0.5">Why it failed:</span> 
+                                        <span className="uppercase font-bold tracking-wider opacity-70 block mb-0.5">Why it failed:</span>
                                         {c.why_it_failed}
                                       </p>
                                     </div>
@@ -999,7 +1101,6 @@ export default function LeadDetails({ leadId, onBack }) {
                   );
                 })()}
               </ScrollArea>
-            </div>
           </TabsContent>
         </div>
       </Tabs>
