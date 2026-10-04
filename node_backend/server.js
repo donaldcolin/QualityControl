@@ -3,7 +3,15 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: true, // allow all origins (needed for tunnel URLs + LSQ iframe)
+  credentials: true
+}));
+// Remove X-Frame-Options so LeadSquared can embed via iframe
+app.use((req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  next();
+});
 app.use(express.json());
 
 // Import routes
@@ -15,6 +23,7 @@ const qcRoutes = require('./routes/qc');
 const orchestratorRoutes = require('./routes/orchestrator');
 const parametersRoutes = require('./routes/parameters');
 const driveRoutes = require('./routes/drive');
+const playbookRoutes = require('./routes/playbook');
 
 // Mount prefixed routes
 app.use('/api/associates', associatesRoutes);
@@ -28,6 +37,7 @@ app.use('/api/drive', driveRoutes);
 app.use('/api', queueRoutes);
 app.use('/api', qcRoutes);
 app.use('/api', parametersRoutes);
+app.use('/api/playbook', playbookRoutes);
 
 
 

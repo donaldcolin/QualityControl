@@ -64,10 +64,10 @@ function getKalviumContext(source, leadState = null) {
     : 'a university admissions sales counselling phone call';
 
   let ctx = `${base} for Kalvium. 
-Kalvium is a higher-education startup offering a Work-Integrated Computer Science Engineering degree. Key features include a 100% placement guarantee, hands-on paid internships starting from Year 2, and an aptitude-based entrance exam called K-NET (we do not require JEE/NEET).
+Kalvium is a higher-education startup offering a Work-Integrated Computer Science Engineering degree. Key features include hands-on practical learning, structured internships, and an aptitude-based entrance exam called K-NET (we do not require JEE/NEET).
 
-CRITICAL SALES CYCLE RULES:
-1. FIRST PHONE CALL: The goal is NEVER to ask for registration or payment. The ONLY goal is to build interest and invite the parent/student to attend a 1-on-1 Google Meet demo.
+CRITICAL SALES CYCLE RULES (AY 2027):
+1. FIRST PHONE CALL: The goal is NEVER to ask for registration or payment. The ONLY goal is to build interest and invite the student and at least one parent to attend a 1-on-1 Google Meet demo.
 2. GOOGLE MEET DEMO: During the video call, the counselor discusses the exam details and pushes for K-NET Exam Registration.
 3. EXAM: The student writes the K-NET exam after 2 months.
 4. INTERVIEW: If they pass the exam, they attend an interview (they only get ONE chance).
@@ -76,17 +76,18 @@ CRITICAL SALES CYCLE RULES:
 You must judge the associate based on where they are in this cycle.`;
 
   if (source !== 'google_meet') {
-    ctx += `\n\nEXPECTED CALL STRUCTURE (1:1 COUNSELLING BOOKING CALL):
-1. Warm Opening: Greet, establish context (e.g., School Outreach or Website Lead), ask about 12th Std stream, and check if they know Kalvium.
-2. Probing and Aligning: Understand their current college search status, post-12th plans, and if they are preparing for JEE.
-3. Understand Priorities: Ask what is most important (academics, placements, fees, safety) and identify the final decision maker.
-4. Introduce Kalvium: Explain that it's a 4-year on-campus B.Tech CSE where academic learning is combined with practical real-world projects and industry exposure, differentiating it from theory-heavy traditional colleges.
-5. Why connect early?: Explain that KNET entrance is in December, and this gives them time to plan without rushing.
-6. Create Need for 1:1 Counselling: Pitch the session as a customized discussion about their career, KNET syllabus, and fees, involving both the student and parents.
-7. University Structure (If asked): Explain they choose location first, and pick specific university later.
-8. Book the Counselling: Offer TWO specific time slots.
-9. Close: Recap value and mention a WhatsApp confirmation will be sent.
-Evaluate the associate's adherence to this flow.`;
+    ctx += `\n\nEXPECTED CALL STRUCTURE (1:1 COUNSELLING BOOKING CALL - 10 STAGES):
+1. Warm Opening: Establish context, ask about 12th Std stream, and check if they know Kalvium.
+2. Probing and Aligning: Understand their current college search status, post-12th plans, and learning style (practical vs theory).
+3. Understand Student + Parent Priorities: Go past generic priorities and surface internal conflicts.
+4. Introduce Kalvium Based on Answers: Create curiosity about the gap in the current education market before introducing Kalvium.
+5. Why connect early?: Frame KNET as a parallel pathway and timing advantage.
+6. Create Need for 1:1 Counselling: De-sell it; explain it's not a webinar and it's to gather info.
+7. University Structure (If asked): Student does NOT choose a university now, only a preferred state/location.
+8. Book the Counselling: Secure the decision-maker (at least one parent). Use the "information decay" argument. Offer TWO specific slots.
+9. Close: Lock commitment, send WhatsApp, set up logistics.
+10. Registration Assist (post-session if applicable): Navigating portals and anti-fraud warnings.
+Evaluate the associate's adherence to this 10-stage flow.`;
   }
 
   if (leadState) {
@@ -114,7 +115,13 @@ async function getQCParameters(source) {
   return data.map(p => ({
     Parameter: p.parameter,
     Category: p.category,
-    Description: p.description
+    Description: p.description,
+    ParamId: p.param_id,
+    CategoryWeightPct: p.category_weight_pct,
+    Scale: p.scale,
+    Polarity: p.polarity,
+    EmbeddedBreachFlag: p.embedded_breach_flag,
+    EvidenceRequired: p.evidence_required
   }));
 }
 
@@ -527,9 +534,13 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   for (const [group, checks] of Object.entries(qualityGroups)) {
     block += `== ${group} ==\n`;
     checks.forEach(check => {
-      block += `- ${check.parameter} (Max: ${check.max_score || 10})\n`;
+      block += `- ${check.parameter} (Param ID: ${check.param_id || 'N/A'})\n`;
+      block += `  Guide / Question: ${check.description}\n`;
+      if (check.scale) block += `  Scale: ${check.scale}\n`;
+      if (check.polarity) block += `  Polarity: ${check.polarity} ${check.polarity === 'guardrail_negative' ? '(CRITICAL: Check for breaches!)' : ''}\n`;
+      if (check.evidence_required) block += `  Evidence Required (Your 'reason' field MUST follow this format): ${check.evidence_required}\n`;
+      if (!check.scale) block += `  Max Score: ${check.max_score || 10}\n`;
       if (check.check_question) block += `  Q: ${check.check_question}\n`;
-      block += `  Guide: ${check.description}\n`;
       if (check.na_condition) block += `  N/A when: ${check.na_condition}\n`;
     });
     block += '\n';
@@ -538,7 +549,8 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   // ── PART 2: DEEP COACHING REPORT ──────────────────────────────────────
   block += `=== PART 2: DEEP COACHING REPORT ===\n`;
   block += `You are an elite BD Trainer coaching Kalvium counsellors on 1:1 Counselling Booking Calls.\n`;
-  block += `You are NOT a checklist auditor. A basic TL can check if someone said hello. Your job is to find INVISIBLE mistakes only an experienced trainer would catch.\n\n`;
+  block += `You are NOT a checklist auditor. A basic TL can check if someone said hello. Your job is to find INVISIBLE mistakes only an experienced trainer would catch.\n`;
+  block += `CRITICAL RULE: DO NOT waste your Golden Rewrites on basic corrections like missing greetings, failing to say sir/madam, or minor pleasantries. You MUST focus exclusively on niche, high-leverage corrections that explain WHY the call failed to convert (e.g., poor objection handling, skipping discovery, over-pitching, fake urgency, failing to secure the parent).\n\n`;
 
   // Inject the real BD playbook if available
   if (bdPlaybook) {
@@ -547,12 +559,12 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   }
 
   block += `=== COACHING PRIORITIES (most important first) ===\n`;
-  block += `1. CALL FLOW VIOLATIONS: Did the associate follow the 9-stage call structure? Did they skip probing and jump straight to pitching? Did they forget to ask who the decision-maker is?\n`;
-  block += `2. OBJECTION MISHANDLING: When the prospect raised a concern, did the associate use the correct Kalvium-specific response from the playbook? Or did they make up facts, get defensive, or bulldoze past it?\n`;
-  block += `3. RED LINE VIOLATIONS: Did the associate say anything from the RED LINES list (badmouthing competitors, promising 100% placement, guaranteeing salary, claiming internship from 2nd year)?\n`;
+  block += `1. CALL FLOW VIOLATIONS: Did the associate follow the 10-stage call structure? Did they skip probing and jump straight to pitching?\n`;
+  block += `2. OBJECTION MISHANDLING: When the prospect raised a concern, did the associate use the Aikido method from the playbook? Or did they make up facts, get defensive, or bulldoze past it?\n`;
+  block += `3. RED LINE VIOLATIONS: Did the associate say anything from the RED LINES list (badmouthing competitors, promising 100% placement, guaranteeing salary, or naming specific partner universities this cycle)?\n`;
   block += `4. TONE & ENERGY: Did they sound like an admission counselor who cares, or a desperate salesman? Were they patient when explaining? Did they listen when the parent pushed back?\n`;
   block += `5. MISSED BUYING SIGNALS: Did the prospect show interest (asking about fees, campus, curriculum) and the associate failed to capitalize on it?\n`;
-  block += `6. BOOKING FAILURE: Did the associate secure at least one parent (preferably father) for the 1:1 session? Did they offer two time slots? Did they confirm on WhatsApp?\n`;
+  block += `6. BOOKING FAILURE: Did the associate secure at least one parent for the 1:1 session? Did they offer two time slots? Did they confirm on WhatsApp?\n`;
   block += `7. OVER-PITCHING: Did the associate dump Kalvium's value proposition without first understanding the student's situation, priorities, and concerns?\n\n`;
 
   block += `=== CONTEXT-AWARE REWRITES INSTRUCTIONS ===\n`;
@@ -594,11 +606,12 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
           type: 'object',
           properties: {
             parameter: { type: 'string', description: 'Exact parameter name from the evaluation list' },
-            score: { type: 'number', description: 'Score awarded (0 to max_score)' },
-            max_score: { type: 'number', description: 'Maximum possible score for this parameter' },
+            score: { type: 'number', description: 'Score awarded based on the specific parameter scale' },
+            max_score: { type: 'number', description: 'Maximum possible score for this parameter based on the scale' },
             status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'] },
             coaching_status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
-            reason: { type: 'string', description: 'Max 10 words if Pass/Done. Detailed only if Fail/Needs Improvement.' }
+            breach_flag: { type: 'boolean', description: 'True if a guardrail_negative parameter was explicitly violated' },
+            reason: { type: 'string', description: 'MUST MATCH the Evidence Required format (e.g. Timestamp + Quote + Translation). Max 10 words if Pass/Done.' }
           },
           required: ['parameter', 'score', 'max_score', 'status', 'coaching_status', 'reason']
         },

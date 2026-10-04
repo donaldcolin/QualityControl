@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = '/api';
 
 export const startRun = async (folder_path, language) => {
   const res = await fetch(`${API_BASE}/run`, {
@@ -127,7 +127,7 @@ export async function bumpQueueItem(id) {
 }
 
 // --- NEW: Quality Control (QC) Microservice ---
-const QC_API_BASE = 'http://localhost:3000/api';
+const QC_API_BASE = '/api';
 
 export const triggerMeetSync = async () => {
   const res = await fetch(`${API_BASE}/meet_sync/trigger`, { method: 'POST' });
@@ -263,4 +263,19 @@ export const getDriveTranscript = async (phone, name) => {
     throw new Error(err.error || 'Failed to fetch transcript from Google Drive');
   }
   return response.json();
+};
+
+export const getPlaybook = async () => {
+  const res = await fetch(`${API_BASE}/playbook`);
+  return res.json();
+};
+
+export const updatePlaybook = async (content) => {
+  const res = await fetch(`${API_BASE}/playbook`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  if (!res.ok) throw new Error('Failed to update playbook');
+  return res.json();
 };

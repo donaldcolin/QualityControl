@@ -24,7 +24,7 @@ router.get('/parameters', async (req, res) => {
 
 // Add a new parameter
 router.post('/parameters', async (req, res) => {
-  const { source, category, parameter, description } = req.body;
+  const { source, category, parameter, description, param_id, category_weight_pct, scale, polarity, embedded_breach_flag, evidence_required } = req.body;
   if (!source || !category || !parameter || !description) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
@@ -32,7 +32,7 @@ router.post('/parameters', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('qc_parameters')
-      .insert([{ source, category, parameter, description }])
+      .insert([{ source, category, parameter, description, param_id, category_weight_pct, scale, polarity, embedded_breach_flag, evidence_required }])
       .select()
       .single();
       
@@ -47,12 +47,12 @@ router.post('/parameters', async (req, res) => {
 // Update a parameter
 router.put('/parameters/:id', async (req, res) => {
   const { id } = req.params;
-  const { source, category, parameter, description } = req.body;
+  const { source, category, parameter, description, param_id, category_weight_pct, scale, polarity, embedded_breach_flag, evidence_required } = req.body;
   
   try {
     const { data, error } = await supabase
       .from('qc_parameters')
-      .update({ source, category, parameter, description })
+      .update({ source, category, parameter, description, param_id, category_weight_pct, scale, polarity, embedded_breach_flag, evidence_required })
       .eq('id', id)
       .select()
       .single();

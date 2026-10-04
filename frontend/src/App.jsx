@@ -26,21 +26,34 @@ function AppContent() {
   useEffect(() => {
     // Check if we are embedded in an iframe (e.g., LeadSquared)
     const urlParams = new URLSearchParams(window.location.search);
-    const leadIdParam = urlParams.get('leadId');
-    // If LeadSquared passes the ID, it might look like ?leadId=@Lead.Id
-    if (leadIdParam && !leadIdParam.startsWith('@')) {
+    const leadIdParam = urlParams.get('leadId') || urlParams.get('LeadID') || urlParams.get('leadid') || urlParams.get('id');
+    
+    if (leadIdParam) {
+      // LeadSquared sometimes wraps the ID in @{uuid} format, so we strip those characters
+      const cleanId = leadIdParam.replace(/[@{}]/g, '');
       setIsEmbedded(true);
-      setEmbeddedLeadId(leadIdParam);
+      setEmbeddedLeadId(cleanId);
     }
   }, []);
 
-
-
   // If embedded in an iframe (like LeadSquared), ONLY render the Lead Details view
   if (isEmbedded && embeddedLeadId) {
+    // LeadSquared might still pass the literal unreplaced tag if the lead is missing an ID, 
+    // but a real UUID will now be cleaned (e.g., d4786b13-ba85-45d3-9bc3-838ce4751f39)
+    if (embeddedLeadId === 'Lead:ProspectID' || embeddedLeadId === 'Lead.ProspectID') {
+      return (
+        <div className="h-screen w-screen flex items-center justify-center bg-background text-foreground font-sans p-8 text-center">
+          <div>
+            <h2 className="text-xl font-bold text-red-600 mb-2">Configuration Error</h2>
+            <p>LeadSquared did not replace the merge field. Check your Custom Tab URL setup.</p>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="h-screen w-screen overflow-y-auto bg-background text-foreground font-sans">
-        <LeadDetails leadId={embeddedLeadId} onBack={() => { }} />
+      <div className="h-screen w-screen overflow-hidden bg-background text-foreground font-sans">
+        <LeadDetails leadId={embeddedLeadId} onBack={() => { }} embedded={true} />
       </div>
     );
   }

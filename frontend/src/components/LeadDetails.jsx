@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { getQCLead, getCoachingTemplates, evaluateCall } from '../api';
-import { ArrowLeft, Play, FileAudio, CheckCircle2, XCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle, Share2, Trash2, Edit2, PlaySquare, SkipForward, FastForward, Info, Clock, Sparkles, User, Smile, MessageSquareShare, ShieldAlert, Crosshair } from 'lucide-react';
+import { ArrowLeft, Play, Pause, FileAudio, CheckCircle2, XCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle, Share2, Trash2, Edit2, PlaySquare, SkipForward, FastForward, Info, Clock, Sparkles, User, Smile, MessageSquareShare, ShieldAlert, Crosshair } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -59,90 +59,71 @@ function CallPlayer({ call }) {
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between items-center p-4 border-b">
-        <div>
-          <div className="font-semibold text-foreground flex items-center gap-2">
-            Sep 07, 2026 | 03:30 PM
-          </div>
-          <div className="text-sm text-muted-foreground font-medium mt-0.5">Source: External Recordings</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-muted-foreground"><Share2 className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="icon" className="text-muted-foreground"><Trash2 className="w-4 h-4" /></Button>
-        </div>
-      </div>
-
       {/* Audio Player */}
-      <div className="p-4 bg-slate-50 border-b">
+      <div className="p-5 bg-slate-50 border-b">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={togglePlay} className="h-10 w-10 shrink-0 text-slate-700 hover:text-slate-900">
-            {isPlaying ? <PauseCircle className="h-8 w-8 fill-slate-700 text-white" /> : <PlayCircle className="h-8 w-8 fill-slate-700 text-white" />}
-          </Button>
-          <div className="text-sm font-medium tabular-nums">{formatDuration(currentTime)}</div>
+          <button onClick={togglePlay} className="flex items-center justify-center h-12 w-12 rounded-full bg-slate-800 hover:bg-slate-700 text-white shadow-sm transition-colors shrink-0">
+            {isPlaying ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current ml-1" />}
+          </button>
+          <div className="text-sm font-medium tabular-nums text-slate-600">{formatDuration(currentTime)}</div>
 
-          <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden relative">
+          <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden relative cursor-pointer" onClick={(e) => {
+            if (audioRef.current && call.duration_sec) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const percent = (e.clientX - rect.left) / rect.width;
+              audioRef.current.currentTime = percent * call.duration_sec;
+            }
+          }}>
             <div
               className="absolute top-0 left-0 h-full bg-slate-400"
               style={{ width: `${call.duration_sec ? (currentTime / call.duration_sec) * 100 : 0}%` }}
             />
           </div>
-          <div className="text-sm font-medium tabular-nums">{formatDuration(call.duration_sec)}</div>
+          <div className="text-sm font-medium tabular-nums text-slate-600">{formatDuration(call.duration_sec)}</div>
           <audio ref={audioRef} src={audioUrl} onTimeUpdate={handleTimeUpdate} onEnded={() => setIsPlaying(false)} className="hidden" />
-        </div>
-        <div className="flex justify-end gap-2 mt-2">
-          <Badge variant="outline" className="text-xs bg-white text-slate-600">0.5x</Badge>
-          <Badge variant="default" className="text-xs bg-slate-700">1x</Badge>
-          <Badge variant="outline" className="text-xs bg-white text-slate-600">1.5x</Badge>
-          <Badge variant="outline" className="text-xs bg-white text-slate-600">2x</Badge>
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="transcript" className="w-full flex-1 flex flex-col min-h-0">
-        <TabsList className="w-full justify-start border-b rounded-none h-12 bg-transparent px-4 gap-6">
-          <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-0 text-sm font-medium text-muted-foreground data-[state=active]:text-primary">Timeline View</TabsTrigger>
-          <TabsTrigger value="transcript" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-0 text-sm font-medium text-muted-foreground data-[state=active]:text-primary">Transcript View</TabsTrigger>
-        </TabsList>
+      {/* Transcript */}
+      <div className="flex-1 overflow-hidden bg-white">
+        <div className="px-4 py-3 border-b border-slate-100 bg-white/50 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700">Call Transcript</h3>
+        </div>
+        <ScrollArea className="h-[calc(100%-45px)]" ref={segmentsContainerRef}>
+          <div className="p-4 space-y-3">
+            {segments.map((seg, idx) => {
+              const isActive = currentTime >= seg.start && currentTime < seg.end;
+              const participantName = seg.speaker === 'SPEAKER_00' ? 'Participant 1' : 'Participant 2';
 
-        <TabsContent value="transcript" className="flex-1 overflow-hidden mt-0">
-          <ScrollArea className="h-full" ref={segmentsContainerRef}>
-            <div className="p-4 space-y-3">
-              {segments.map((seg, idx) => {
-                const isActive = currentTime >= seg.start && currentTime < seg.end;
-                const participantName = seg.speaker === 'SPEAKER_00' ? 'Participant 1' : 'Participant 2';
-
-                return (
-                  <div
-                    key={idx}
-                    ref={isActive ? activeSegmentRef : null}
-                    onClick={() => handleSegmentClick(seg.start)}
-                    className={cn(
-                      "flex justify-between items-start p-4 rounded-lg border transition-colors cursor-pointer",
-                      isActive ? "bg-slate-100 border-slate-300" : "bg-slate-50 hover:bg-slate-100 border-slate-200"
-                    )}
-                  >
-                    <div className="text-sm">
-                      <span className="text-slate-500 font-mono mr-3 text-xs">{formatDuration(seg.start)}-{formatDuration(seg.end)}</span>
-                      <span className="font-bold text-slate-900 mr-2">{participantName} :</span>
-                      <span className="text-slate-700 leading-relaxed">
-                        {seg.text}
-                        {seg.text_en && seg.text_en !== seg.text && (
-                          <div className="mt-1 text-slate-500 italic">Translated: "{seg.text_en}"</div>
-                        )}
-                      </span>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-slate-600 shrink-0"><Edit2 className="w-3.5 h-3.5" /></Button>
+              return (
+                <div
+                  key={idx}
+                  ref={isActive ? activeSegmentRef : null}
+                  onClick={() => handleSegmentClick(seg.start)}
+                  className={cn(
+                    "flex justify-between items-start p-4 rounded-lg border transition-colors cursor-pointer",
+                    isActive ? "bg-slate-100 border-slate-300 shadow-sm" : "bg-slate-50 hover:bg-slate-100 border-slate-200"
+                  )}
+                >
+                  <div className="text-sm">
+                    <span className="text-slate-500 font-mono mr-3 text-xs">{formatDuration(seg.start)}-{formatDuration(seg.end)}</span>
+                    <span className="font-bold text-slate-900 mr-2">{participantName} :</span>
+                    <span className="text-slate-700 leading-relaxed">
+                      {seg.text}
+                      {seg.text_en && seg.text_en !== seg.text && (
+                        <div className="mt-1 text-slate-500 italic">Translated: "{seg.text_en}"</div>
+                      )}
+                    </span>
                   </div>
-                );
-              })}
-              {segments.length === 0 && (
-                <div className="text-center text-muted-foreground p-8">No transcript available.</div>
-              )}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-      </Tabs>
+                </div>
+              );
+            })}
+            {segments.length === 0 && (
+              <div className="text-center text-muted-foreground p-8">No transcript available.</div>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
     </div>
   );
 }
@@ -224,7 +205,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     );
   }
 
-  const activeCall = selectedCallIdx === 'all' ? null : evaluatedCalls[selectedCallIdx];
+  const activeCall = (selectedCallIdx === 'all' && evaluatedCalls.length > 1) ? null : (selectedCallIdx === 'all' ? evaluatedCalls[0] : evaluatedCalls[selectedCallIdx]);
   const callsToDisplay = selectedCallIdx === 'all' ? evaluatedCalls : (activeCall ? [activeCall] : []);
 
   const totalDuration = callsToDisplay.reduce((acc, c) => acc + (c.duration_sec || 0), 0) || 0;
@@ -327,7 +308,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             
             {/* Lead Status Card */}
-            <Card className={`shadow-sm ${sqlStatus === 'SQL' ? 'border-emerald-200 bg-emerald-50/30' : sqlStatus === 'No SQL' ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}>
+            <Card className={`shadow-md ${sqlStatus === 'SQL' ? 'border-emerald-200 bg-emerald-50/30' : sqlStatus === 'No SQL' ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
                 <CardTitle className={`text-[10px] font-bold uppercase tracking-wider ${sqlStatus === 'SQL' ? 'text-emerald-700' : sqlStatus === 'No SQL' ? 'text-rose-700' : 'text-slate-500'}`}>
                   Lead Status
@@ -342,7 +323,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
             </Card>
 
             {/* Total Duration Card */}
-            <Card className="shadow-sm">
+            <Card className="shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
                 <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Duration</CardTitle>
                 <Clock className="w-3.5 h-3.5 text-blue-500" />
@@ -353,7 +334,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
             </Card>
 
             {/* Talk-to-Listen Ratio Card */}
-            <Card className="shadow-sm">
+            <Card className="shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
                 <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Rep : Cust Ratio</CardTitle>
                 <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
@@ -364,7 +345,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
             </Card>
 
             {/* Intent Score Card */}
-            <Card className="shadow-sm">
+            <Card className="shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
                 <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Intent Score</CardTitle>
                 <Target className="w-3.5 h-3.5 text-amber-500" />
@@ -375,7 +356,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
             </Card>
 
             {/* Avg. Call Quality Score Card */}
-            <Card className="shadow-sm">
+            <Card className="shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3 px-3.5">
                 <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Avg Quality</CardTitle>
                 <Star className="w-3.5 h-3.5 text-purple-500" />
@@ -391,24 +372,24 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
  
       {/* TABS & MAIN CONTENT WRAPPER */}
       <Tabs defaultValue="conversations" className="flex-1 flex flex-col min-h-0 w-full" id="top-tabs" onValueChange={() => { }}>
-        <div className="px-8 border-b flex items-center bg-white">
-          <div className="flex-1"></div>
-          <TabsList className="w-full max-w-2xl justify-center h-14 bg-transparent p-0 gap-20">
-            <TabsTrigger value="insights" className="rounded-none border-b-2 border-transparent data-[state=active]:border-slate-800 data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-2 pb-3 pt-4 text-[15px] font-semibold text-slate-500 data-[state=active]:text-slate-900 transition-colors hover:text-slate-700">Insights</TabsTrigger>
-            <TabsTrigger value="conversations" className="rounded-none border-b-2 border-transparent data-[state=active]:border-slate-800 data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-2 pb-3 pt-4 text-[15px] font-semibold text-slate-500 data-[state=active]:text-slate-900 transition-colors hover:text-slate-700">Conversations</TabsTrigger>
-            <TabsTrigger value="coaching" className="rounded-none border-b-2 border-transparent data-[state=active]:border-slate-800 data-[state=active]:shadow-none bg-transparent data-[state=active]:bg-transparent px-2 pb-3 pt-4 text-[15px] font-semibold text-slate-500 data-[state=active]:text-slate-900 transition-colors hover:text-slate-700">Coaching</TabsTrigger>
+        <div className="px-8 py-4 border-b bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-4">
+          <TabsList className="bg-slate-200/70 p-1 h-11 rounded-lg self-start md:self-auto">
+            <TabsTrigger value="insights" className="rounded-md px-6 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900">Insights</TabsTrigger>
+            <TabsTrigger value="conversations" className="rounded-md px-6 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900">Conversations</TabsTrigger>
+            <TabsTrigger value="coaching" className="rounded-md px-6 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900">Coaching</TabsTrigger>
           </TabsList>
-          <div className="flex-1 flex justify-end items-center gap-2">
+          
+          <div className="flex items-center gap-3 self-end md:self-auto">
             {!embedded && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleReEvaluate}
                 disabled={isEvaluating || evaluatedCalls.length === 0}
-                className="h-9 bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 font-medium"
+                className="h-11 bg-white border-slate-200 text-slate-700 hover:bg-slate-50 font-bold px-4 rounded-lg shadow-sm"
               >
-                {isEvaluating ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-2" />}
-                {isEvaluating ? 'Evaluating...' : (evaluatedCalls.length > 1 ? 'Re-Evaluate All Calls' : 'Re-Evaluate')}
+                {isEvaluating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                {isEvaluating ? 'Evaluating...' : (evaluatedCalls.length > 1 ? 'Re-Evaluate All' : 'Re-Evaluate')}
               </Button>
             )}
             {evaluatedCalls.length > 1 && (
@@ -416,7 +397,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                 value={selectedCallIdx.toString()}
                 onValueChange={(val) => setSelectedCallIdx(val === 'all' ? 'all' : parseInt(val))}
               >
-                <SelectTrigger className="w-[180px] bg-slate-50 border-slate-200 text-slate-700 font-medium h-9">
+                <SelectTrigger className="w-[200px] bg-white border-slate-200 text-slate-700 font-bold h-11 rounded-lg shadow-sm">
                   <div className="flex items-center gap-2">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
                     <SelectValue placeholder="Select a call" />
@@ -440,15 +421,15 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
         {/* MAIN TWO-COLUMN CONTENT */}
         <div className="flex-1 p-6 overflow-hidden">
           <TabsContent value="insights" className="h-full mt-0">
-            <ScrollArea className="h-full pr-4">
-              <div className="max-w-4xl space-y-8 pb-8">
+            <ScrollArea className="h-full">
+              <div className="max-w-5xl mx-auto space-y-8 pb-8 px-4">
                 <section>
                   <div className="flex items-center gap-2 mb-4">
                     <BrainCircuit className="w-5 h-5 text-purple-500" />
                     <h3 className="text-lg font-semibold">Path to Conversion</h3>
                   </div>
 
-                  <Card className="shadow-sm bg-purple-500/5 border-purple-500/10">
+                  <Card className="shadow-md bg-purple-500/5 border-purple-500/10 overflow-hidden">
                     <CardHeader className="pb-3 border-b border-purple-500/10">
                       <CardTitle className="text-sm">Conversation Summary</CardTitle>
                     </CardHeader>
@@ -475,8 +456,8 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                     });
                     if (highIntent.length === 0 && lowIntent.length === 0) return null;
                     return (
-                      <Card className="shadow-sm mt-6 border-slate-200">
-                        <CardHeader className="pb-3 border-b bg-slate-50 flex flex-row items-center justify-between">
+                      <Card className="shadow-md mt-6 border-slate-200 overflow-hidden p-0 gap-0">
+                        <CardHeader className="p-4 pb-3 border-b bg-slate-50 flex flex-row items-center justify-between">
                           <CardTitle className="text-sm flex items-center gap-2">
                             <TrendingUp className="w-4 h-4 text-blue-500" /> Buying Intent Analysis
                           </CardTitle>
@@ -540,8 +521,8 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                     });
                     if (Object.keys(bant).length === 0) return null;
                     return (
-                      <Card className="shadow-sm mt-6 border-slate-200">
-                        <CardHeader className="pb-3 border-b bg-slate-50">
+                      <Card className="shadow-md mt-6 border-slate-200 overflow-hidden p-0 gap-0">
+                        <CardHeader className="p-4 pb-3 border-b bg-slate-50">
                           <CardTitle className="text-sm flex items-center gap-2">
                             <Target className="w-4 h-4 text-indigo-500" /> BANT Analysis
                           </CardTitle>
@@ -593,8 +574,8 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                     if (extractedFields.length === 0 && allMissing.size === 0) return null;
 
                     return (
-                      <Card className="shadow-sm mt-6 border-slate-200">
-                        <CardHeader className="pb-3 border-b bg-slate-50">
+                      <Card className="shadow-md mt-6 border-slate-200 overflow-hidden p-0 gap-0">
+                        <CardHeader className="p-4 pb-3 border-b bg-slate-50">
                           <CardTitle className="text-sm flex items-center gap-2">
                             <Database className="w-4 h-4 text-blue-500" /> Data Capture
                           </CardTitle>
@@ -701,7 +682,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
           </TabsContent>
 
           <TabsContent value="conversations" className="h-full mt-0">
-            {selectedCallIdx === 'all' ? (
+            {selectedCallIdx === 'all' && evaluatedCalls.length > 1 ? (
               <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-slate-50 border rounded-xl m-6 border-dashed">
                 <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 border">
                   <MessageSquare className="w-8 h-8 text-slate-400" />
@@ -732,8 +713,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                               Overall Call Quality Score: <span className="text-emerald-600">{activeCall?.call_quality_score ?? 0}%</span> <span className="text-slate-500 font-normal">({Math.round(((activeCall?.call_quality_score ?? 0) / 100) * 124)}/124)</span>
                             </div>
                             <div className="flex gap-2">
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><RefreshCw className="w-4 h-4" /></Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><Edit2 className="w-4 h-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-slate-700 hover:bg-slate-100"><RefreshCw className="w-4 h-4" /></Button>
                             </div>
                           </div>
 
@@ -748,10 +728,6 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                                 <div key={idx} className="space-y-3 pb-6 border-b border-dashed last:border-0">
                                   <div className="flex justify-between items-center">
                                     <h4 className="font-bold text-sm text-slate-900">{param}</h4>
-                                    <div className="flex gap-1">
-                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><Edit2 className="w-3.5 h-3.5" /></Button>
-                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400"><PlayCircle className="w-3.5 h-3.5" /></Button>
-                                    </div>
                                   </div>
                                   <div className="flex gap-2 items-center">
                                     <Badge className={cn("px-2 font-bold tabular-nums hover:opacity-90 shadow-none border-transparent", data.score === data.max_score ? "bg-emerald-100 text-emerald-700" : data.score > 0 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700")}>
@@ -861,7 +837,8 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
           </TabsContent>
 
           <TabsContent value="coaching" className="h-full mt-0">
-            <ScrollArea className="h-full pr-4 pt-4">
+            <ScrollArea className="h-full">
+              <div className="max-w-5xl mx-auto space-y-8 pb-8 px-4 pt-4">
                 {/* Top Strengths */}
                 {(() => {
                   // FIX: Aggregate strengths & improvements across ALL evaluated calls like an array
@@ -1100,7 +1077,8 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                     </div>
                   );
                 })()}
-              </ScrollArea>
+              </div>
+            </ScrollArea>
           </TabsContent>
         </div>
       </Tabs>
