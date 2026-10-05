@@ -111,6 +111,15 @@ export const pushActivityToQC = async (activityData) => {
   return res.json();
 };
 
+export const pushDemoToQC = async (data) => {
+  const res = await fetch(`${API_BASE}/activities/push_demo_to_qc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+};
+
 export const getQueueItemStatus = async (queueId) => {
   const res = await fetch(`${API_BASE}/queue/${queueId}`);
   return res.json();
@@ -144,11 +153,11 @@ export const getQCLead = async (id) => {
   return res.json();
 };
 
-export const evaluateCall = async (call_id) => {
-  const res = await fetch(`${QC_API_BASE}/qc/evaluate_call`, {
+export const evaluateCall = async (call_id, transcript = null, prospect_id = null) => {
+  const res = await fetch(`${API_BASE}/qc/evaluate_call`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ call_id })
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer internal_ai_worker_token' },
+    body: JSON.stringify({ call_id, transcript, prospect_id })
   });
   return res.json();
 };
@@ -254,7 +263,7 @@ export const searchLeadsByPhone = async (phone) => {
 };
 
 export const getDriveTranscript = async (phone, name) => {
-  const url = new URL(`${API_BASE}/drive/transcript`);
+  const url = new URL(`${API_BASE}/drive/transcript`, window.location.origin);
   if (phone) url.searchParams.append('phone', phone);
   if (name) url.searchParams.append('name', name);
   const response = await fetch(url);
@@ -277,5 +286,15 @@ export const updatePlaybook = async (content) => {
     body: JSON.stringify({ content })
   });
   if (!res.ok) throw new Error('Failed to update playbook');
+  return res.json();
+};
+
+
+export const evaluateJourney = async (prospectId) => {
+  const res = await fetch(`${API_BASE}/qc/evaluate_journey`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer internal_ai_worker_token' },
+    body: JSON.stringify({ prospect_id: prospectId })
+  });
   return res.json();
 };

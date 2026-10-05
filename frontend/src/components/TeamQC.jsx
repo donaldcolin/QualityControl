@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC, searchLeadsByPhone, getDriveTranscript } from '../api';
+import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC, pushDemoToQC, searchLeadsByPhone, getDriveTranscript } from '../api';
 import { RefreshCw, Trash2, Plus, PhoneCall, Headphones, Clock, ArrowRight, Play, Users, Search, User, CheckCircle2, ExternalLink, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ export default function TeamQC({ onPushToQueue }) {
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [pushingId, setPushingId] = useState(null);
   const [fetchingTranscriptId, setFetchingTranscriptId] = useState(null);
+  const [pushingDemoId, setPushingDemoId] = useState(null);
   const [syncLanguages, setSyncLanguages] = useState({});
 
 
@@ -216,6 +217,33 @@ export default function TeamQC({ onPushToQueue }) {
       toast.error(err.message || 'Transcript not found in Google Drive');
     } finally {
       setFetchingTranscriptId(null);
+    }
+  };
+
+  const handlePushDemoToQC = async (activity) => {
+    setPushingDemoId(activity.activity_id);
+    try {
+      const lead = leads.find(l => l.prospect_id === selectedLead);
+      const associate = associates.find(a => a.emp_number === selectedEmp);
+
+      const res = await pushDemoToQC({
+        prospect_id: activity.prospect_id,
+        phone: lead?.phone || '',
+        name: lead?.name || '',
+        emp_number: selectedEmp,
+        lead_name: lead?.name || 'Unknown',
+        lead_source: lead?.source || 'Phone'
+      });
+
+      if (res.error) {
+        toast.error(res.error);
+      } else {
+        toast.success('Google Meet transcript sent for QC evaluation!');
+      }
+    } catch (err) {
+      toast.error('Failed to push demo transcript to QC');
+    } finally {
+      setPushingDemoId(null);
     }
   };
 
@@ -622,25 +650,46 @@ export default function TeamQC({ onPushToQueue }) {
                             </Button>
                           )}
 
-                          {/* View Recording or Push to QC Button (Requires resource_url) */}
-                          {(a.type === 'Inbound' || a.type === 'Outbound' || a.type === 'Conversion call' || a.type === 'Demo Conducted') && a.resource_url && (
+                          {/* Push Demo transcript to QC (fetches from Drive, evaluates directly) */}
+                          {(a.type === 'Conversion call' || a.type === 'Demo Conducted') && (
                             <Button
                               size="sm"
-                              variant={a.type === 'Conversion call' || a.type === 'Demo Conducted' ? 'outline' : 'default'}
+                              variant="default"
+                              className="h-8 shadow-sm text-xs gap-1.5 bg-purple-600 hover:bg-purple-700"
+                              onClick={() => handlePushDemoToQC(a)}
+                              disabled={pushingDemoId === a.activity_id}
+                            >
+                              {pushingDemoId === a.activity_id ? (
+                                <><RefreshCw className="w-3 h-3 animate-spin" /> Evaluating...</>
+                              ) : (
+                                <>Push to QC <ArrowRight className="w-3 h-3" /></>
+                              )}
+                            </Button>
+                          )}
+
+                          {/* View Recording (if resource_url exists for demos) */}
+                          {(a.type === 'Conversion call' || a.type === 'Demo Conducted') && a.resource_url && (
+                            <Button
+                              size="sm"
+                              variant="outline"
                               className="h-8 shadow-sm text-xs gap-1.5"
-                              onClick={() => {
-                                if (a.type === 'Conversion call' || a.type === 'Demo Conducted') {
-                                  window.open(a.resource_url, '_blank');
-                                } else {
-                                  handlePushToQC(a);
-                                }
-                              }}
-                              disabled={pushingId === a.activity_id || (a.type !== 'Conversion call' && a.type !== 'Demo Conducted' && a.duration < 60)}
+                              onClick={() => window.open(a.resource_url, '_blank')}
+                            >
+                              <Play className="w-3 h-3" /> View Recording
+                            </Button>
+                          )}
+
+                          {/* Push audio call to QC (Requires resource_url) */}
+                          {(a.type === 'Inbound' || a.type === 'Outbound') && a.resource_url && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="h-8 shadow-sm text-xs gap-1.5"
+                              onClick={() => handlePushToQC(a)}
+                              disabled={pushingId === a.activity_id || a.duration < 60}
                             >
                               {pushingId === a.activity_id ? (
                                 <><RefreshCw className="w-3 h-3 animate-spin" /> Pushing</>
-                              ) : (a.type === 'Conversion call' || a.type === 'Demo Conducted') ? (
-                                <><Play className="w-3 h-3" /> View Recording</>
                               ) : (
                                 <>Push <ArrowRight className="w-3 h-3" /></>
                               )}

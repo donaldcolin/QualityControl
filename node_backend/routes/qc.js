@@ -22,23 +22,45 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
   }
   if (!qcEngine.ai) return res.status(500).json({ error: 'Gemini not configured' });
 
-  if (call_id) {
-    await supabase.from('calls').update({ qc_status: 'processing' }).eq('id', call_id);
+  let activeCallId = call_id;
+  const effectiveSource = source || 'phone_call';
+
+  if (activeCallId) {
+    await supabase.from('calls').update({ qc_status: 'processing' }).eq('id', activeCallId);
+  } else if (transcript) {
+    // Synchronously create the call before returning 202, so it appears in the UI
+    const { data: newCall, error: insertError } = await supabase
+      .from('calls')
+      .insert({
+        id: uuidv4(),
+        qc_status: 'processing',
+        duration_sec: 0,
+        prospect_id: prospect_id || null,
+        source: effectiveSource
+      })
+      .select('id')
+      .single();
+      
+    if (insertError) {
+      console.error("Failed to insert call:", insertError);
+    } else if (newCall) {
+      activeCallId = newCall.id;
+    }
   }
 
   // Return 202 Accepted immediately so the Python worker is not blocked for 3 minutes
   res.status(202).json({
     success: true,
     status: 'Evaluation started in background',
-    call_id: call_id
+    call_id: activeCallId
   });
 
   // Execute heavy LLM operations in the background
   Promise.resolve().then(async () => {
+    console.log(`🔄 [QC Background] Starting evaluation for call: ${activeCallId}, source: ${effectiveSource}`);
     try {
       let transcriptText = transcript;
-      let callIdToUpdate = call_id;
-      const effectiveSource = source || 'phone_call';
+      let callIdToUpdate = activeCallId;
 
     // 1. Get transcript from call if not provided directly
     if (call_id && !transcript) {
@@ -274,24 +296,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       resultsPayload.overall_grade = coachingReport.overall_grade;
     }
 
-    if (!callIdToUpdate && transcript) {
-      // Create a new call row for direct transcript submissions if needed
-      const { data: newCall } = await supabase
-        .from('calls')
-        .insert({
-          qc_status: 'evaluated',
-          transcript: transcriptText,
-          filename: `${effectiveSource}_transcript`,
-          language: 'en',
-          duration_sec: 0,
-          prospect_id: prospect_id || null,
-          source: effectiveSource
-        })
-        .select('id')
-        .single();
 
-      if (newCall) callIdToUpdate = newCall.id;
-    }
 
     if (callIdToUpdate) {
       // Create immutable evaluation run record
@@ -471,6 +476,12 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         .eq('id', callIdToUpdate);
     }
 
+    // ── TRIGGER HOLISTIC JOURNEY SYNTHESIS ──
+    if (finalProspectId) {
+      // We don't await this so it runs asynchronously in the background
+      qcEngine.evaluateLeadJourney(finalProspectId);
+    }
+
     // 9. Push to LeadSquared via CRM Outbox Pattern
     if (finalProspectId && prospect_id) { // Only push if it was an actual LSQ prospect
       try {
@@ -491,9 +502,11 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
 
     console.log(`✅ Background evaluation complete for call: ${callIdToUpdate}`);
   } catch (err) {
-    console.error("Async Evaluation Error:", err);
-    if (call_id) {
-      await supabase.from('calls').update({ qc_status: 'failed' }).eq('id', call_id);
+    console.error(`❌ ASYNC EVALUATION ERROR for call ${activeCallId}:`, err.message);
+    console.error(err.stack);
+    const failId = activeCallId || call_id;
+    if (failId) {
+      await supabase.from('calls').update({ qc_status: 'failed' }).eq('id', failId);
     }
   }
   }); // End Promise.resolve().then()
@@ -579,8 +592,37 @@ router.get('/leads/:id', async (req, res) => {
       .order('id', { ascending: true });
       
     if (callsError) throw callsError;
-    
-    lead.calls = calls || [];
+
+    // Fetch evaluation_runs and enrich calls (matching GET /leads logic)
+    const callIds = (calls || []).map(c => c.id);
+    let evalMap = {};
+    if (callIds.length > 0) {
+      const { data: evalsData } = await supabase
+        .from('evaluation_runs')
+        .select('*')
+        .in('call_id', callIds)
+        .order('created_at', { ascending: false });
+
+      if (evalsData) {
+        evalsData.forEach(e => {
+          if (!evalMap[e.call_id]) evalMap[e.call_id] = e;
+        });
+      }
+    }
+
+    const enrichedCalls = (calls || []).map(c => {
+      const evaluation = evalMap[c.id];
+      if (evaluation && evaluation.results) {
+        c.quality_data = evaluation.results.quality_data;
+        c.insights_data = evaluation.results.insights_data;
+        c.coaching_report = evaluation.results.coaching_report;
+        c.summary_data = evaluation.results.summary_data;
+        c.qc_results = evaluation.results.qc_results;
+      }
+      return c;
+    });
+
+    lead.calls = enrichedCalls;
     res.json(lead);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -913,6 +955,67 @@ router.delete('/data_capture_questions/:id', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+//  DEMO (GOOGLE MEET) TRANSCRIPT → DIRECT QC EVALUATION
+// ═══════════════════════════════════════════════════════════════
+
+router.post('/activities/push_demo_to_qc', async (req, res) => {
+  try {
+    const { prospect_id, phone, name, emp_number, lead_name, lead_source } = req.body;
+
+    if (!phone && !name) {
+      return res.status(400).json({ error: 'Phone or name is required to locate the transcript in Google Drive.' });
+    }
+
+    // 1. Upsert lead so it appears in the QC Leads Dashboard immediately
+    if (prospect_id) {
+      let resolvedOwnerName = 'Unassigned';
+      if (emp_number) {
+        const { data: assoc } = await supabase.from('qc_associates').select('emp_name').eq('emp_number', emp_number).maybeSingle();
+        if (assoc && assoc.emp_name) resolvedOwnerName = assoc.emp_name;
+      }
+
+      await supabase.from('leads').upsert({
+        id: prospect_id,
+        name: lead_name || 'Unknown',
+        phone: phone || null,
+        lead_source: lead_source || 'Phone',
+        owner: resolvedOwnerName
+      }, { onConflict: 'id', ignoreDuplicates: true });
+    }
+
+    // 2. Fetch transcript text from Google Drive via internal loopback
+    const port = process.env.PORT || 3000;
+    const driveParams = new URLSearchParams();
+    if (phone) driveParams.append('phone', phone);
+    if (name) driveParams.append('name', name);
+
+    const driveRes = await axios.get(`http://localhost:${port}/api/drive/transcript?${driveParams.toString()}`);
+    const transcriptText = driveRes.data?.content;
+
+    if (!transcriptText || transcriptText.trim().length < 50) {
+      return res.status(404).json({ error: 'Transcript not found or too short in Google Drive.' });
+    }
+
+    // 3. Directly call evaluate_call with the transcript (bypasses ASR pipeline)
+    const evalRes = await axios.post(`http://localhost:${port}/api/qc/evaluate_call`, {
+      prospect_id: prospect_id,
+      transcript: transcriptText,
+      source: 'google_meet'
+    }, {
+      timeout: 180000,
+      headers: { 'Authorization': 'Bearer internal_ai_worker_token' }
+    });
+
+    console.log(`🎥 [Demo QC] Google Meet transcript pushed for evaluation. Prospect: ${prospect_id}`);
+    res.json({ success: true, status: 'evaluation_started', call_id: evalRes.data?.call_id });
+  } catch (err) {
+    console.error('Push demo to QC error:', err.response?.data || err.message);
+    const msg = err.response?.data?.error || err.message;
+    res.status(err.response?.status || 500).json({ error: msg });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 //  ACTIVITIES & QUEUE
 // ═══════════════════════════════════════════════════════════════
 
@@ -985,6 +1088,25 @@ router.post('/meet_sync/trigger', async (req, res) => {
     const results = await meetSync.triggerManualSync();
     res.json({ success: true, results });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  MANUAL JOURNEY SYNTHESIS
+// ═══════════════════════════════════════════════════════════════
+
+router.post('/qc/evaluate_journey', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
+  const { prospect_id } = req.body;
+  if (!prospect_id) return res.status(400).json({ error: 'prospect_id is required' });
+  
+  try {
+    // Run it asynchronously or wait for it. Since it's a manual trigger, we can await it.
+    // Wait, the function might take a bit. Let's run it synchronously so the user knows when it's done.
+    const result = await qcEngine.evaluateLeadJourney(prospect_id);
+    res.json({ success: true, message: 'Journey synthesized successfully' });
+  } catch (err) {
+    console.error("Journey synthesis error:", err);
     res.status(500).json({ error: err.message });
   }
 });

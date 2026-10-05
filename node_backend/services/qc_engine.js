@@ -523,7 +523,8 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   // ── PART 1: Quality evaluation ──────────────────────────────────────────────
   block += `=== PART 1: QUALITY SCORING ===\n`;
   block += `For each parameter: assign a score (0 to max_score), a status, and a reason citing the transcript.\n`;
-  block += `Statuses: Done (full marks), Partially Done (partial), Needs Improvement (low), Not Applicable.\n\n`;
+  block += `Statuses: Done (full marks), Partially Done (partial), Needs Improvement (low), Not Applicable.\n`;
+  block += `CRITICAL GRADING INSTRUCTION: You are a strict auditor. Do NOT give full marks automatically. You must penalize heavily for any missed details, lack of structure, or rushed delivery. To earn 'Done' or a perfect max_score, the execution must be flawless. If it's average, mark it 'Partially Done' and deduct 20-50% of the points. If it's poor, mark 'Needs Improvement' and give a 0 or minimal score. A 100% total score should be virtually impossible unless the call is legendary.\n\n`;
 
   const qualityGroups = {};
   qualityChecks.forEach(check => {
@@ -842,6 +843,111 @@ Be specific. Cite evidence from the transcript for every score and coaching poin
 CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.`;
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  Holistic Journey Synthesis (Additive)
+ * ═══════════════════════════════════════════════════════════════
+ */
+async function evaluateLeadJourney(leadId) {
+  if (!ai) return;
+
+  // 1. Fetch the lead
+  const { data: lead, error: leadError } = await supabase
+    .from('leads')
+    .select('id, name, journey_insights, journey_coaching')
+    .eq('id', leadId)
+    .single();
+
+  if (leadError || !lead) {
+    console.error(`Journey Sync failed: Lead ${leadId} not found`);
+    return;
+  }
+
+  // 2. Fetch the newly evaluated calls (or just all calls ordered by date)
+  // To keep the rolling context pure, we fetch ALL calls to let the LLM see the timeline.
+  const { data: calls } = await supabase
+    .from('calls')
+    .select('id, created_at, source, duration_sec, transcript, filename, qc_status')
+    .eq('prospect_id', leadId)
+    .in('qc_status', ['evaluated', 'completed'])
+    .order('created_at', { ascending: true });
+
+  if (!calls || calls.length === 0) return;
+
+  // 3. Construct the prompt
+  let transcriptHistory = calls.map((c, idx) => `
+--- Touchpoint ${idx + 1} (${c.source || 'telephony'}) ---
+Date: ${c.created_at}
+Duration: ${Math.round((c.duration_sec || 0)/60)} mins
+Transcript:
+${c.transcript || 'No transcript'}
+`).join('\n\n');
+
+  const journeySchema = {
+    type: 'object',
+    properties: {
+      journey_insights: {
+        type: 'object',
+        description: 'Overarching summary of BANT, intent progression, and objections across all touchpoints.',
+        properties: {
+          intent_progression: { type: 'string', description: 'Narrative of how the prospect intent evolved from Touchpoint 1 to the latest touchpoint.' },
+          objections_status: { type: 'string', description: 'Which objections were raised, and which ones were successfully resolved or remain open.' },
+          overall_bant_summary: { type: 'string', description: 'Holistic summary of their Budget, Authority, Needs, and Timeline.' }
+        }
+      },
+      journey_coaching: {
+        type: 'object',
+        description: 'High-level coaching feedback tracking associate progress from the first call to the final demo.',
+        properties: {
+          improvements_noted: { type: 'string', description: 'Positive feedback on how the associate improved or adapted across the calls.' },
+          recurring_mistakes: { type: 'string', description: 'Critical feedback on mistakes repeated across multiple touchpoints.' },
+          next_touchpoint_strategy: { type: 'string', description: 'Strategic advice for the NEXT time the associate speaks with this lead.' }
+        }
+      }
+    },
+    required: ['journey_insights', 'journey_coaching']
+  };
+
+  const prompt = `You are a Senior Sales Director doing a holistic "Journey Review" for a lead.
+Do NOT just evaluate a single call. Look at the entire sequence of touchpoints below.
+Your job is to provide a rolling, additive narrative of the lead's progression and the associate's coaching needs over time.
+
+Previous Journey State (if any):
+${JSON.stringify(lead.journey_insights || {})}
+${JSON.stringify(lead.journey_coaching || {})}
+
+ALL TOUCHPOINTS FOR THIS LEAD:
+${transcriptHistory}
+
+Generate the updated journey insights and journey coaching.
+Focus specifically on CROSS-CALL continuity (e.g., "The pricing objection from Call 1 was resolved in Call 2").`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: journeySchema,
+        temperature: 0.2
+      }
+    });
+
+    const result = JSON.parse(response.text);
+    
+    // 4. Update the lead with the synthesized JSONB
+    await supabase.from('leads').update({
+      journey_insights: result.journey_insights,
+      journey_coaching: result.journey_coaching,
+      updated_at: new Date().toISOString()
+    }).eq('id', leadId);
+
+    console.log(`✅ Successfully generated holistic Journey Synthesis for Lead ${leadId}`);
+  } catch (e) {
+    console.error(`❌ Journey Synthesis failed for Lead ${leadId}:`, e.message);
+  }
+}
+
 module.exports = {
   ai,
   GEMINI_MODEL,
@@ -868,5 +974,6 @@ module.exports = {
   getIntelligenceSchema,
   triageCall,
   // Utilities
+  evaluateLeadJourney,
   sanitizeKey
 };
