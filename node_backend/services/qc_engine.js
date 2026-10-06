@@ -574,6 +574,7 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   block += `- Quote the EXACT words the associate said (in whatever language they used).\n`;
   block += `- Explain WHY it failed, referencing the specific playbook section they violated.\n`;
   block += `- Write a GOLDEN REWRITE using the Kalvium-specific response from the playbook. The rewrite must use real Kalvium facts and positioning, not generic sales advice.\n`;
+  block += `- The golden rewrite MUST be in the exact same language as the original transcript (transliterated to English/Latin script, e.g., Tanglish for Tamil calls, Kanglish for Kannada calls) OR standard English. NEVER use Hinglish if the original call was not in Hindi/Hinglish.\n`;
   block += `- The golden rewrite should sound natural and human, like a real Kalvium top performer would say it.\n`;
   block += `IMPORTANT: Do NOT give generic coaching like "be more empathetic" or "build rapport". Every piece of feedback must reference specific Kalvium knowledge, call flow stages, objection responses, or red lines from the playbook.\n\n`;
 
