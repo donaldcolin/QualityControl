@@ -355,10 +355,12 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
 
     # ── Step 2: Load waveform into memory (done ONCE) ──
     _update("Loading audio into memory...")
-    wav, sr = torchaudio.load(str(tmp_wav))
-    wav = torch.mean(wav, dim=0, keepdim=True)  # force mono
+    original_wav, sr = torchaudio.load(str(tmp_wav))
+    num_channels = original_wav.shape[0]
+    wav = torch.mean(original_wav, dim=0, keepdim=True)  # force mono
     if sr != 16000:
         wav = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)(wav)
+        original_wav = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)(original_wav)
         sr = 16000
 
     # Clean up temp file early
@@ -380,18 +382,59 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
     speakers = diarize(trimmed_wav, sr, hf_token, device=device, num_speakers=2)
     _update(f"Diarization complete — found {len(speakers)} raw segments")
 
-    # ── Step 5: Map speaker labels ──
+    # ── Step 5: Map speaker labels (Stereo Metadata Priority + Heuristic Fallback) ──
     speaker_map = {}
-    for turn in speakers:
-        raw_label = turn["speaker"]
-        if raw_label not in speaker_map:
-            if len(speaker_map) == 0:
-                speaker_map[raw_label] = "Agent"
-            elif len(speaker_map) == 1:
-                speaker_map[raw_label] = "Customer"
+    role_assignment_method = "heuristic"
+
+    # 1. Metadata Priority: Stereo Channel Mapping (Left = Agent, Right = Customer)
+    if num_channels == 2:
+        speaker_energy = {}
+        for turn in speakers:
+            spk = turn["speaker"]
+            start_idx = int(turn["start"] * sr)
+            end_idx = int(turn["end"] * sr)
+            if spk not in speaker_energy:
+                speaker_energy[spk] = {"L": 0.0, "R": 0.0}
+            
+            # Compute RMS energy for this segment on L and R channels
+            # Handle potential index out of bounds
+            end_idx = min(end_idx, original_wav.shape[-1])
+            if start_idx < end_idx:
+                L_energy = torch.sqrt(torch.mean(original_wav[0, start_idx:end_idx]**2)).item()
+                R_energy = torch.sqrt(torch.mean(original_wav[1, start_idx:end_idx]**2)).item()
+                speaker_energy[spk]["L"] += L_energy
+                speaker_energy[spk]["R"] += R_energy
+        
+        # Determine roles based on which channel the speaker is loudest in
+        for spk, energies in speaker_energy.items():
+            if energies["L"] > energies["R"]:
+                speaker_map[spk] = "Agent"
             else:
-                speaker_map[raw_label] = f"Speaker_{len(speaker_map) + 1}"
-        turn["speaker"] = speaker_map[raw_label]
+                speaker_map[spk] = "Customer"
+                
+        # Validate that we got exactly one Agent and one Customer
+        if list(speaker_map.values()).count("Agent") == 1 and list(speaker_map.values()).count("Customer") == 1:
+            role_assignment_method = "channel_metadata"
+            logger.info("Successfully mapped roles using stereo channel metadata.")
+        else:
+            logger.warning("Stereo mapping failed (both on same channel). Falling back to heuristic.")
+            speaker_map = {} # Reset and fallback
+
+    # 2. Heuristic Fallback: First Speaker = Agent
+    if not speaker_map:
+        for turn in speakers:
+            raw_label = turn["speaker"]
+            if raw_label not in speaker_map:
+                if len(speaker_map) == 0:
+                    speaker_map[raw_label] = "Agent"
+                elif len(speaker_map) == 1:
+                    speaker_map[raw_label] = "Customer"
+                else:
+                    speaker_map[raw_label] = f"Speaker_{len(speaker_map) + 1}"
+
+    # Apply the mapping
+    for turn in speakers:
+        turn["speaker"] = speaker_map[turn["speaker"]]
 
     # ── Step 6: Merge short segments ──
     # Increase gap_threshold from 0.3s to 2.0s to massively reduce transcription overhead
@@ -428,6 +471,7 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
     result = {
         "file": audio_path.name,
         "language": lang,
+        "role_assignment_method": role_assignment_method,
         "speaker_turns": speakers,
     }
 

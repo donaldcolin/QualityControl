@@ -57,6 +57,7 @@ $$ LANGUAGE plpgsql;
 ALTER TABLE calls ADD COLUMN IF NOT EXISTS provider_recording_id TEXT;
 ALTER TABLE calls ADD COLUMN IF NOT EXISTS provider_source TEXT;
 ALTER TABLE calls ADD COLUMN IF NOT EXISTS source_tenant TEXT;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS role_assignment_method TEXT;
 
 -- Drop existing unique constraints if necessary before adding the compound one
 -- ALTER TABLE calls DROP CONSTRAINT IF EXISTS calls_provider_recording_id_key;
@@ -69,10 +70,14 @@ WHERE provider_recording_id IS NOT NULL;
 -- ============================================================
 CREATE TABLE IF NOT EXISTS rubric_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    content_hash TEXT UNIQUE NOT NULL,
-    rubric_json JSONB NOT NULL,
+    source TEXT NOT NULL,
+    version_number INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    parameters JSONB NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    created_by TEXT
+    created_by TEXT NOT NULL,
+    notes TEXT,
+    UNIQUE (source, content_hash)
 );
 
 CREATE TABLE IF NOT EXISTS evaluation_runs (

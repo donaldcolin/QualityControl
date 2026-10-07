@@ -121,12 +121,14 @@ def process_queue_item(queue_id: str):
         logger.info(f"[{queue_id}] Talk-to-Listen Ratio: {talk_to_listen_ratio} | Stats: {participant_stats}")
         
         # 3. (Bypassed Translation) - Let Gemini process raw regional language natively
-        # We skip IndicTrans2 entirely and save the raw `text` as `text_en` (which the UI expects), or just rely on fallback.
-        # To make sure UI renders it correctly if it expects `text_en`, we map it:
+        # Apply multilingual PII scrubbing before egress
         for seg in segments:
-            seg["text_en"] = seg.get("text", "")
+            raw_text = seg.get("text", "")
+            scrubbed_text = pii_scrubber.scrub_pii(raw_text)
+            seg["text"] = scrubbed_text
+            seg["text_en"] = scrubbed_text
         
-        logger.info(f"[{queue_id}] Bypassed translation to let Gemini process raw {language} natively.")
+        logger.info(f"[{queue_id}] Bypassed translation but applied PII pseudonymisation.")
         
         # 4. Save to calls table FIRST so QC evaluation can find it
         internal_call_id = str(uuid.uuid4())
@@ -147,6 +149,7 @@ def process_queue_item(queue_id: str):
             "source": source,
             "talk_to_listen_ratio": talk_to_listen_ratio,
             "participant_stats": json.dumps(participant_stats),
+            "role_assignment_method": result.get("role_assignment_method", "heuristic"),
         }
         
         logger.info(f"[{queue_id}] Inserting call data into Supabase...")

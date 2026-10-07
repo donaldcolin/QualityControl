@@ -106,13 +106,56 @@ Evaluate the associate's adherence to this 10-stage flow.`;
 //  Fetch dynamic configurations from DB
 // ═══════════════════════════════════════════════════════════════
 
-async function getQCParameters(source) {
-  const { data, error } = await supabase
-    .from('qc_parameters')
+// Fetch active rubric version (Sprint 1: Immutable Rubric Snapshotting)
+async function getActiveRubricVersion(source) {
+  let { data, error } = await supabase
+    .from('rubric_versions')
     .select('*')
-    .eq('source', source);
-  if (error) throw new Error("Failed to fetch QC parameters: " + error.message);
-  return data.map(p => ({
+    .eq('source', source)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+    
+  if (error) {
+    if (error.code === 'PGRST116') return null; // No rows found
+    
+    // Fallback: If the user hasn't run the migration and 'source' column doesn't exist,
+    // we query without the 'source' filter to prevent the server from crashing.
+    if (error.message.includes('source does not exist')) {
+      console.warn('⚠️ [QC Engine] "source" column missing in rubric_versions. Falling back to default query.');
+      const fallback = await supabase
+        .from('rubric_versions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (fallback.error && fallback.error.code === 'PGRST116') return null;
+      if (fallback.error) throw new Error("Fallback fetch failed: " + fallback.error.message);
+      
+      // If we got data, we can inject a dummy source so downstream doesn't break
+      fallback.data.source = source;
+      return fallback.data;
+    }
+
+    throw new Error("Failed to fetch active rubric version: " + error.message);
+  }
+  return data;
+}
+
+async function getRubricVersionById(id) {
+  const { data, error } = await supabase
+    .from('rubric_versions')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error) throw new Error("Failed to fetch rubric version by ID: " + error.message);
+  return data;
+}
+
+function getQCParametersFromRubric(rubric) {
+  if (!rubric || !rubric.parameters || !rubric.parameters.qc_parameters) return [];
+  return rubric.parameters.qc_parameters.map(p => ({
     Parameter: p.parameter,
     Category: p.category,
     Description: p.description,
@@ -125,24 +168,14 @@ async function getQCParameters(source) {
   }));
 }
 
-async function getQualityChecks(source) {
-  const { data, error } = await supabase
-    .from('qc_parameters')
-    .select('*')
-    .eq('source', source)
-    .order('sort_order', { ascending: true });
-  if (error) throw new Error("Failed to fetch quality checks: " + error.message);
-  return data;
+function getQualityChecksFromRubric(rubric) {
+  if (!rubric || !rubric.parameters || !rubric.parameters.qc_parameters) return [];
+  return [...rubric.parameters.qc_parameters].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 }
 
-async function getDataCaptureQuestions(source) {
-  const { data, error } = await supabase
-    .from('data_capture_questions')
-    .select('*')
-    .eq('source', source)
-    .order('sort_order', { ascending: true });
-  if (error) throw new Error("Failed to fetch data capture questions: " + error.message);
-  return data;
+function getDataCaptureQuestionsFromRubric(rubric) {
+  if (!rubric || !rubric.parameters || !rubric.parameters.data_capture_questions) return [];
+  return [...rubric.parameters.data_capture_questions].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 }
 
 async function getPastCalls(prospectId, currentCallId) {
@@ -599,9 +632,6 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   return block;
 }
 
-/**
- * JSON schema for the combined quality + coaching single-pass response.
- */
 function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
   // ARRAY-BASED: Instead of 123 named properties (61KB schema that exceeds Gemini's limit),
   // we use a single array with a 'parameter' name field. Schema is ~1.2KB regardless of param count.
@@ -686,12 +716,31 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
   };
 }
 
+function buildQualityCoachingPrompt(transcript, source, qualityChecks, parameters, leadState) {
+  const qualityBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState);
+
+  return `${qualityBlock}
+
+=== FULL CALL TRANSCRIPT ===
+${transcript}
+
+IMPORTANT INSTRUCTIONS:
+1. Evaluate Quality — you MUST output a score for EVERY SINGLE parameter. Do NOT skip any. If you cannot find clear evidence of execution, score it 0.
+2. Generate the Deep Coaching Report.
+3. Be HOSTILE in your grading. Your job is to find flaws, not to praise. If the transcript is in a regional language, TRANSLATE it fully before scoring.
+4. A call scoring above 85% should be extremely rare. If you're giving high scores across the board, you are failing at your job.
+CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.`;
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  LEGACY: Coaching Schema & Prompt (kept for backward compat)
 // ═══════════════════════════════════════════════════════════════
 
-async function getParametersForSource(source) {
-  const params = await getQCParameters(source);
+async function getParametersForSource(source, rubric) {
+  if (!rubric) {
+    rubric = await getActiveRubricVersion(source);
+  }
+  const params = getQCParametersFromRubric(rubric);
   if (source === 'google_meet') {
     return {
       params,
@@ -704,6 +753,47 @@ async function getParametersForSource(source) {
     role: 'Expert Counselling Coach',
     context: 'a sales counselling phone call for university admissions'
   };
+}
+
+async function getQualityChecks(source) {
+  const rubric = await getActiveRubricVersion(source);
+  if (!rubric) return [];
+  const params = getQCParametersFromRubric(rubric);
+  return params.map(p => ({
+    parameter: p.Parameter,
+    category: p.Category,
+    description: p.Description,
+    param_id: p.ParamId,
+    max_score: p.Scale?.max || 2,
+    mark_fatal: p.EmbeddedBreachFlag
+  }));
+}
+
+async function getDataCaptureQuestions(source) {
+  const rubric = await getActiveRubricVersion(source);
+  if (!rubric) return [];
+  return getDataCaptureQuestionsFromRubric(rubric);
+}
+
+function getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params) {
+  const insights = getInsightsSchema(dataCaptureQuestions);
+  const qual_coach = getCombinedQualityCoachingSchema(params);
+  return {
+    type: 'object',
+    properties: {
+      insights: insights.properties.insights,
+      summary: insights.properties.summary,
+      next_steps: insights.properties.next_steps,
+      quality: qual_coach.properties.quality,
+      coaching_report: qual_coach.properties.coaching_report
+    }
+  };
+}
+
+function buildOmniPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params) {
+  const insightsP = buildInsightsPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState);
+  const qualP = buildQualityCoachingPrompt(transcriptText, source, params, {}); 
+  return insightsP + "\n\n=== QUALITY & COACHING INSTRUCTIONS ===\n" + qualP;
 }
 
 function groupByCategory(parameters) {
@@ -804,52 +894,7 @@ function triageCall(callData) {
   return { tier: 'T2', valid: true, reason: 'Standard call profile (Instant Processing Enabled).' };
 }
 
-/**
- * Combine insights and quality schemas into a single Omni-Schema
- */
-function getOmniSchema(dataCaptureQuestions, qualityChecks, parameters) {
-  const insightsSchema = getInsightsSchema(dataCaptureQuestions);
-  const qualitySchema = getCombinedQualityCoachingSchema(qualityChecks, parameters);
-  return {
-    type: 'object',
-    properties: {
-      ...insightsSchema.properties,
-      ...qualitySchema.properties
-    },
-    required: [
-      ...(insightsSchema.required || []),
-      'quality',
-      'coaching_report'
-    ]
-  };
-}
-
-/**
- * Combine insights and quality prompts into a single Omni-Prompt
- */
-function buildOmniPrompt(transcript, source, dataCaptureQuestions, pastCalls, leadState, qualityChecks, parameters) {
-  // Build insights context without the transcript appended
-  const insightsBase = buildInsightsPrompt("", source, dataCaptureQuestions, pastCalls, leadState);
-  // Remove the empty transcript section from the end of insightsBase
-  const cleanInsightsBase = insightsBase.replace(/=== CURRENT CALL TRANSCRIPT \(Call #[0-9]+\) ===\n\n\nExtract all required JSON fields carefully based on the transcript and the accumulated context\./, "");
-
-  // Build quality context
-  const qualityBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState);
-
-  return `${cleanInsightsBase}
-${qualityBlock}
-
-=== FULL CALL TRANSCRIPT ===
-${transcript}
-
-IMPORTANT INSTRUCTIONS:
-1. Extract all Insights (BANT, Intent, Next Steps, etc.).
-2. Evaluate Quality — you MUST output a score for EVERY SINGLE parameter. Do NOT skip any. If you cannot find clear evidence of execution, score it 0.
-3. Generate the Deep Coaching Report.
-4. Be HOSTILE in your grading. Your job is to find flaws, not to praise. If the transcript is in a regional language, TRANSLATE it fully before scoring.
-5. A call scoring above 85% should be extremely rare. If you're giving high scores across the board, you are failing at your job.
-CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.`;
-}
+// OMNI PASS REMOVED IN SPRINT 1. TWO-PASS EVALUATION REQUIRED INSTEAD.
 
 /**
  * ═══════════════════════════════════════════════════════════════
@@ -960,24 +1005,29 @@ module.exports = {
   ai,
   GEMINI_MODEL,
   knowledgeBase,
-  // Core fetch functions
-  getQualityChecks,
-  getDataCaptureQuestions,
+  // Fetch params
+  getActiveRubricVersion,
+  getRubricVersionById,
+  getQCParametersFromRubric,
+  getQualityChecksFromRubric,
+  getDataCaptureQuestionsFromRubric,
   getPastCalls,
   getLeadState,
-  // OmniPrompt
-  getOmniSchema,
-  buildOmniPrompt,
   // Insights (Pass 1 — unchanged)
   getInsightsSchema,
   buildInsightsPrompt,
-  // Merged Quality + Coaching Schema (used by Omni)
+  // Merged Quality + Coaching Schema (Pass 2)
   getCombinedQualityCoachingSchema,
+  buildQualityCoachingPrompt,
   // Legacy quality-only (kept for fallback)
   getQualitySchema,
   buildQualityPrompt,
   // Fetch params
   getParametersForSource,
+  getQualityChecks,
+  getDataCaptureQuestions,
+  getOmniSchema,
+  buildOmniPrompt,
   // Intelligence
   getIntelligenceSchema,
   triageCall,
