@@ -4,7 +4,7 @@ import RunPanel from './components/RunPanel';
 import TeamQC from './components/TeamQC';
 import QueueView from './components/QueueView';
 import LeadsDashboard from './components/LeadsDashboard';
-import LeadDetails from './components/LeadDetails';
+import LeadDetails from './components/LeadDetails/index';
 import MeetSyncView from './components/MeetSyncView';
 import ConversationInsights from './components/ConversationInsights';
 import ParametersManager from './components/ParametersManager';

@@ -62,9 +62,10 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     try {
       let transcriptText = transcript;
       let callIdToUpdate = activeCallId;
+      let activeProspectId = prospect_id;
 
-    // 1. Get transcript from call if not provided directly
-    if (call_id && !transcript) {
+    // 1. Get transcript and prospect_id from call if not provided directly
+    if (call_id) {
       const { data: call, error: callError } = await supabase
         .from('calls')
         .select('*')
@@ -73,47 +74,53 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
 
       if (callError || !call) throw new Error('Call not found');
 
-      if (call.segments) {
-        const segments = typeof call.segments === 'string' ? JSON.parse(call.segments) : call.segments;
-        transcriptText = segments.map(s => `${s.speaker}: ${s.text_en || s.text}`).join('\n');
-      } else if (call.transcript) {
-        transcriptText = call.transcript;
+      if (!activeProspectId && call.prospect_id) {
+        activeProspectId = call.prospect_id;
       }
-      
-      // -- TRIAGE PIPELINE --
-      const triage = qcEngine.triageCall(call);
-      
-      if (triage.tier === 'T0') {
-        // Auto-reject without burning any LLM tokens
-        console.log(`🛑 [Triage] Call ${call_id} rejected as T0: ${triage.reason}`);
-        await supabase.from('evaluation_runs').insert({
-          call_id: callIdToUpdate,
-          model_id: 'auto-triage',
-          input_snapshot: { source: effectiveSource },
-          results: { call_quality_score: 0, call_quality_raw: '0/0', reject_reason: triage.reason },
-          status: 'completed',
-          evaluation_tier: 'T0'
-        });
-        await supabase.from('calls').update({ qc_status: 'rejected', call_quality_score: 0 }).eq('id', callIdToUpdate);
-        return; // Abort processing
+
+      if (!transcript) {
+        if (call.segments) {
+          const segments = typeof call.segments === 'string' ? JSON.parse(call.segments) : call.segments;
+          transcriptText = segments.map(s => `${s.speaker}: ${s.text_en || s.text}`).join('\n');
+        } else if (call.transcript) {
+          transcriptText = call.transcript;
+        }
+        
+        // -- TRIAGE PIPELINE --
+        const triage = qcEngine.triageCall(call);
+        
+        if (triage.tier === 'T0') {
+          // Auto-reject without burning any LLM tokens
+          console.log(`🛑 [Triage] Call ${call_id} rejected as T0: ${triage.reason}`);
+          await supabase.from('evaluation_runs').insert({
+            call_id: callIdToUpdate,
+            model_id: 'auto-triage',
+            input_snapshot: { source: effectiveSource },
+            results: { call_quality_score: 0, call_quality_raw: '0/0', reject_reason: triage.reason },
+            status: 'completed',
+            evaluation_tier: 'T0'
+          });
+          await supabase.from('calls').update({ qc_status: 'rejected', call_quality_score: 0 }).eq('id', callIdToUpdate);
+          return; // Abort processing
+        }
+        
+        if (triage.tier === 'T1') {
+          // Enqueue for nightly Gemini Batch API
+          console.log(`⏳ [Triage] Call ${call_id} routed to T1 Batch Queue.`);
+          await supabase.from('evaluation_runs').insert({
+            call_id: callIdToUpdate,
+            model_id: qcEngine.GEMINI_MODEL,
+            input_snapshot: { transcript_length: transcriptText.length, source: effectiveSource },
+            results: {},
+            status: 'pending',
+            evaluation_tier: 'T1_Batch'
+          });
+          return; // Abort real-time processing
+        }
+        
+        // If T2, continue down the real-time pipeline...
+        console.log(`🚨 [Triage] Call ${call_id} routed to T2 Real-Time Processing: ${triage.reason}`);
       }
-      
-      if (triage.tier === 'T1') {
-        // Enqueue for nightly Gemini Batch API
-        console.log(`⏳ [Triage] Call ${call_id} routed to T1 Batch Queue.`);
-        await supabase.from('evaluation_runs').insert({
-          call_id: callIdToUpdate,
-          model_id: qcEngine.GEMINI_MODEL,
-          input_snapshot: { transcript_length: transcriptText.length, source: effectiveSource },
-          results: {},
-          status: 'pending',
-          evaluation_tier: 'T1_Batch'
-        });
-        return; // Abort real-time processing
-      }
-      
-      // If T2, continue down the real-time pipeline...
-      console.log(`🚨 [Triage] Call ${call_id} routed to T2 Real-Time Processing: ${triage.reason}`);
     }
 
     if (!transcriptText) throw new Error('No transcript content available');
@@ -122,8 +129,8 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     const [qualityChecks, dataCaptureQuestions, pastCalls, leadState] = await Promise.all([
       qcEngine.getQualityChecks(effectiveSource),
       qcEngine.getDataCaptureQuestions(effectiveSource),
-      qcEngine.getPastCalls(prospect_id, callIdToUpdate),
-      qcEngine.getLeadState(prospect_id),
+      qcEngine.getPastCalls(activeProspectId, callIdToUpdate),
+      qcEngine.getLeadState(activeProspectId),
     ]);
 
     // If there are no past calls, this is effectively the first call.
@@ -363,7 +370,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     }
 
     // 8. Update leads table with latest prospect state
-    let finalProspectId = prospect_id;
+    let finalProspectId = activeProspectId;
 
     if (!finalProspectId) {
       // Auto-create a lead for raw audio drops so it shows up in the dashboard
