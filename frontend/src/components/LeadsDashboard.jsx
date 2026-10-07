@@ -123,7 +123,7 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
                       const streamVal = String(validStream.value).toLowerCase();
                       
                       const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
-                      const isPCM = streamVal.includes('pcm') || streamVal.includes('science');
+                      const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
                       
                       return (is12 && isPCM) ? 'SQL' : 'No SQL';
                     })();

@@ -46,13 +46,13 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   
   // Automate Google Meet Transcript Sync (Run every 15 minutes)
-  const meetSync = require('./services/meet_sync');
-  setInterval(async () => {
-    try {
-      console.log(`[Auto-Sync] Running background Google Meet transcript sync...`);
-      await meetSync.triggerManualSync();
-    } catch (err) {
-      console.error(`[Auto-Sync] Meet sync failed:`, err.message);
-    }
-  }, 15 * 60 * 1000); // 15 minutes
+  // const meetSync = require('./services/meet_sync');
+  // setInterval(async () => {
+  //   try {
+  //     console.log(`[Auto-Sync] Running background Google Meet transcript sync...`);
+  //     await meetSync.triggerManualSync();
+  //   } catch (err) {
+  //     console.error(`[Auto-Sync] Meet sync failed:`, err.message);
+  //   }
+  // }, 15 * 60 * 1000); // 15 minutes
 });

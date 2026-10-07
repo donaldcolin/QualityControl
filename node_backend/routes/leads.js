@@ -102,6 +102,13 @@ router.get('/:id', async (req, res) => {
       c.coaching_report = evaluation.results.coaching_report;
       c.summary_data = evaluation.results.summary_data;
       c.qc_results = evaluation.results.qc_results;
+      // Also enrich score fields from evaluation_runs so frontend gets latest data
+      if (evaluation.results.call_quality_score != null) {
+        c.call_quality_score = evaluation.results.call_quality_score;
+      }
+      if (evaluation.results.call_quality_raw != null) {
+        c.call_quality_raw = evaluation.results.call_quality_raw;
+      }
     }
     return c;
   });

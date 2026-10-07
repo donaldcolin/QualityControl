@@ -265,8 +265,10 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     let totalScore = 0;
     let totalMaxScore = 0;
     for (const [, evaluation] of Object.entries(qualityResult.quality || {})) {
-      totalScore += evaluation.score || 0;
-      totalMaxScore += evaluation.max_score || 0;
+      if (evaluation.status !== 'Not Applicable') {
+        totalScore += evaluation.score || 0;
+        totalMaxScore += evaluation.max_score || 0;
+      }
     }
     const callQualityScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
     const callQualityRaw = `${totalScore}/${totalMaxScore}`;
@@ -472,7 +474,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       // to prevent frontend polling from terminating prematurely.
       await supabase
         .from('calls')
-        .update({ qc_status: 'evaluated', call_quality_score: callQualityScore })
+        .update({ qc_status: 'evaluated', call_quality_score: callQualityScore, call_quality_raw: callQualityRaw })
         .eq('id', callIdToUpdate);
     }
 

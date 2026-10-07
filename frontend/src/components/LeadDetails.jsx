@@ -213,7 +213,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
 
   const handleReEvaluate = async () => {
     // Include 'processing' so they don't disappear if a previous run was interrupted
-    const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.coaching_report);
+    const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.coaching_report);
     if (evCalls.length === 0) return;
 
     setIsEvaluating(true);
@@ -225,17 +225,24 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
       let attempts = 0;
       const pollInterval = setInterval(async () => {
         attempts++;
-        const leadData = await getQCLead(leadId);
+        try {
+          const leadData = await getQCLead(leadId);
 
-        const anyProcessing = (leadData?.calls || []).some(c =>
-          evCalls.find(ec => ec.id === c.id) && c.qc_status === 'processing'
-        );
+          const anyProcessing = (leadData?.calls || []).some(c =>
+            evCalls.find(ec => ec.id === c.id) && c.qc_status === 'processing'
+          );
 
-        if (!anyProcessing && attempts > 1) { 
-          clearInterval(pollInterval);
-          setLead(leadData);
-          setIsEvaluating(false);
-        } else if (attempts >= 40) {
+          if (!anyProcessing && attempts > 1) { 
+            clearInterval(pollInterval);
+            setLead(leadData);
+            setIsEvaluating(false);
+          } else if (attempts >= 40) {
+            clearInterval(pollInterval);
+            fetchLead();
+            setIsEvaluating(false);
+          }
+        } catch (pollErr) {
+          console.error('Polling error:', pollErr);
           clearInterval(pollInterval);
           fetchLead();
           setIsEvaluating(false);
@@ -244,6 +251,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
 
     } catch (e) {
       console.error(e);
+      fetchLead();
       setIsEvaluating(false);
     }
   };
@@ -252,7 +260,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     return <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin" /><p>Loading Lead History...</p></div>;
   }
 
-  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.coaching_report);
+  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.coaching_report);
   const evaluatedCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
 
   if (!lead || allEvaluatedCalls.length === 0) {
@@ -318,7 +326,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     const streamVal = String(validStream.value).toLowerCase();
 
     const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
-    const isPCM = streamVal.includes('pcm') || streamVal.includes('science');
+    const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
 
     return (is12 && isPCM) ? 'SQL' : 'No SQL';
   })();
