@@ -808,7 +808,16 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                         <div className="p-6 space-y-8">
                           <div className="flex justify-between items-center pb-4 border-b">
                             <div className="font-bold text-sm">
-                              Overall Call Quality Score: <span className="text-emerald-600">{activeCall?.call_quality_score ?? 0}%</span> <span className="text-slate-500 font-normal">({Math.round(((activeCall?.call_quality_score ?? 0) / 100) * 124)}/124)</span>
+                              Overall Call Quality Score: <span className={(activeCall?.call_quality_score ?? 0) >= 60 ? "text-emerald-600" : (activeCall?.call_quality_score ?? 0) >= 40 ? "text-amber-600" : "text-rose-600"}>{activeCall?.call_quality_score ?? 0}%</span> <span className="text-slate-500 font-normal">({activeCall?.call_quality_raw?.replace(' [FATAL BREACH]', '') || '0/0'})</span>
+                              {activeCall?.call_quality_raw?.includes('FATAL BREACH') ? (
+                                <Badge variant="destructive" className="ml-3 uppercase tracking-wide animate-pulse">Fake Pitch</Badge>
+                              ) : (activeCall?.call_quality_score ?? 0) >= 60 ? (
+                                <Badge className="ml-3 bg-emerald-100 text-emerald-800 uppercase tracking-wide border-emerald-200 hover:bg-emerald-200">Good Pitch</Badge>
+                              ) : (activeCall?.call_quality_score ?? 0) >= 40 ? (
+                                <Badge className="ml-3 bg-amber-100 text-amber-800 uppercase tracking-wide border-amber-200 hover:bg-amber-200">Average Pitch</Badge>
+                              ) : (
+                                <Badge variant="destructive" className="ml-3 uppercase tracking-wide">Bad Pitch</Badge>
+                              )}
                             </div>
                             <div className="flex gap-2">
                               <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-slate-900 hover:bg-slate-100"><RefreshCw className="w-4 h-4" /></Button>

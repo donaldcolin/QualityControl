@@ -436,8 +436,8 @@ function getQualitySchema(qualityChecks) {
     paramProperties[sanitizeKey(check.parameter)] = {
       type: 'object',
       properties: {
-        score: { type: 'number', description: `Score awarded (0 to ${check.max_score || 10})` },
-        max_score: { type: 'number', description: `Maximum possible score: ${check.max_score || 10}` },
+        score: { type: 'number', description: `Score awarded (0 to ${check.max_score || 2})` },
+        max_score: { type: 'number', description: `Maximum possible score: ${check.max_score || 2}` },
         status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'], description: 'Evaluation status' },
         reason: { type: 'string', description: 'Detailed justification based on the transcript' }
       }
@@ -480,7 +480,7 @@ function buildQualityPrompt(transcript, source, qualityChecks) {
   for (const [group, checks] of Object.entries(groups)) {
     prompt += `== ${group} ==\n`;
     checks.forEach(check => {
-      prompt += `- ${check.parameter} (Max Score: ${check.max_score || 10})\n`;
+      prompt += `- ${check.parameter} (Max Score: ${check.max_score || 2})\n`;
       if (check.check_question) {
         prompt += `  Question: ${check.check_question}\n`;
       }
@@ -524,7 +524,13 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   block += `=== PART 1: QUALITY SCORING ===\n`;
   block += `For each parameter: assign a score (0 to max_score), a status, and a reason citing the transcript.\n`;
   block += `Statuses: Done (full marks), Partially Done (partial), Needs Improvement (low), Not Applicable.\n`;
-  block += `CRITICAL GRADING INSTRUCTION: You are a strict auditor. Do NOT give full marks automatically. You must penalize heavily for any missed details, lack of structure, or rushed delivery. To earn 'Done' or a perfect max_score, the execution must be flawless. If it's average, mark it 'Partially Done' and deduct 20-50% of the points. If it's poor, mark 'Needs Improvement' and give a 0 or minimal score. A 100% total score should be virtually impossible unless the call is legendary.\n\n`;
+  block += `CRITICAL GRADING INSTRUCTION: You are NOT a friendly reviewer. You are a HOSTILE AUDITOR hired to find every flaw.\n`;
+  block += `- Your DEFAULT assumption is that every parameter FAILED. The associate must PROVE they did it well through clear transcript evidence.\n`;
+  block += `- If you cannot find EXPLICIT, CLEAR evidence in the transcript that the parameter was executed, score it 0. Silence is NOT compliance.\n`;
+  block += `- 'Done' (2/2) requires FLAWLESS execution with clear evidence. Average execution = 'Partially Done' (1/2). Missing or poor = 'Needs Improvement' (0/2).\n`;
+  block += `- A score above 80% should be RARE. Most calls have significant gaps. If you're giving 90%+, you are being too lenient.\n`;
+  block += `- The transcript is often in Tamil/Hindi/regional languages. You MUST translate and understand the full context before scoring. Do NOT skip non-English content.\n`;
+  block += `- You MUST evaluate EVERY SINGLE parameter. Do not skip any. Output ALL parameters in your response.\n\n`;
 
   const qualityGroups = {};
   qualityChecks.forEach(check => {
@@ -540,7 +546,7 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
       if (check.scale) block += `  Scale: ${check.scale}\n`;
       if (check.polarity) block += `  Polarity: ${check.polarity} ${check.polarity === 'guardrail_negative' ? '(CRITICAL: Check for breaches!)' : ''}\n`;
       if (check.evidence_required) block += `  Evidence Required (Your 'reason' field MUST follow this format): ${check.evidence_required}\n`;
-      if (!check.scale) block += `  Max Score: ${check.max_score || 10}\n`;
+      if (!check.scale) block += `  Max Score: ${check.max_score || 2}\n`;
       if (check.check_question) block += `  Q: ${check.check_question}\n`;
       if (check.na_condition) block += `  N/A when: ${check.na_condition}\n`;
     });
@@ -617,7 +623,7 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
           },
           required: ['parameter', 'score', 'max_score', 'status', 'coaching_status', 'reason']
         },
-        description: 'EXCEPTION REPORTING ONLY: ONLY output parameters that received LESS THAN max score, FAILED, or NEED IMPROVEMENT. Do NOT include perfectly executed parameters.'
+        description: 'You MUST output an entry for EVERY parameter in the evaluation list. Evaluate ALL parameters — do NOT skip any. Default assumption: FAILED unless proven otherwise.'
       },
       coaching_report: {
         type: 'object',
@@ -838,9 +844,10 @@ ${transcript}
 
 IMPORTANT INSTRUCTIONS:
 1. Extract all Insights (BANT, Intent, Next Steps, etc.).
-2. Evaluate Quality (Exception Reporting only - only output parameters that missed points).
+2. Evaluate Quality — you MUST output a score for EVERY SINGLE parameter. Do NOT skip any. If you cannot find clear evidence of execution, score it 0.
 3. Generate the Deep Coaching Report.
-Be specific. Cite evidence from the transcript for every score and coaching point.
+4. Be HOSTILE in your grading. Your job is to find flaws, not to praise. If the transcript is in a regional language, TRANSLATE it fully before scoring.
+5. A call scoring above 85% should be extremely rare. If you're giving high scores across the board, you are failing at your job.
 CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.`;
 }
 

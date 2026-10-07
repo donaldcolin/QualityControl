@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
+const { extractAudioFromDrive } = require('../services/drive_audio_extractor');
 
 const uploadDir = path.join(__dirname, '..', '..', 'storage', 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -184,6 +185,67 @@ router.post('/upload_run', upload.array('files'), async (req, res) => {
     res.json({ batch_id: batchId });
   } catch (err) {
     console.error("Upload run error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/upload_drive_demo', async (req, res) => {
+  try {
+    const { drive_link, language, prospect_id } = req.body;
+    
+    if (!drive_link) {
+      return res.status(400).json({ error: "Missing drive_link" });
+    }
+
+    const queue_id = uuidv4();
+    
+    // 1. Insert into Queue immediately so UI sees it as Downloading
+    const { error: insertErr } = await supabase.from('callizer_queue').insert({
+      id: queue_id,
+      call_id: `Video Demo - ${prospect_id || queue_id}`,
+      audio_url: 'Downloading from Google Drive...',
+      language: language || 'hi',
+      status: 'Downloading Video...',
+      emp_number: '',
+      client_number: '',
+      prospect_id: prospect_id || null,
+      call_type: 'Video Demo',
+      duration: 0,
+      errors: '[]'
+    });
+
+    if (insertErr) {
+      return res.status(500).json({ error: insertErr.message });
+    }
+
+    // Send response immediately so UI doesn't hang while downloading 2GB video
+    res.json({ queue_id, status: "queued" });
+
+    // Download in background
+    (async () => {
+        try {
+            // 2. Download and Extract Audio to local mp3
+            const localAudioPath = await extractAudioFromDrive(drive_link, queue_id);
+            
+            // 3. Update the Queue item to pending with the local audio path
+            await supabase.from('callizer_queue').update({
+                audio_url: localAudioPath,
+                status: 'pending' // Python worker will pick it up now
+            }).eq('id', queue_id);
+
+            // 4. Notify Python Worker
+            axios.post(`http://localhost:8000/api/process_audio`, { queue_id }).catch(err => {
+              console.error("Failed to notify python worker:", err.message);
+            });
+            
+            console.log(`[Drive] Successfully queued Video Demo ${queue_id}`);
+        } catch (err) {
+            console.error(`[Drive] Failed to process ${queue_id}:`, err);
+        }
+    })();
+
+  } catch (err) {
+    console.error("Upload drive demo error:", err);
     res.status(500).json({ error: err.message });
   }
 });

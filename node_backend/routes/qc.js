@@ -983,31 +983,28 @@ router.post('/activities/push_demo_to_qc', async (req, res) => {
       }, { onConflict: 'id', ignoreDuplicates: true });
     }
 
-    // 2. Fetch transcript text from Google Drive via internal loopback
+    // 2. Fetch recording MP4 link from Google Drive via internal loopback
     const port = process.env.PORT || 3000;
     const driveParams = new URLSearchParams();
     if (phone) driveParams.append('phone', phone);
     if (name) driveParams.append('name', name);
 
-    const driveRes = await axios.get(`http://localhost:${port}/api/drive/transcript?${driveParams.toString()}`);
-    const transcriptText = driveRes.data?.content;
+    const driveRes = await axios.get(`http://localhost:${port}/api/drive/recording?${driveParams.toString()}`);
+    const driveLink = driveRes.data?.webViewLink;
 
-    if (!transcriptText || transcriptText.trim().length < 50) {
-      return res.status(404).json({ error: 'Transcript not found or too short in Google Drive.' });
+    if (!driveLink) {
+      return res.status(404).json({ error: 'Video Recording not found in Google Drive.' });
     }
 
-    // 3. Directly call evaluate_call with the transcript (bypasses ASR pipeline)
-    const evalRes = await axios.post(`http://localhost:${port}/api/qc/evaluate_call`, {
-      prospect_id: prospect_id,
-      transcript: transcriptText,
-      source: 'google_meet'
-    }, {
-      timeout: 180000,
-      headers: { 'Authorization': 'Bearer internal_ai_worker_token' }
+    // 3. Queue the video demo into the new ASR pipeline!
+    const queueRes = await axios.post(`http://localhost:${port}/api/upload_drive_demo`, {
+      drive_link: driveLink,
+      language: 'ta', 
+      prospect_id: prospect_id
     });
 
-    console.log(`🎥 [Demo QC] Google Meet transcript pushed for evaluation. Prospect: ${prospect_id}`);
-    res.json({ success: true, status: 'evaluation_started', call_id: evalRes.data?.call_id });
+    console.log(`🎥 [Demo QC] Google Meet video queued for ASR pipeline. Prospect: ${prospect_id}, Queue ID: ${queueRes.data?.queue_id}`);
+    res.json({ success: true, status: 'queued_for_asr', queue_id: queueRes.data?.queue_id });
   } catch (err) {
     console.error('Push demo to QC error:', err.response?.data || err.message);
     const msg = err.response?.data?.error || err.message;

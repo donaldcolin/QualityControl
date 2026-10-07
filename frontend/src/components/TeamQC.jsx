@@ -226,19 +226,26 @@ export default function TeamQC({ onPushToQueue }) {
       const lead = leads.find(l => l.prospect_id === selectedLead);
       const associate = associates.find(a => a.emp_number === selectedEmp);
 
+      let lang = 'hi';
+      if (associate && associate.emp_tags) {
+        const match = associate.emp_tags.match(/\|lang:([a-z]{2})/);
+        if (match) lang = match[1];
+      }
+
       const res = await pushDemoToQC({
         prospect_id: activity.prospect_id,
         phone: lead?.phone || '',
         name: lead?.name || '',
         emp_number: selectedEmp,
         lead_name: lead?.name || 'Unknown',
-        lead_source: lead?.source || 'Phone'
+        lead_source: lead?.source || 'Phone',
+        language: lang
       });
 
       if (res.error) {
         toast.error(res.error);
       } else {
-        toast.success('Google Meet transcript sent for QC evaluation!');
+        toast.success('Google Meet video queued for ASR processing!');
       }
     } catch (err) {
       toast.error('Failed to push demo transcript to QC');

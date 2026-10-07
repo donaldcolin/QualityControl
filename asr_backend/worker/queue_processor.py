@@ -43,6 +43,8 @@ def process_queue_item(queue_id: str):
         call_id = row["call_id"]
         audio_url = row["audio_url"]
         language = row["language"]
+        call_type = row.get("call_type", "")
+        source = "google_meet" if call_type == "Video Demo" else "phone_call"
         
         # Update status
         supabase.table("callizer_queue").update({"status": "Initializing..."}).eq("id", queue_id).execute()
@@ -142,7 +144,7 @@ def process_queue_item(queue_id: str):
             "segments": json.dumps(segments),
             "audio_url": audio_url,
             "prospect_id": prospect_id if prospect_id else None,
-            "source": "phone_call",
+            "source": source,
             "talk_to_listen_ratio": talk_to_listen_ratio,
             "participant_stats": json.dumps(participant_stats),
         }
@@ -163,7 +165,7 @@ def process_queue_item(queue_id: str):
                 json={
                     "call_id": internal_call_id,
                     "prospect_id": prospect_id if prospect_id else None,
-                    "source": "phone_call"
+                    "source": source
                 },
                 timeout=15  # Returns 202 immediately now
             )

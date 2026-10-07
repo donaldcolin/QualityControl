@@ -175,30 +175,75 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           combinedResult = omniResult;
           
           // Convert quality array back to object keyed by parameter name (for DB storage compatibility)
-          // PRE-FILL: Assume all parameters passed perfectly. The AI will only return exceptions.
+          // DEFAULT: Assume all parameters FAILED. The AI must explicitly score each one.
+          // If the AI skips a parameter, it stays at 0 — no free passes.
           const qualityObj = {};
           filteredQualityChecks.forEach(check => {
             qualityObj[check.parameter] = {
-              score: check.max_score || 5,
-              max_score: check.max_score || 5,
-              status: 'Done',
-              coaching_status: 'Pass',
-              reason: 'Standard Execution'
+              score: 0,
+              max_score: check.max_score || 2,
+              status: 'Needs Improvement',
+              coaching_status: 'Fail',
+              reason: 'Not evaluated — no evidence found in transcript',
+              mark_fatal: check.mark_fatal || false
             };
           });
 
           if (Array.isArray(combinedResult.quality)) {
             combinedResult.quality.forEach(item => {
+              const isNA = item.status === 'Not Applicable';
               qualityObj[item.parameter] = {
-                score: item.score,
-                max_score: item.max_score || (qualityObj[item.parameter] ? qualityObj[item.parameter].max_score : 5),
+                score: isNA ? 0 : item.score,
+                max_score: isNA ? 0 : (item.max_score || (qualityObj[item.parameter] ? qualityObj[item.parameter].max_score : 2)),
                 status: item.status,
-                coaching_status: item.coaching_status,
-                reason: item.reason
+                coaching_status: isNA ? 'Not Applicable' : item.coaching_status,
+                reason: item.reason,
+                mark_fatal: qualityObj[item.parameter] ? qualityObj[item.parameter].mark_fatal : false
               };
             });
           }
           
+          // ── HARDCODED SAFETY NET: Internship Timing Claim Detection ──
+          // The AI consistently fails to catch year-based internship claims in Tamil/Hindi.
+          // This regex-based post-processor overrides the AI's score when a violation is found.
+          const internshipParamName = 'Internships Described Without a Timing Claim';
+          if (qualityObj[internshipParamName]) {
+            const lowerTranscript = (transcriptText || '').toLowerCase();
+            const internshipTimingPatterns = [
+              // English patterns
+              /(?:second|2nd|third|3rd|fourth|4th|first|1st)\s*year\s*(?:internship|intern)/i,
+              /internship\s*(?:from|in|during|starts?\s*(?:from|in))\s*(?:second|2nd|third|3rd|first|1st|fourth|4th)\s*year/i,
+              /(?:second|2nd|third|3rd)\s*year\s*(?:onwards?|onward)/i,
+              // Tamil transliteration patterns (செகண்ட் இயர் = second year)
+              /செகண்ட்\s*இயர்/,
+              /ஃபர்ஸ்ட்\s*இயர்/,
+              /தேர்ட்\s*இயர்/,
+              /ஃபோர்த்\s*இயர்/,
+              // Tamil + internship context
+              /இன்டர்ன்ஷிப்[\s\S]{0,200}செகண்ட்\s*இயர்/,
+              /செகண்ட்\s*இயர்[\s\S]{0,200}இன்டர்ன்ஷிப்/,
+              // Hindi transliteration patterns
+              /सेकंड\s*ईयर/,
+              /इंटर्नशिप[\s\S]{0,200}सेकंड\s*ईयर/,
+              /दूसर[ेा]\s*साल/,
+              /तीसर[ेा]\s*साल/,
+              // Mixed Hinglish/Tanglish
+              /second\s*year[\s\S]{0,100}internship/i,
+              /internship[\s\S]{0,100}second\s*year/i,
+            ];
+            const foundViolation = internshipTimingPatterns.some(pattern => pattern.test(transcriptText));
+            if (foundViolation) {
+              console.log(`🚨 [SAFETY NET] Internship timing claim detected in transcript! Forcing score to 0.`);
+              qualityObj[internshipParamName] = {
+                ...qualityObj[internshipParamName],
+                score: 0,
+                status: 'Needs Improvement',
+                coaching_status: 'Fail',
+                reason: '[AUTO-FLAGGED] Associate made a year-based internship timing claim (e.g. "second year"). This is a policy violation.'
+              };
+            }
+          }
+
           qualityResult = { quality: qualityObj };
           coachingReport = combinedResult.coaching_report || null;
         } else {
@@ -265,12 +310,18 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     // 5. Compute overall quality score from merged result
     let totalScore = 0;
     let totalMaxScore = 0;
+    let hasFatalBreach = false;
     for (const [, evaluation] of Object.entries(qualityResult.quality || {})) {
-      totalScore += evaluation.score || 0;
-      totalMaxScore += evaluation.max_score || 0;
+      if (evaluation.status !== 'Not Applicable') {
+        totalScore += evaluation.score || 0;
+        totalMaxScore += evaluation.max_score || 0;
+        if (evaluation.mark_fatal && evaluation.score === 0) {
+          hasFatalBreach = true;
+        }
+      }
     }
-    const callQualityScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
-    const callQualityRaw = `${totalScore}/${totalMaxScore}`;
+    const callQualityScore = hasFatalBreach ? 0 : (totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0);
+    const callQualityRaw = hasFatalBreach ? `0/${totalMaxScore} [FATAL BREACH]` : `${totalScore}/${totalMaxScore}`;
 
     // 7. Save results to evaluation_runs (IMMUTABLE HISTORY) instead of mutating calls
     const resultsPayload = {
@@ -521,7 +572,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
 
 router.post('/activities/push_demo_to_qc', async (req, res) => {
   try {
-    const { prospect_id, phone, name, emp_number, lead_name, lead_source } = req.body;
+    const { prospect_id, phone, name, emp_number, lead_name, lead_source, language } = req.body;
 
     if (!phone && !name) {
       return res.status(400).json({ error: 'Phone or name is required to locate the transcript in Google Drive.' });
@@ -544,31 +595,28 @@ router.post('/activities/push_demo_to_qc', async (req, res) => {
       }, { onConflict: 'id', ignoreDuplicates: true });
     }
 
-    // 2. Fetch transcript text from Google Drive via internal loopback
+    // 2. Fetch recording MP4 link from Google Drive via internal loopback
     const port = process.env.PORT || 3000;
     const driveParams = new URLSearchParams();
     if (phone) driveParams.append('phone', phone);
     if (name) driveParams.append('name', name);
 
-    const driveRes = await axios.get(`http://localhost:${port}/api/drive/transcript?${driveParams.toString()}`);
-    const transcriptText = driveRes.data?.content;
+    const driveRes = await axios.get(`http://localhost:${port}/api/drive/recording?${driveParams.toString()}`);
+    const driveLink = driveRes.data?.webViewLink;
 
-    if (!transcriptText || transcriptText.trim().length < 50) {
-      return res.status(404).json({ error: 'Transcript not found or too short in Google Drive.' });
+    if (!driveLink) {
+      return res.status(404).json({ error: 'Video Recording not found in Google Drive.' });
     }
 
-    // 3. Directly call evaluate_call with the transcript (bypasses ASR pipeline)
-    const evalRes = await axios.post(`http://localhost:${port}/api/qc/evaluate_call`, {
-      prospect_id: prospect_id,
-      transcript: transcriptText,
-      source: 'google_meet'
-    }, {
-      timeout: 180000,
-      headers: { 'Authorization': 'Bearer internal_ai_worker_token' }
+    // 3. Queue the video demo into the new ASR pipeline!
+    const queueRes = await axios.post(`http://localhost:${port}/api/upload_drive_demo`, {
+      drive_link: driveLink,
+      language: language || 'hi', 
+      prospect_id: prospect_id
     });
 
-    console.log(`🎥 [Demo QC] Google Meet transcript pushed for evaluation. Prospect: ${prospect_id}`);
-    res.json({ success: true, status: 'evaluation_started', call_id: evalRes.data?.call_id });
+    console.log(`🎥 [Demo QC] Google Meet video queued for ASR pipeline. Prospect: ${prospect_id}, Queue ID: ${queueRes.data?.queue_id}`);
+    res.json({ success: true, status: 'queued_for_asr', queue_id: queueRes.data?.queue_id });
   } catch (err) {
     console.error('Push demo to QC error:', err.response?.data || err.message);
     const msg = err.response?.data?.error || err.message;
