@@ -117,15 +117,29 @@ export default function LeadsDashboard({ owner, onSelectLead, onBack }) {
                       const validGrade = gradeFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
                       const validStream = streamFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
 
-                      if (!validGrade || !validStream) return 'Not Mentioned';
-                      
-                      const gradeVal = String(validGrade.value).toLowerCase();
-                      const streamVal = String(validStream.value).toLowerCase();
-                      
-                      const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
-                      const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
-                      
-                      return (is12 && isPCM) ? 'SQL' : 'No SQL';
+                      if (validGrade && validStream) {
+                        const gradeVal = String(validGrade.value).toLowerCase();
+                        const streamVal = String(validStream.value).toLowerCase();
+                        const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
+                        const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
+                        return (is12 && isPCM) ? 'SQL' : 'No SQL';
+                      }
+
+                      // Fallback for V3 Video Calls
+                      for (const call of (l.calls || [])) {
+                        const qData = call.quality_data || {};
+                        const classParam = qData['Class, Stream, Board and Location Captured'];
+                        if (classParam && classParam.reason) {
+                          const reason = classParam.reason.toLowerCase();
+                          const is12 = reason.includes('12') || reason.includes('twelfth');
+                          const isPCM = reason.includes('pcm') || reason.includes('science') || reason.includes('bio') || reason.includes('math') || reason.includes('computer');
+                          if (is12 || isPCM) {
+                            return (is12 && isPCM) ? 'SQL' : 'No SQL';
+                          }
+                        }
+                      }
+
+                      return 'Not Mentioned';
                     })();
 
                     return (

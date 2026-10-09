@@ -565,6 +565,15 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   block += `- The transcript is often in Tamil/Hindi/regional languages. You MUST translate and understand the full context before scoring. Do NOT skip non-English content.\n`;
   block += `- You MUST evaluate EVERY SINGLE parameter. Do not skip any. Output ALL parameters in your response.\n\n`;
 
+  if (source === 'google_meet') {
+    block += `=== CRITICAL MULTI-MODAL EVIDENCE INSTRUCTIONS (VIDEO DEMOS) ===\n`;
+    block += `- Parameters with visual dependency require: 'timestamp + verbatim quote + English translation + visual proof'.\n`;
+    block += `- For visual proof, cite the EXACT active slide number/title or webcam status from the Visual Timeline provided below (e.g., "[Visual Proof: Slide 21 Placements active at 14:32]").\n`;
+    block += `- If a parameter requires visual evidence (e.g. showing a slide or portal) but the Visual Timeline shows the slide was NOT shown or rushed, you MUST score 0.\n`;
+    block += `- Differentiate speaker roles: [Advisor], [Advisor: Senior], [Student], [Parent].\n`;
+    block += `- FATAL COMPLIANCE BREACHES: If an advisor makes unapproved self-funding claims (FP-06), solicits direct personal payments/UPI (LC-12), exposes sensitive credentials/OTP (LC-11), improvises unauthorized fee terms (FP-10), or stacks unapproved discount bundles (FP-14), you MUST mark mark_fatal: true, score: 0, status: 'Needs Improvement', and coaching_status: 'Fail'.\n\n`;
+  }
+
   const qualityGroups = {};
   qualityChecks.forEach(check => {
     const group = check.category || 'Other';
@@ -649,7 +658,7 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
             status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'] },
             coaching_status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
             breach_flag: { type: 'boolean', description: 'True if a guardrail_negative parameter was explicitly violated' },
-            reason: { type: 'string', description: 'MUST MATCH the Evidence Required format (e.g. Timestamp + Quote + Translation). Max 10 words if Pass/Done.' }
+            reason: { type: 'string', description: 'MUST MATCH the Evidence Required format (e.g. Timestamp + Verbatim Quote + Translation). Do NOT summarize. Provide the raw quote and timestamp even if they passed.' }
           },
           required: ['parameter', 'score', 'max_score', 'status', 'coaching_status', 'reason']
         },
@@ -716,11 +725,73 @@ function getCombinedQualityCoachingSchema(qualityChecks, parameters) {
   };
 }
 
-function buildQualityCoachingPrompt(transcript, source, qualityChecks, parameters, leadState) {
+function formatVisualTimeline(videoTimeline) {
+  if (!videoTimeline) return '';
+
+  let tl = videoTimeline;
+  if (typeof tl === 'string') {
+    try {
+      tl = JSON.parse(tl);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  let out = `=== VIDEO VISUAL TIMELINE & COMPUTER VISION GROUND TRUTH ===\n`;
+
+  // 1. Facial & Webcam Analytics
+  if (tl.facial_analytics) {
+    const camPct = tl.facial_analytics.associate_camera_active_pct != null
+      ? `${Number(tl.facial_analytics.associate_camera_active_pct).toFixed(1)}%`
+      : 'N/A';
+    const passed = tl.facial_analytics.trust_metric_passed ? 'PASSED (>=50%)' : 'FAILED (<50%)';
+    out += `Webcam Face Presence:\n`;
+    out += `- Advisor Camera Active: ${camPct} of call (${passed})\n\n`;
+  }
+
+  // 2. Presentation & Slide Analytics
+  if (Array.isArray(tl.slides)) {
+    const shownSlides = tl.slides.filter(s => s.is_shown || (s.total_duration_seconds && s.total_duration_seconds > 0));
+    
+    out += `Presentation & Screen Sharing Activity:\n`;
+    out += `- Total Slides Presented: ${shownSlides.length} slides\n`;
+
+    if (shownSlides.length > 0) {
+      out += `Active Slides Detected by Computer Vision:\n`;
+      shownSlides.forEach(s => {
+        const title = s.title || `Slide ${s.slide_number}`;
+        const dur = s.total_duration_seconds ? `${s.total_duration_seconds}s` : '0s';
+        const intervals = Array.isArray(s.intervals_formatted) && s.intervals_formatted.length > 0
+          ? s.intervals_formatted.join(', ')
+          : (Array.isArray(s.intervals_raw) && s.intervals_raw.length > 0
+              ? s.intervals_raw.map(r => `${Math.floor(r.start_sec / 60)}:${('0' + (r.start_sec % 60)).slice(-2)} to ${Math.floor(r.end_sec / 60)}:${('0' + (r.end_sec % 60)).slice(-2)}`).join(', ')
+              : 'N/A');
+        const rushed = s.rushed_warning ? ' [⚠️ RUSHED SLIDE]' : '';
+        out += `  • Slide ${s.slide_number}: "${title}" | Time: ${intervals} (${dur})${rushed}\n`;
+      });
+    } else {
+      out += `- No presentation slides detected during this meeting.\n`;
+    }
+    out += '\n';
+  }
+
+  out += `CRITICAL MULTI-MODAL AUDITING RULES FOR VIDEO DEMOS:\n`;
+  out += `1. When evaluating visually-dependent parameters (e.g. VP-02, VP-03, VP-04, LC-08):\n`;
+  out += `   - Cross-reference transcript timestamps against the exact active slide numbers and intervals above.\n`;
+  out += `   - If a slide was NEVER shown according to the Computer Vision timeline, do NOT credit the associate for visual demonstration.\n`;
+  out += `   - If the parameter requires the family to read from the screen (VP-04), verify that the quote corresponds with the slide active at that timestamp.\n`;
+  out += `   - Your 'reason' field MUST state the visual proof (e.g. [Visual: Slide 21 "Placements" active at 14:32]).\n`;
+  out += `2. For webcam parameters (DA-01): verify that advisor camera was active.\n`;
+
+  return out;
+}
+
+function buildQualityCoachingPrompt(transcript, source, qualityChecks, parameters, leadState, videoTimeline = null) {
   const qualityBlock = _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, leadState);
+  const visualBlock = source === 'google_meet' && videoTimeline ? `\n${formatVisualTimeline(videoTimeline)}\n` : '';
 
   return `${qualityBlock}
-
+${visualBlock}
 === FULL CALL TRANSCRIPT ===
 ${transcript}
 
@@ -790,9 +861,9 @@ function getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params) {
   };
 }
 
-function buildOmniPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params) {
+function buildOmniPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline = null) {
   const insightsP = buildInsightsPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState);
-  const qualP = buildQualityCoachingPrompt(transcriptText, source, params, {}); 
+  const qualP = buildQualityCoachingPrompt(transcriptText, source, filteredQualityChecks, params, leadState, videoTimeline); 
   return insightsP + "\n\n=== QUALITY & COACHING INSTRUCTIONS ===\n" + qualP;
 }
 
@@ -922,7 +993,7 @@ async function evaluateLeadJourney(leadId) {
     .from('calls')
     .select('id, created_at, source, duration_sec, transcript, filename, qc_status')
     .eq('prospect_id', leadId)
-    .in('qc_status', ['evaluated', 'completed'])
+    .in('qc_status', ['evaluated', 'completed', 'fatal_audit_failure'])
     .order('created_at', { ascending: true });
 
   if (!calls || calls.length === 0) return;
@@ -1033,5 +1104,6 @@ module.exports = {
   triageCall,
   // Utilities
   evaluateLeadJourney,
+  formatVisualTimeline,
   sanitizeKey
 };

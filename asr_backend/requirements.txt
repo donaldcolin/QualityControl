@@ -12,3 +12,7 @@ supabase
 speechbrain==0.5.16
 sentencepiece
 
+opencv-python
+ImageHash
+Pillow
+PyMuPDF

@@ -83,8 +83,13 @@ def queue_worker():
                 queue_event.wait(timeout=300.0)
                 queue_event.clear()
         except Exception as e:
-            logger.error(f"Queue worker polling error: {e}")
-            time.sleep(10)
+            # If it's a DNS/network error (often happens when Mac goes to sleep), suppress the spam
+            if "nodename nor servname" in str(e) or "nodename nor servname provided" in str(e):
+                logger.debug(f"Worker offline (No internet). Waiting for connection...")
+                time.sleep(60) # Sleep longer when offline
+            else:
+                logger.error(f"Queue worker polling error: {e}")
+                time.sleep(10)
 
 # Start the smart polling queue
 threading.Thread(target=queue_worker, daemon=True).start()

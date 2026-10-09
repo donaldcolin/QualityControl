@@ -4,13 +4,11 @@ import OverviewTab from './tabs/OverviewTab';
 import QualityCheckTab from './tabs/QualityCheckTab';
 import CoachingTab from './tabs/CoachingTab';
 import { getQCLead, getCoachingTemplates, evaluateCall } from '../../api';
-import { ArrowLeft, Play, Pause, FileAudio, CheckCircle2, XCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle, Share2, Trash2, Edit2, PlaySquare, SkipForward, FastForward, Info, Clock, Sparkles, User, Smile, MessageSquareShare, ShieldAlert, Crosshair, Map } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Phone, Loader2, RefreshCw, } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function formatDuration(seconds) {
@@ -134,59 +132,6 @@ function CallPlayer({ call }) {
   );
 }
 
-function GoogleMeetViewer({ call }) {
-  const segments = typeof call.segments === 'string' ? JSON.parse(call.segments) : (call.segments || []);
-  const uniqueSpeakers = [...new Set(segments.map(s => s.speaker))].sort();
-  const p1Id = uniqueSpeakers[0] || 'SPEAKER_00';
-  
-  return (
-    <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden">
-      {/* Meet Header */}
-      <div className="p-5 bg-indigo-50 border-b border-indigo-100 flex items-center gap-4">
-        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-indigo-100 text-indigo-600 shadow-sm shrink-0">
-          <Video className="h-5 w-5" />
-        </div>
-        <div>
-          <h3 className="font-bold text-slate-900">Google Meet Session</h3>
-          <p className="text-sm text-slate-500">Duration: {call.duration_sec ? formatDuration(call.duration_sec) : 'Unknown'}</p>
-        </div>
-      </div>
-
-      {/* Transcript */}
-      <div className="flex-1 overflow-hidden bg-white">
-        <div className="px-4 py-3 border-b border-slate-100 bg-white/50 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900">Meeting Transcript</h3>
-        </div>
-        <ScrollArea className="h-[calc(100%-45px)]">
-          <div className="p-4 space-y-3">
-            {segments.map((seg, idx) => {
-              const participantName = seg.speaker === 'SPEAKER_00' ? 'Participant 1' : 'Participant 2';
-              return (
-                <div key={idx} className="flex justify-between items-start p-4 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
-                  <div className="text-sm">
-                    {seg.start !== undefined && (
-                      <span className="text-slate-500 font-mono mr-3 text-xs">{formatDuration(seg.start)}-{formatDuration(seg.end)}</span>
-                    )}
-                    <span className="font-bold text-indigo-900 mr-2">{participantName} :</span>
-                    <span className="text-slate-900 leading-relaxed">
-                      {seg.text}
-                      {seg.text_en && seg.text_en !== seg.text && (
-                        <div className="mt-1 text-slate-500 italic">Translated: "{seg.text_en}"</div>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-            {segments.length === 0 && (
-              <div className="text-center text-muted-foreground p-8">No transcript available.</div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-    </div>
-  );
-}
 
 export default function LeadDetails({ leadId, onBack, embedded = false }) {
   const [lead, setLead] = useState(null);
@@ -221,7 +166,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
 
   const handleReEvaluate = async () => {
     // Include 'processing' so they don't disappear if a previous run was interrupted
-    const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.coaching_report);
+    const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
     if (evCalls.length === 0) return;
 
     setIsEvaluating(true);
@@ -268,7 +213,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     return <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin" /><p>Loading Lead History...</p></div>;
   }
 
-  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.coaching_report);
+  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
   const evaluatedCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
 
   if (!lead || allEvaluatedCalls.length === 0) {
@@ -328,15 +273,29 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     const validGrade = gradeFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
     const validStream = streamFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
 
-    if (!validGrade || !validStream) return 'Not Mentioned';
+    if (validGrade && validStream) {
+      const gradeVal = String(validGrade.value).toLowerCase();
+      const streamVal = String(validStream.value).toLowerCase();
+      const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
+      const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
+      return (is12 && isPCM) ? 'SQL' : 'No SQL';
+    }
 
-    const gradeVal = String(validGrade.value).toLowerCase();
-    const streamVal = String(validStream.value).toLowerCase();
+    // Fallback for V3 Video Calls
+    for (const call of callsToDisplay) {
+      const qData = call.quality_data || {};
+      const classParam = qData['Class, Stream, Board and Location Captured'];
+      if (classParam && classParam.reason) {
+        const reason = classParam.reason.toLowerCase();
+        const is12 = reason.includes('12') || reason.includes('twelfth');
+        const isPCM = reason.includes('pcm') || reason.includes('science') || reason.includes('bio') || reason.includes('math') || reason.includes('computer');
+        if (is12 || isPCM) {
+          return (is12 && isPCM) ? 'SQL' : 'No SQL';
+        }
+      }
+    }
 
-    const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
-    const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
-
-    return (is12 && isPCM) ? 'SQL' : 'No SQL';
+    return 'Not Mentioned';
   })();
 
   const coaching = activeCall?.coaching_report || {};

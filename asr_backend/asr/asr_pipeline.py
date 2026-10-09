@@ -207,10 +207,11 @@ _cached_silero_vad = None
 _cached_silero_utils = None
 _cached_ecapa_model = None
 
-def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers: int = 2):
+def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers=2):
     """
     Run custom fast diarization using Silero VAD and SpeechBrain ECAPA-TDNN.
-    Avoids re-reading the file from disk and skips heavy Pyannote inference.
+    Supports fixed num_speakers (e.g. 2 for phone calls) or dynamic auto-clustering
+    evaluating k in [2, 3, 4, 5] using Silhouette Score for multi-party video demos.
     """
     global _cached_silero_vad, _cached_silero_utils, _cached_ecapa_model
     import torch
@@ -310,7 +311,30 @@ def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers: int = 2):
     # Normalize for cosine similarity clustering using KMeans
     embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
     
-    clustering = KMeans(n_clusters=num_speakers if num_speakers else 2, n_init=10).fit(embeddings)
+    n_samples = len(embeddings)
+    if num_speakers == "auto" or num_speakers is None:
+        from sklearn.metrics import silhouette_score
+        max_k = min(5, n_samples - 1)
+        if max_k >= 2:
+            best_score = -1.0
+            best_k = 2
+            for k in range(2, max_k + 1):
+                km = KMeans(n_clusters=k, n_init=10, random_state=42).fit(embeddings)
+                score = silhouette_score(embeddings, km.labels_)
+                # Slight domain bonus (+0.02) for 3 clusters (common Kalvium demo setup)
+                adjusted_score = score + (0.02 if k == 3 else 0.0)
+                if adjusted_score > best_score:
+                    best_score = adjusted_score
+                    best_k = k
+            logger.info(f"Dynamic diarization selected k={best_k} clusters (silhouette score={best_score:.4f})")
+            clustering = KMeans(n_clusters=best_k, n_init=10, random_state=42).fit(embeddings)
+        else:
+            clustering = KMeans(n_clusters=min(2, n_samples), n_init=10, random_state=42).fit(embeddings)
+    else:
+        k = int(num_speakers) if num_speakers else 2
+        k = min(k, n_samples)
+        clustering = KMeans(n_clusters=k, n_init=10, random_state=42).fit(embeddings)
+
     labels = clustering.labels_
     
     # 5. Format output
@@ -331,7 +355,131 @@ def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers: int = 2):
 _CONCURRENT_WORKERS = 4  # Increased for better RTF on Apple Silicon
 
 
-def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str, out_dir: Path, status_callback=None):
+def map_meeting_roles(speakers):
+    """
+    Infers speaker roles for multi-stakeholder Google Meet 1:1 counselling sessions.
+    Supported roles:
+      - 'Advisor': Primary counselling advisor driving presentation & discovery
+      - 'Advisor: Senior': Senior manager / closer who joins mid/late call or closes
+      - 'Student': Candidate discussing academics, 12th marks, coding interests
+      - 'Parent': Family decision maker asking about fees, ROI, hostel, approvals
+    """
+    import re
+    from collections import defaultdict
+
+    if not speakers:
+        return speakers, {}
+
+    speaker_stats = defaultdict(lambda: {
+        "turn_count": 0,
+        "total_duration": 0.0,
+        "first_start": float("inf"),
+        "last_end": 0.0,
+        "text": "",
+        "student_cue_score": 0,
+        "parent_cue_score": 0,
+        "advisor_cue_score": 0,
+    })
+
+    STUDENT_KEYWORDS = re.compile(
+        r"\b(12th|class 12|twelfth|boards|cbse|icse|state board|marks|percentage|percentile|pcm|physics|maths|mathematics|chemistry|computer science|coding|python|java|cse|school|college|hobbies|interest|doubt|btech|12वीं|बारहवीं|बोर्ड|मार्क्स|कोडिंग|कंप्यूटर|स्कूल|कॉलेज|छात्र|padhai|pariksha)\b",
+        re.IGNORECASE
+    )
+    PARENT_KEYWORDS = re.compile(
+        r"\b(fees|fee|cost|lakh|lakhs|rupees|payment|installments|installment|emi|loan|refund|discount|scholarship|budget|afford|hostel|food|security|safety|placement|package|salary|job guarantee|father|mother|papa|mummy|sir|uncle|aunty|ma'am|decision|फीस|पैसे|लाख|हॉस्टल|प्लेसमेंट|पैकेज|नौकरी|सैलरी|पिता|माता|पापा|मम्मी|paise|naukri)\b",
+        re.IGNORECASE
+    )
+    ADVISOR_KEYWORDS = re.compile(
+        r"\b(kalvium|curriculum|program|presentation|screen|slide|knet|k-net|portal|registration|mentor|faculty|bachelor|degree|counselling|session|voucher|काल्वियम|कल्पियम|प्रेजेंटेशन|स्क्रीन|स्लाइड|के-नेट|रजिस्ट्रेशन|डिग्री)\b",
+        re.IGNORECASE
+    )
+
+    total_call_duration = max((s.get("end", 0.0) for s in speakers), default=0.0)
+
+    for turn in speakers:
+        spk = turn["speaker"]
+        dur = max(0.0, turn.get("end", 0.0) - turn.get("start", 0.0))
+        text = turn.get("text", "") or ""
+        
+        stats = speaker_stats[spk]
+        stats["turn_count"] += 1
+        stats["total_duration"] += dur
+        stats["first_start"] = min(stats["first_start"], turn.get("start", 0.0))
+        stats["last_end"] = max(stats["last_end"], turn.get("end", 0.0))
+        stats["text"] += " " + text
+        
+        stats["student_cue_score"] += len(STUDENT_KEYWORDS.findall(text))
+        stats["parent_cue_score"] += len(PARENT_KEYWORDS.findall(text))
+        stats["advisor_cue_score"] += len(ADVISOR_KEYWORDS.findall(text))
+
+    unique_speakers = list(speaker_stats.keys())
+    if len(unique_speakers) == 1:
+        for turn in speakers:
+            turn["speaker"] = "Advisor"
+        return speakers, {unique_speakers[0]: "Advisor"}
+
+    def advisor_score(spk):
+        st = speaker_stats[spk]
+        start_bonus = max(0.0, 100.0 - st["first_start"])
+        duration_weight = st["total_duration"]
+        cue_weight = st["advisor_cue_score"] * 10.0
+        return start_bonus + duration_weight + cue_weight
+
+    primary_advisor = max(unique_speakers, key=advisor_score)
+    assigned_roles = {primary_advisor: "Advisor"}
+    remaining_speakers = [s for s in unique_speakers if s != primary_advisor]
+
+    # Check for Senior Advisor / Closer Takeover
+    senior_advisor = None
+    for spk in list(remaining_speakers):
+        st = speaker_stats[spk]
+        starts_late = st["first_start"] > 1000.0 or (st["first_start"] > 0.35 * total_call_duration and st["first_start"] > 300.0)
+        has_advisor_profile = st["advisor_cue_score"] > st["student_cue_score"] and st["total_duration"] > 30.0
+        if starts_late and has_advisor_profile:
+            senior_advisor = spk
+            assigned_roles[spk] = "Advisor: Senior"
+            remaining_speakers.remove(spk)
+            break
+
+    # Differentiate Student vs Parent among remaining attendees
+    if len(remaining_speakers) == 1:
+        spk = remaining_speakers[0]
+        st = speaker_stats[spk]
+        if st["parent_cue_score"] > st["student_cue_score"]:
+            assigned_roles[spk] = "Parent"
+        elif st["student_cue_score"] > 0:
+            assigned_roles[spk] = "Student"
+        else:
+            assigned_roles[spk] = "Customer"
+    elif len(remaining_speakers) >= 2:
+        sorted_by_student = sorted(
+            remaining_speakers, 
+            key=lambda s: speaker_stats[s]["student_cue_score"] - speaker_stats[s]["parent_cue_score"],
+            reverse=True
+        )
+        student_candidate = sorted_by_student[0]
+        assigned_roles[student_candidate] = "Student"
+        
+        remaining_after_student = [s for s in remaining_speakers if s != student_candidate]
+        sorted_by_parent = sorted(
+            remaining_after_student,
+            key=lambda s: speaker_stats[s]["parent_cue_score"],
+            reverse=True
+        )
+        parent_candidate = sorted_by_parent[0]
+        assigned_roles[parent_candidate] = "Parent"
+        
+        for other_spk in remaining_after_student[1:]:
+            assigned_roles[other_spk] = "Participant"
+
+    for turn in speakers:
+        raw_spk = turn["speaker"]
+        turn["speaker"] = assigned_roles.get(raw_spk, raw_spk)
+
+    return speakers, assigned_roles
+
+
+def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str, out_dir: Path, status_callback=None, call_type: str = "phone", num_speakers=2):
     """
     Full pipeline for one file: convert → load → trim → diarize → merge → transcribe.
     
@@ -340,6 +488,7 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
       2. Leading/trailing silence trimmed before diarization
       3. Tiny same-speaker segments merged to reduce transcription calls
       4. Transcription runs concurrently (ONNX releases GIL)
+      5. Multi-speaker dynamic clustering & semantic role inference for Google Meet video calls
     """
     import torch
     import torchaudio
@@ -377,17 +526,19 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
 
     # ── Step 4: Diarize from memory ──
     _update("Running speaker diarization...")
-    # Speed optimization: Forcing num_speakers=2 skips heavy clustering computation
-    # Since these are BDA/sales calls, there are almost always exactly 2 speakers.
-    speakers = diarize(trimmed_wav, sr, hf_token, device=device, num_speakers=2)
+    effective_num_speakers = "auto" if call_type == "google_meet" else num_speakers
+    speakers = diarize(trimmed_wav, sr, hf_token, device=device, num_speakers=effective_num_speakers)
     _update(f"Diarization complete — found {len(speakers)} raw segments")
 
     # ── Step 5: Map speaker labels (Stereo Metadata Priority + Heuristic Fallback) ──
     speaker_map = {}
     role_assignment_method = "heuristic"
 
-    # 1. Metadata Priority: Stereo Channel Mapping (Left = Agent, Right = Customer)
-    if num_channels == 2:
+    if call_type == "google_meet":
+        # Keep raw cluster labels for segment merging and transcription.
+        # Semantic multi-stakeholder role mapping will resolve them after transcription turns are generated.
+        role_assignment_method = "pending_semantic"
+    elif num_channels == 2:
         speaker_energy = {}
         for turn in speakers:
             spk = turn["speaker"]
@@ -397,7 +548,6 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
                 speaker_energy[spk] = {"L": 0.0, "R": 0.0}
             
             # Compute RMS energy for this segment on L and R channels
-            # Handle potential index out of bounds
             end_idx = min(end_idx, original_wav.shape[-1])
             if start_idx < end_idx:
                 L_energy = torch.sqrt(torch.mean(original_wav[0, start_idx:end_idx]**2)).item()
@@ -420,8 +570,7 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
             logger.warning("Stereo mapping failed (both on same channel). Falling back to heuristic.")
             speaker_map = {} # Reset and fallback
 
-    # 2. Heuristic Fallback: First Speaker = Agent
-    if not speaker_map:
+    if not speaker_map and call_type != "google_meet":
         for turn in speakers:
             raw_label = turn["speaker"]
             if raw_label not in speaker_map:
@@ -432,12 +581,11 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
                 else:
                     speaker_map[raw_label] = f"Speaker_{len(speaker_map) + 1}"
 
-    # Apply the mapping
-    for turn in speakers:
-        turn["speaker"] = speaker_map[turn["speaker"]]
+    if speaker_map:
+        for turn in speakers:
+            turn["speaker"] = speaker_map[turn["speaker"]]
 
     # ── Step 6: Merge short segments ──
-    # Increase gap_threshold from 0.3s to 2.0s to massively reduce transcription overhead
     speakers = _merge_short_segments(speakers, gap_threshold=2.0, min_duration=0.5)
     total = len(speakers)
     _update(f"Merged to {total} segments for transcription")
@@ -445,7 +593,6 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
     # ── Step 7: Transcribe (concurrently) ──
     _update(f"Transcribing {total} segments...")
     
-    # Push the entire trimmed waveform to the GPU once to avoid PCI-e overhead per segment
     transcription_wav = trimmed_wav.to(device)
 
     with ThreadPoolExecutor(max_workers=_CONCURRENT_WORKERS) as executor:
@@ -462,6 +609,14 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
             done = sum(1 for s in speakers if "text" in s)
             _update(f"Transcribing segment {done}/{total}...")
 
+    # ── Step 7b: Semantic Role Assignment for Google Meet Video Demos ──
+    roles_detected = {}
+    if call_type == "google_meet":
+        _update("Running multi-stakeholder semantic role mapping...")
+        speakers, roles_detected = map_meeting_roles(speakers)
+        role_assignment_method = "semantic_multistakeholder"
+        logger.info(f"Assigned multi-stakeholder roles for {audio_path.name}: {roles_detected}")
+
     # Adjust timestamps back to original audio (add back silence offset)
     if silence_offset > 0:
         for turn in speakers:
@@ -471,7 +626,9 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
     result = {
         "file": audio_path.name,
         "language": lang,
+        "call_type": call_type,
         "role_assignment_method": role_assignment_method,
+        "roles_detected": roles_detected,
         "speaker_turns": speakers,
     }
 

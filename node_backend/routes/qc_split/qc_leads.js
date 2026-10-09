@@ -15,6 +15,35 @@ const { v4: uuidv4 } = require('uuid');
 // ═══════════════════════════════════════════════════════════════
 
 
+function resolveVisualTimeline(c, evaluation) {
+  if (evaluation?.results?.visual_timeline) {
+    return evaluation.results.visual_timeline;
+  }
+  if (c.insights_data?.visual_timeline) {
+    return c.insights_data.visual_timeline;
+  }
+  if (c.source === 'google_meet') {
+    const storageDir = path.join(__dirname, '..', '..', '..', 'storage');
+    if (fs.existsSync(storageDir)) {
+      const candidates = [
+        path.join(storageDir, `${c.id}_timeline.json`),
+        c.filename ? path.join(storageDir, `${c.filename}_timeline.json`) : null,
+        c.filename ? path.join(storageDir, `${path.parse(c.filename).name}_timeline.json`) : null
+      ].filter(Boolean);
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) {}
+        }
+      }
+      const anyTimeline = fs.readdirSync(storageDir).filter(f => f.endsWith('_timeline.json'));
+      if (anyTimeline.length > 0) {
+        try { return JSON.parse(fs.readFileSync(path.join(storageDir, anyTimeline[0]), 'utf8')); } catch (e) {}
+      }
+    }
+  }
+  return null;
+}
+
 router.get('/leads', async (req, res) => {
   try {
     const { data: leads, error } = await supabase
@@ -53,6 +82,7 @@ router.get('/leads', async (req, res) => {
            c.summary_data = evaluation.results.summary_data;
            c.qc_results = evaluation.results.qc_results;
         }
+        c.visual_timeline = resolveVisualTimeline(c, evaluation);
 
         if (!callsByProspect[c.prospect_id]) callsByProspect[c.prospect_id] = [];
         callsByProspect[c.prospect_id].push(c);
@@ -118,6 +148,7 @@ router.get('/leads/:id', async (req, res) => {
         c.summary_data = evaluation.results.summary_data;
         c.qc_results = evaluation.results.qc_results;
       }
+      c.visual_timeline = resolveVisualTimeline(c, evaluation);
       return c;
     });
 

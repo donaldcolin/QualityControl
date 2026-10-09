@@ -16,7 +16,7 @@ const { v4: uuidv4 } = require('uuid');
 
 
 router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
-  const { call_id, transcript, prospect_id, source } = req.body;
+  const { call_id, transcript, prospect_id, source, timeline } = req.body;
 
   if (!call_id && !transcript) {
     return res.status(400).json({ error: 'Either call_id or transcript is required' });
@@ -140,6 +140,28 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       leadState.call_history_snapshot = [];
     }
 
+    // 2b. If video call, load visual timeline for multi-modal grounding
+    let videoTimeline = timeline || null;
+    if (!videoTimeline && effectiveSource === 'google_meet') {
+      try {
+        const storageDir = path.join(__dirname, '..', '..', '..', 'storage');
+        const possibleNames = [
+          `${callIdToUpdate}_timeline.json`,
+          activeCallId ? `${activeCallId}_timeline.json` : null
+        ].filter(Boolean);
+        for (const name of possibleNames) {
+          const fullP = path.join(storageDir, name);
+          if (fs.existsSync(fullP)) {
+            videoTimeline = JSON.parse(fs.readFileSync(fullP, 'utf8'));
+            console.log(`🎬 [Video QC] Ingested visual timeline from ${name}`);
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn(`[Video QC] Could not load timeline file: ${err.message}`);
+      }
+    }
+
     // Filter out "applicable_only_once_per_customer" checks if prospect has prior calls
     const filteredQualityChecks = qualityChecks.filter(check => {
       if (check.applicable_only_once_per_customer && pastCalls.length > 0) return false;
@@ -159,7 +181,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           // OMNI-PROMPT: One massive prompt to extract everything at once (saves 2,700+ tokens)
           const omniSchema = qcEngine.getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params);
           const omniPrompt = qcEngine.buildOmniPrompt(
-            transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params
+            transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline
           );
 
           const omniResponse = await qcEngine.ai.models.generateContent({
@@ -251,6 +273,92 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
             }
           }
 
+          // ── HARDCODED SAFETY NET: Video QC V3 Fatal Guardrail Detection ──
+          if (effectiveSource === 'google_meet') {
+            const lowerTranscript = (transcriptText || '').toLowerCase();
+
+            // 1. FP-06: Self-Funding Claim
+            const selfFundingParam = 'Investment Shown to Become Partly Self-Funding';
+            if (qualityObj[selfFundingParam]) {
+              const selfFundingPatterns = [
+                /(?:self[- ]?fund(?:ing)?|partly\s+self[- ]funding)/i,
+                /(?:internship|stipend)[\s\S]{0,40}(?:will\s+)?(?:pay|cover|recover)[\s\S]{0,30}(?:fees?|tuition|burden)/i,
+                /(?:earn\s+and\s+pay|earn\s+while\s+you\s+learn[\s\S]{0,50}pay\s+fees)/i,
+                /(?:fees?|tuition)[\s\S]{0,40}(?:nikal\s+jayegi|khud\s+hi\s+nikal|stipend\s+se\s+bhar)/i,
+                /(?:fees?|tuition)[\s\S]{0,40}(?:stipend|internship)[\s\S]{0,40}(?:nikal|pay|cover|bhar)/i,
+                /(?:stipend|internship)[\s\S]{0,40}(?:fees?|tuition)[\s\S]{0,40}(?:nikal|pay|cover|bhar)/i,
+                /(?:degree|programme)\s+pays\s+for\s+itself/i
+              ];
+              if (selfFundingPatterns.some(p => p.test(lowerTranscript))) {
+                console.log(`🚨 [SAFETY NET] FP-06 Self-funding claim detected! Triggering fatal breach.`);
+                qualityObj[selfFundingParam] = {
+                  ...qualityObj[selfFundingParam],
+                  score: 0,
+                  status: 'Needs Improvement',
+                  coaching_status: 'Fail',
+                  mark_fatal: true,
+                  reason: '[FATAL PITCH DETECTED] Advisor claimed internships/stipends will pay for college fees. This is a fatal compliance violation.'
+                };
+              }
+            }
+
+            // 2. LC-12: Advisor Collecting Money Directly
+            const directPayParam = 'Advisor Collecting Money Directly';
+            if (qualityObj[directPayParam]) {
+              const directPayPatterns = [
+                /(?:send|transfer|gpay|phonepe|paytm|upi|pay)[\s\S]{0,50}(?:to\s+)?(?:me\b|my\s+(?:number|account|upi|id|gpay|phone)|personal)/i,
+                /(?:mere\s+(?:number|account|upi|id|phone|gpay|qr)\s+(?:pe|par)\s+(?:bhej|dal|kar|transfer|pay|bhejo|daalo))/i,
+                /(?:give\s+(?:me|cash)\s+(?:directly|instead))/i,
+                /(?:direct\s+(?:mujhe|mere)\s+(?:pay|transfer|bhej))/i
+              ];
+              if (directPayPatterns.some(p => p.test(lowerTranscript))) {
+                console.log(`🚨 [SAFETY NET] LC-12 Direct payment solicitation detected! Triggering fatal breach.`);
+                qualityObj[directPayParam] = {
+                  ...qualityObj[directPayParam],
+                  score: 0,
+                  status: 'Needs Improvement',
+                  coaching_status: 'Fail',
+                  mark_fatal: true,
+                  reason: '[FATAL FRAUD DETECTED] Advisor requested direct money transfer/UPI to personal account instead of official portal.'
+                };
+              }
+            }
+
+            // 3. LC-11: Sensitive Credentials Spoken/Exposed
+            const credsParam = 'Sensitive Credentials Spoken Aloud or Left On Screen';
+            if (qualityObj[credsParam]) {
+              const credPatterns = [
+                /(?:share|tell|give|enter)\s+(?:me\s+)?(?:the\s+)?(?:otp|one[- ]time[- ]password|pin|aadhaar|aadhar)\b/i,
+                /(?:otp\s+(?:batao|bataiye|share\s+karo|bhej\s+do|ayega\s+wo\s+batao|bhejiye))/i
+              ];
+              if (credPatterns.some(p => p.test(lowerTranscript))) {
+                console.log(`🚨 [SAFETY NET] LC-11 Sensitive credentials exposed! Flagging critical security breach.`);
+                qualityObj[credsParam] = {
+                  ...qualityObj[credsParam],
+                  score: 0,
+                  status: 'Needs Improvement',
+                  coaching_status: 'Fail',
+                  mark_fatal: true,
+                  reason: '[CRITICAL SECURITY BREACH] Advisor requested or verbally handled sensitive credentials (OTP/PIN/Aadhaar).'
+                };
+              }
+            }
+
+            // 4. Mark known critical guardrails as mark_fatal
+            const FATAL_PARAM_NAMES = [
+              'Investment Shown to Become Partly Self-Funding',
+              'Total Fee Improvised or Payment Terms Invented',
+              'Non-Price Advantages Stacked Onto the Discounted Fee',
+              'Advisor Collecting Money Directly',
+              'Sensitive Credentials Spoken Aloud or Left On Screen'
+            ];
+            FATAL_PARAM_NAMES.forEach(fpName => {
+              if (qualityObj[fpName]) {
+                qualityObj[fpName].mark_fatal = true;
+              }
+            });
+          }
+
           qualityResult = { quality: qualityObj };
           coachingReport = combinedResult.coaching_report || null;
         } else {
@@ -318,17 +426,66 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     let totalScore = 0;
     let totalMaxScore = 0;
     let hasFatalBreach = false;
-    for (const [, evaluation] of Object.entries(qualityResult.quality || {})) {
+    const fatalBreaches = [];
+
+    // Category weighting definitions for Video QC V3
+    const VIDEO_V3_CATEGORY_WEIGHTS = {
+      'Discovery & Multi-Stakeholder Engagement': 0.25,
+      'Curriculum Pitch & Visual Proof': 0.15,
+      'KNET Positioning & Fear Removal': 0.15,
+      'Financial Presentation & ROI Framing': 0.20,
+      'Live Closing & Frictionless Registration': 0.25
+    };
+
+    const categoryPoints = {};
+
+    for (const [paramName, evaluation] of Object.entries(qualityResult.quality || {})) {
       if (evaluation.status !== 'Not Applicable') {
+        const cat = evaluation.category || filteredQualityChecks.find(c => c.parameter === paramName)?.category || 'Other';
+        if (!categoryPoints[cat]) categoryPoints[cat] = { score: 0, maxScore: 0 };
+        categoryPoints[cat].score += (evaluation.score || 0);
+        categoryPoints[cat].maxScore += (evaluation.max_score || 0);
+
         totalScore += evaluation.score || 0;
         totalMaxScore += evaluation.max_score || 0;
+
         if (evaluation.mark_fatal && evaluation.score === 0) {
           hasFatalBreach = true;
+          fatalBreaches.push({
+            parameter: paramName,
+            reason: evaluation.reason || 'Fatal pitch breach confirmed'
+          });
         }
       }
     }
-    const callQualityScore = hasFatalBreach ? 0 : (totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0);
-    const callQualityRaw = hasFatalBreach ? `0/${totalMaxScore} [FATAL BREACH]` : `${totalScore}/${totalMaxScore}`;
+
+    let callQualityScore = 0;
+    let callQualityRaw = '';
+
+    if (effectiveSource === 'google_meet') {
+      // Apply exact category percentage weights
+      let weightedTotal = 0;
+      let categoriesCalculated = 0;
+      for (const [catName, weight] of Object.entries(VIDEO_V3_CATEGORY_WEIGHTS)) {
+        const catData = categoryPoints[catName];
+        if (catData && catData.maxScore > 0) {
+          const catPct = (catData.score / catData.maxScore) * 100;
+          weightedTotal += (catPct * weight);
+          categoriesCalculated++;
+        }
+      }
+      callQualityScore = categoriesCalculated > 0 ? Math.round(weightedTotal) : (totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0);
+      callQualityRaw = `${totalScore}/${totalMaxScore} (${callQualityScore}% weighted)`;
+    } else {
+      callQualityScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
+      callQualityRaw = `${totalScore}/${totalMaxScore}`;
+    }
+
+    if (hasFatalBreach) {
+      const breachList = fatalBreaches.map(b => b.parameter).join(', ');
+      callQualityRaw += ` [FAKE PITCH DETECTED: ${breachList}]`;
+      console.log(`[FAKE PITCH DETECTED] Call ${callIdToUpdate} failed fatally due to: ${breachList}`);
+    }
 
     // 7. Save results to evaluation_runs (IMMUTABLE HISTORY) instead of mutating calls
     const resultsPayload = {
@@ -338,9 +495,16 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       conversation_topics: insightsResult.insights?.conversation_topics || [],
       call_quality_score: callQualityScore,
       call_quality_raw: callQualityRaw,
+      fatal_pitch_flag: hasFatalBreach,
+      fatal_pitch_breaches: fatalBreaches,
+      visual_timeline: videoTimeline || null
     };
 
     if (coachingReport) {
+      if (hasFatalBreach) {
+        coachingReport.overall_score = 0;
+        coachingReport.overall_grade = 'F';
+      }
       // Extract per-parameter coaching results from unified quality entries
       const paramEvals = {};
       for (const [paramName, evaluation] of Object.entries(qualityResult.quality || {})) {
@@ -351,8 +515,8 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       }
       resultsPayload.qc_results = paramEvals;
       resultsPayload.coaching_report = coachingReport;
-      resultsPayload.overall_score = coachingReport.overall_score;
-      resultsPayload.overall_grade = coachingReport.overall_grade;
+      resultsPayload.overall_score = hasFatalBreach ? 0 : coachingReport.overall_score;
+      resultsPayload.overall_grade = hasFatalBreach ? 'F' : coachingReport.overall_grade;
     }
 
 
@@ -531,7 +695,15 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       // to prevent frontend polling from terminating prematurely.
       await supabase
         .from('calls')
-        .update({ qc_status: 'evaluated', call_quality_score: callQualityScore, call_quality_raw: callQualityRaw })
+        .update({
+          qc_status: hasFatalBreach ? 'fatal_audit_failure' : 'evaluated',
+          call_quality_score: callQualityScore,
+          call_quality_raw: callQualityRaw,
+          quality_data: qualityResult.quality,
+          summary_data: insightsResult.summary,
+          insights_data: { ...(insightsResult.insights || {}), visual_timeline: videoTimeline || null },
+          coaching_report: coachingReport
+        })
         .eq('id', callIdToUpdate);
     }
 

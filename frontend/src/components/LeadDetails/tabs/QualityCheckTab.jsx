@@ -6,6 +6,7 @@ import { Clock, CheckCircle2, XCircle, Lightbulb, RefreshCw, MessageSquare } fro
 import { cn } from '../../../lib/utils';
 import CallPlayer from '../media/CallPlayer';
 import GoogleMeetViewer from '../media/GoogleMeetViewer';
+import SlideTimelineTab from './SlideTimelineTab';
 
 export default function QualityCheckTab({ lead, activeCall, evaluatedCalls, mediaType, embedded, handleReEvaluate, isEvaluating, selectedCallIdx }) {
   return (
@@ -35,6 +36,9 @@ export default function QualityCheckTab({ lead, activeCall, evaluatedCalls, medi
                       <TabsTrigger value="summary" className={cn("rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900", !embedded && "flex-1")}>Summary</TabsTrigger>
                       <TabsTrigger value="insights" className={cn("rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900", !embedded && "flex-1")}>Insights</TabsTrigger>
                       <TabsTrigger value="quality" className={cn("rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900", !embedded && "flex-1")}>Quality</TabsTrigger>
+                      {activeCall?.source === 'google_meet' && (
+                        <TabsTrigger value="timeline" className={cn("rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900", !embedded && "flex-1")}>Timeline</TabsTrigger>
+                      )}
                     </TabsList>
 
                     <TabsContent value="quality" className="flex-1 overflow-hidden mt-0 p-0">
@@ -42,8 +46,8 @@ export default function QualityCheckTab({ lead, activeCall, evaluatedCalls, medi
                         <div className="p-6 space-y-8">
                           <div className="flex justify-between items-center pb-4 border-b">
                             <div className="font-bold text-sm">
-                              Overall Call Quality Score: <span className={(activeCall?.call_quality_score ?? 0) >= 60 ? "text-emerald-600" : (activeCall?.call_quality_score ?? 0) >= 40 ? "text-amber-600" : "text-rose-600"}>{activeCall?.call_quality_score ?? 0}%</span> <span className="text-slate-500 font-normal">({activeCall?.call_quality_raw?.replace(' [FATAL BREACH]', '') || '0/0'})</span>
-                              {activeCall?.call_quality_raw?.includes('FATAL BREACH') ? (
+                              Overall Call Quality Score: <span className={(activeCall?.call_quality_score ?? 0) >= 60 ? "text-emerald-600" : (activeCall?.call_quality_score ?? 0) >= 40 ? "text-amber-600" : "text-rose-600"}>{activeCall?.call_quality_score ?? 0}%</span> <span className="text-slate-500 font-normal">({activeCall?.call_quality_raw?.replace(/ \[FAKE PITCH DETECTED.*?\]/, '') || '0/0'})</span>
+                              {activeCall?.call_quality_raw?.includes('FAKE PITCH DETECTED') ? (
                                 <Badge variant="destructive" className="ml-3 uppercase tracking-wide animate-pulse">Fake Pitch</Badge>
                               ) : (activeCall?.call_quality_score ?? 0) >= 60 ? (
                                 <Badge className="ml-3 bg-emerald-100 text-emerald-800 uppercase tracking-wide border-emerald-200 hover:bg-emerald-200">Good Pitch</Badge>
@@ -64,8 +68,8 @@ export default function QualityCheckTab({ lead, activeCall, evaluatedCalls, medi
                                 if (isAna && !isBna) return 1;
                                 if (!isAna && isBna) return -1;
                                 
-                                const timeA = a[1].reason ? parseFloat((a[1].reason.match(/^\d+:\d+/) || ['9999:9999'])[0].replace(':', '.')) : 9999;
-                                const timeB = b[1].reason ? parseFloat((b[1].reason.match(/^\d+:\d+/) || ['9999:9999'])[0].replace(':', '.')) : 9999;
+                                const timeA = a[1].reason ? parseFloat((a[1].reason.match(/\b\d+:\d{2}\b/) || ['9999:9999'])[0].replace(':', '.')) : 9999;
+                                const timeB = b[1].reason ? parseFloat((b[1].reason.match(/\b\d+:\d{2}\b/) || ['9999:9999'])[0].replace(':', '.')) : 9999;
                                 return timeA - timeB;
                               })
                               .map(([param, data], idx) => {
@@ -95,10 +99,10 @@ export default function QualityCheckTab({ lead, activeCall, evaluatedCalls, medi
 
                                   {data.status !== 'Not Applicable' && data.status !== 'NA' && (
                                     <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 flex gap-3 items-start mt-3">
-                                      {data.reason && data.reason.match(/^\d+:\d+/) && (
+                                      {data.reason && data.reason.match(/\b\d+:\d{2}\b/) && (
                                         <button 
                                           onClick={() => {
-                                            const timeStr = data.reason.match(/^\d+:\d+/)[0];
+                                            const timeStr = data.reason.match(/\b\d+:\d{2}\b/)[0];
                                             const [mins, secs] = timeStr.split(':').map(Number);
                                             const timeInSeconds = mins * 60 + secs;
                                             window.dispatchEvent(new CustomEvent('jump-to-time', { detail: { callId: activeCall.id, start: timeInSeconds } }));
@@ -106,11 +110,11 @@ export default function QualityCheckTab({ lead, activeCall, evaluatedCalls, medi
                                           className="flex items-center gap-1.5 px-2 py-1 bg-white border shadow-sm rounded-md hover:bg-slate-50 transition-colors shrink-0"
                                         >
                                           <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                          <span className="text-xs font-mono font-bold text-slate-600">{data.reason.match(/^\d+:\d+/)[0]}</span>
+                                          <span className="text-xs font-mono font-bold text-slate-600">{data.reason.match(/\b\d+:\d{2}\b/)[0]}</span>
                                         </button>
                                       )}
                                       <p className="text-sm text-slate-700 leading-relaxed pt-0.5">
-                                        {data.reason ? data.reason.replace(/^\d+:\d+\s*-\s*/, '') : ''}
+                                        {data.reason ? data.reason.replace(/\s*\b\d+:\d{2}\b\s*[\-\:]*\s*/, ' ').trim() : ''}
                                       </p>
                                     </div>
                                   )}
@@ -200,6 +204,10 @@ export default function QualityCheckTab({ lead, activeCall, evaluatedCalls, medi
                         </div>
                       </ScrollArea>
                     </TabsContent>
+                    
+                    {activeCall?.source === 'google_meet' && (
+                      <SlideTimelineTab activeCall={activeCall} />
+                    )}
                   </Tabs>
                 </div>
 

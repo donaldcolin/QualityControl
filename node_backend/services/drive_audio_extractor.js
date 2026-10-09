@@ -69,10 +69,12 @@ async function extractAudioFromDrive(driveLink, queueId) {
         
         console.log(`[Drive] Audio extraction complete: ${audioPath}`);
 
-        // Delete the heavy video file
-        if (fs.existsSync(tempVideoPath)) {
-            fs.unlinkSync(tempVideoPath);
-        }
+        // DO NOT delete the heavy video file yet!
+        // The Python ASR worker will run OpenCV OCR on it for Google Meet slide analysis,
+        // and the Python worker is responsible for deleting it after analysis is complete.
+        // if (fs.existsSync(tempVideoPath)) {
+        //     fs.unlinkSync(tempVideoPath);
+        // }
 
         return audioPath;
     } catch (error) {

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import GoogleMeetViewer from './LeadDetails/media/GoogleMeetViewer';
 
 function formatDuration(seconds) {
   if (!seconds) return '00:00';
@@ -128,57 +129,6 @@ function CallPlayer({ call }) {
   );
 }
 
-function GoogleMeetViewer({ call }) {
-  const segments = typeof call.segments === 'string' ? JSON.parse(call.segments) : (call.segments || []);
-  
-  return (
-    <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden">
-      {/* Meet Header */}
-      <div className="p-5 bg-indigo-50 border-b border-indigo-100 flex items-center gap-4">
-        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-indigo-100 text-indigo-600 shadow-sm shrink-0">
-          <Video className="h-5 w-5" />
-        </div>
-        <div>
-          <h3 className="font-bold text-slate-900">Google Meet Session</h3>
-          <p className="text-sm text-slate-500">Duration: {call.duration_sec ? formatDuration(call.duration_sec) : 'Unknown'}</p>
-        </div>
-      </div>
-
-      {/* Transcript */}
-      <div className="flex-1 overflow-hidden bg-white">
-        <div className="px-4 py-3 border-b border-slate-100 bg-white/50 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900">Meeting Transcript</h3>
-        </div>
-        <ScrollArea className="h-[calc(100%-45px)]">
-          <div className="p-4 space-y-3">
-            {segments.map((seg, idx) => {
-              const participantName = seg.speaker === 'SPEAKER_00' ? 'Participant 1' : 'Participant 2';
-              return (
-                <div key={idx} className="flex justify-between items-start p-4 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
-                  <div className="text-sm">
-                    {seg.start !== undefined && (
-                      <span className="text-slate-500 font-mono mr-3 text-xs">{formatDuration(seg.start)}-{formatDuration(seg.end)}</span>
-                    )}
-                    <span className="font-bold text-indigo-900 mr-2">{participantName} :</span>
-                    <span className="text-slate-900 leading-relaxed">
-                      {seg.text}
-                      {seg.text_en && seg.text_en !== seg.text && (
-                        <div className="mt-1 text-slate-500 italic">Translated: "{seg.text_en}"</div>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-            {segments.length === 0 && (
-              <div className="text-center text-muted-foreground p-8">No transcript available.</div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-    </div>
-  );
-}
 
 export default function LeadDetails({ leadId, onBack, embedded = false }) {
   const [lead, setLead] = useState(null);
@@ -213,7 +163,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
 
   const handleReEvaluate = async () => {
     // Include 'processing' so they don't disappear if a previous run was interrupted
-    const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.coaching_report);
+    const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
     if (evCalls.length === 0) return;
 
     setIsEvaluating(true);
@@ -260,7 +210,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     return <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin" /><p>Loading Lead History...</p></div>;
   }
 
-  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.coaching_report);
+  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
   const evaluatedCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
 
   if (!lead || allEvaluatedCalls.length === 0) {

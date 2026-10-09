@@ -90,13 +90,26 @@ def process_queue_item(queue_id: str):
         hf_token = os.environ.get("HF_TOKEN")
         
         def _status_cb(msg):
-            logger.info(f"[{queue_id}] {msg}")
+            import sys
+            if msg.startswith("Transcribing segment"):
+                sys.stdout.write(f"\rINFO:worker:[{queue_id}] {msg}")
+                sys.stdout.flush()
+            else:
+                if "Transcribing segment" not in msg:
+                    # ensure we drop a newline if we were just loading
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                logger.info(f"[{queue_id}] {msg}")
+                
             try:
                 supabase.table("callizer_queue").update({"status": msg}).eq("id", queue_id).execute()
             except Exception as e:
-                logger.warning(f"Failed to update status for {queue_id} (non-fatal): {e}")
+                logger.warning(f"\nFailed to update status for {queue_id} (non-fatal): {e}")
 
-        result = pipeline.process_file(model, device, local_audio_path, language, hf_token, out_dir, status_callback=_status_cb)
+        result = pipeline.process_file(
+            model, device, local_audio_path, language, hf_token, out_dir,
+            status_callback=_status_cb, call_type=source
+        )
         
         segments = result.get("speaker_turns", [])
         duration = segments[-1]["end"] if segments else 0.0
@@ -113,9 +126,10 @@ def process_queue_item(queue_id: str):
             speaker: round(dur / total_speaking * 100)
             for speaker, dur in speaker_durations.items()
         }
-        # Format as "71:29" (Agent:Customer) for display
-        agent_pct = participant_stats.get("Agent", 0)
-        customer_pct = participant_stats.get("Customer", 100 - agent_pct)
+        # Format as "71:29" (Sales:Customer) for display
+        sales_roles = {"Agent", "Advisor", "Advisor: Senior"}
+        agent_pct = sum(participant_stats.get(role, 0) for role in sales_roles)
+        customer_pct = 100 - agent_pct
         talk_to_listen_ratio = f"{agent_pct}:{customer_pct}"
         
         logger.info(f"[{queue_id}] Talk-to-Listen Ratio: {talk_to_listen_ratio} | Stats: {participant_stats}")
@@ -130,8 +144,60 @@ def process_queue_item(queue_id: str):
         
         logger.info(f"[{queue_id}] Bypassed translation but applied PII pseudonymisation.")
         
-        # 4. Save to calls table FIRST so QC evaluation can find it
+        # 3.5 Run Video Analyzer for Google Meet calls
+        # 4. Generate internal call ID early so we can link files to it
         internal_call_id = str(uuid.uuid4())
+        
+        # 3.5 Run Video Analyzer for Google Meet calls
+        if source == "google_meet":
+            try:
+                logger.info(f"[{queue_id}] Running computer vision video analysis...")
+                import video_analyzer
+                
+                # temp_audio directory is where drive_audio_extractor.js puts the temp mp4
+                temp_mp4_path = local_audio_path.parent / f"{queue_id}_temp.mp4"
+                if temp_mp4_path.exists():
+                    # Process slides and analyze video
+                    WORKSPACE = "/Users/donaldcolin/Developer/Quality Control"
+                    PDF_PATH = os.path.join(WORKSPACE, "storage", "reference_slides", "Kalvium_ B.Tech CSE to excel in career & life AY27.pdf")
+                    SLIDES_DIR = os.path.join(WORKSPACE, "storage", "reference_slides", "images")
+                    
+                    slide_data = video_analyzer.extract_slides_from_pdf(PDF_PATH, SLIDES_DIR)
+                    timeline, camera_pct = video_analyzer.analyze_video(str(temp_mp4_path), slide_data, interval_seconds=10)
+                    
+                    clean_slide_names = {
+                        18: "Placement Statistics & Outcomes",
+                        29: "Where Students Are Placed",
+                        40: "Why Kalvium (Key Differentiators)",
+                        63: "Curriculum & Methodology Overview",
+                        112: "Detailed Fee Structure & Options"
+                    }
+                    
+                    # Save timeline to storage directory using internal_call_id so qc_evaluations.js can pick it up
+                    storage_dir = Path("../storage")
+                    json_report_path = storage_dir / f"{internal_call_id}_timeline.json"
+                    
+                    video_analyzer.generate_report(
+                        timeline, slide_data, 
+                        slide_names_config=clean_slide_names, 
+                        debounce_sec=5, 
+                        camera_pct=camera_pct, 
+                        output_path=str(json_report_path)
+                    )
+                    logger.info(f"[{queue_id}] Video analysis complete. Timeline saved to {json_report_path}")
+                    
+                    # Clean up the large temp video file now that vision analysis is done
+                    try:
+                        temp_mp4_path.unlink()
+                        logger.info(f"[{queue_id}] Deleted heavy temp mp4 file: {temp_mp4_path.name}")
+                    except OSError as e:
+                        logger.warning(f"Failed to delete {temp_mp4_path}: {e}")
+                else:
+                    logger.warning(f"[{queue_id}] Expected {temp_mp4_path} for google_meet but it was missing!")
+            except Exception as e:
+                logger.error(f"[{queue_id}] Video Analysis Failed: {e}", exc_info=True)
+
+        # 5. Save to calls table FIRST so QC evaluation can find it
         prospect_id = row.get("prospect_id", "")
         
         call_data = {
