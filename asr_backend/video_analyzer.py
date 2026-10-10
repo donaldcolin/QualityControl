@@ -7,7 +7,8 @@ import os
 import json
 from PIL import Image
 import fitz  # PyMuPDF
-
+import fitz  # PyMuPDF
+import mediapipe as mp
 def extract_slides_from_pdf(pdf_path, output_dir):
     """
     Reads a PDF, extracts each page as an image, and returns a dictionary of their hashes.
@@ -65,55 +66,68 @@ def analyze_video(video_path, slide_data, interval_seconds=10):
     # Face tracking metrics
     total_samples = 0
     associate_face_detected_count = 0
+    face_timeline = {}
     
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    # Initialize MediaPipe Face Detection
+    mp_face_detection = mp.solutions.face_detection
+    with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
             
-        if frame_count % frame_interval == 0:
-            timestamp_sec = frame_count // fps
-            total_samples += 1
-            
-            # --- GOOGLE MEET CROPPING ---
-            h, w, _ = frame.shape
-            
-            # Presentation Crop (Left ~75%)
-            crop_y1, crop_y2 = int(h * 0.1), int(h * 0.9)
-            crop_x1, crop_x2 = int(w * 0.05), int(w * 0.75) 
-            cropped_frame = frame[crop_y1:crop_y2, crop_x1:crop_x2]
-            
-            # Webcam Crop (Right ~25% for Face Detection)
-            webcam_x1 = int(w * 0.75)
-            webcam_frame = frame[0:h, webcam_x1:w]
-            
-            # --- PILLAR 2: FACIAL ANALYTICS (Placeholder for MediaPipe) ---
-            # We will run MediaPipe here to detect if associate face is visible.
-            # Simulating detection for now to unblock Pillar 1 test.
-            associate_face_detected_count += 1
-            
-            # --- PILLAR 1: SLIDE HASHING ---
-            # Convert CV2 frame (BGR) to PIL Image (RGB) for ImageHash
-            cropped_frame_rgb = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(cropped_frame_rgb)
-            frame_hash = imagehash.phash(pil_img)
-            
-            best_match = None
-            lowest_diff = float('inf')
-            
-            for slide_num, data in slide_data.items():
-                s_hash = data["hash"]
-                diff = frame_hash - s_hash
-                if diff < lowest_diff:
-                    lowest_diff = diff
-                    best_match = slide_num
-                    
-            if lowest_diff <= 15:
-                timeline[int(timestamp_sec)] = best_match
-                # print(f"[{timestamp_sec}s] Slide {best_match} detected (Diff: {lowest_diff})")
+            if frame_count % frame_interval == 0:
+                timestamp_sec = frame_count // fps
+                total_samples += 1
                 
-        frame_count += 1
-        
+                # --- GOOGLE MEET CROPPING ---
+                h, w, _ = frame.shape
+                
+                # Presentation Crop (Left ~75%)
+                crop_y1, crop_y2 = int(h * 0.1), int(h * 0.9)
+                crop_x1, crop_x2 = int(w * 0.05), int(w * 0.75) 
+                cropped_frame = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                
+                # Webcam Crop (Right ~25% for Face Detection)
+                webcam_x1 = int(w * 0.75)
+                webcam_frame = frame[0:h, webcam_x1:w]
+                
+                # --- PILLAR 1: SLIDE HASHING ---
+                # Convert CV2 frame (BGR) to PIL Image (RGB) for ImageHash
+                cropped_frame_rgb = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(cropped_frame_rgb)
+                frame_hash = imagehash.phash(pil_img)
+                
+                best_match = None
+                lowest_diff = float('inf')
+                
+                for slide_num, data in slide_data.items():
+                    s_hash = data["hash"]
+                    diff = frame_hash - s_hash
+                    if diff < lowest_diff:
+                        lowest_diff = diff
+                        best_match = slide_num
+                        
+                is_slide_active = (lowest_diff <= 15)
+                if is_slide_active:
+                    timeline[int(timestamp_sec)] = best_match
+                    
+                # --- PILLAR 2: FACIAL ANALYTICS (MediaPipe) ---
+                # If a slide is active, only scan the right 25% (webcam) to avoid detecting faces inside the presentation slides.
+                # If no slide is active, scan the full frame because the webcam takes up the whole screen.
+                target_frame = webcam_frame if is_slide_active else frame
+                target_rgb = cv2.cvtColor(target_frame, cv2.COLOR_BGR2RGB)
+                results = face_detection.process(target_rgb)
+                
+                num_faces = 0
+                if results.detections:
+                    num_faces = len(results.detections)
+                    associate_face_detected_count += 1 # At least one face (assume associate is one of them)
+                    
+                face_timeline[int(timestamp_sec)] = num_faces
+                    
+            frame_count += 1
+            
     cap.release()
     
     # Calculate Trust Metric
@@ -121,12 +135,13 @@ def analyze_video(video_path, slide_data, interval_seconds=10):
     if total_samples > 0:
         camera_active_pct = (associate_face_detected_count / total_samples) * 100
         
-    return timeline, camera_active_pct
+    return timeline, face_timeline, camera_active_pct
 
-def generate_report(timeline, slide_data, slide_names_config=None, debounce_sec=5, camera_pct=0, output_path="slide_report.json"):
+def generate_report(timeline, face_timeline, slide_data, slide_names_config=None, debounce_sec=5, camera_pct=0, output_path="slide_report.json"):
     """
     Aggregates the timeline into a structured JSON format for the frontend.
     Uses slide_names_config for clean titles when available.
+    Also includes the face count timeline.
     """
     total_slides = len(slide_data)
     slide_intervals = {i: [] for i in range(1, total_slides + 1)}
@@ -160,11 +175,39 @@ def generate_report(timeline, slide_data, slide_names_config=None, debounce_sec=
             
     print(f"\n=== GENERATING JSON REPORT ({total_slides} Slides) ===")
     
+    # Consolidate Face Timeline
+    face_events = []
+    if face_timeline:
+        sorted_face_times = sorted(face_timeline.keys())
+        if sorted_face_times:
+            current_faces = face_timeline[sorted_face_times[0]]
+            current_f_start = sorted_face_times[0]
+            
+            for t in sorted_face_times[1:]:
+                faces = face_timeline[t]
+                if faces != current_faces:
+                    face_events.append({
+                        "start_time": current_f_start,
+                        "end_time": t,
+                        "faces_detected": current_faces
+                    })
+                    current_faces = faces
+                    current_f_start = t
+                    
+            # push last face event
+            last_t = sorted_face_times[-1]
+            face_events.append({
+                "start_time": current_f_start,
+                "end_time": last_t + 10,
+                "faces_detected": current_faces
+            })
+
     json_output = {
         "facial_analytics": {
             "associate_camera_active_pct": camera_pct,
             "trust_metric_passed": (camera_pct >= 50)
         },
+        "face_timeline": face_events,
         "slides": []
     }
     
@@ -226,7 +269,7 @@ if __name__ == "__main__":
     
     # 2. Analyze a video
     print("\n--- Phase 2: Analyzing Video (with Facial Analytics) ---")
-    timeline, camera_pct = analyze_video(VIDEO_PATH, slide_data, interval_seconds=10)
+    timeline, face_timeline, camera_pct = analyze_video(VIDEO_PATH, slide_data, interval_seconds=10)
     
     # 3. Generate the Slide Report (Using a clean naming dictionary and outputting JSON)
     clean_slide_names = {
@@ -240,6 +283,6 @@ if __name__ == "__main__":
     # We will save the JSON right next to the video file
     json_report_path = VIDEO_PATH + "_timeline.json"
     
-    generate_report(timeline, slide_data, slide_names_config=clean_slide_names, debounce_sec=5, camera_pct=camera_pct, output_path=json_report_path)
+    generate_report(timeline, face_timeline, slide_data, slide_names_config=clean_slide_names, debounce_sec=5, camera_pct=camera_pct, output_path=json_report_path)
     
     print("\nSetup complete! Pillars 1 and 2 are fully active, outputting structured JSON.")

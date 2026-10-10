@@ -24,7 +24,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
   if (!qcEngine.ai) return res.status(500).json({ error: 'Gemini not configured' });
 
   let activeCallId = call_id;
-  const effectiveSource = source || 'phone_call';
+  let effectiveSource = source || 'phone_call';
 
   if (activeCallId) {
     await supabase.from('calls').update({ qc_status: 'processing' }).eq('id', activeCallId);
@@ -63,6 +63,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       let transcriptText = transcript;
       let callIdToUpdate = activeCallId;
       let activeProspectId = prospect_id;
+      let activeCallData = null;
 
     // 1. Get transcript and prospect_id from call if not provided directly
     if (call_id) {
@@ -73,6 +74,11 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         .single();
 
       if (callError || !call) throw new Error('Call not found');
+      activeCallData = call;
+
+      if (!source && call.source) {
+        effectiveSource = call.source;
+      }
 
       if (!activeProspectId && call.prospect_id) {
         activeProspectId = call.prospect_id;
@@ -141,13 +147,15 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     }
 
     // 2b. If video call, load visual timeline for multi-modal grounding
-    let videoTimeline = timeline || null;
+    // If not provided in body, try to recover from the previous run or load from file
+    let videoTimeline = timeline || (activeCallData && activeCallData.insights_data && activeCallData.insights_data.visual_timeline) || null;
     if (!videoTimeline && effectiveSource === 'google_meet') {
       try {
         const storageDir = path.join(__dirname, '..', '..', '..', 'storage');
         const possibleNames = [
           `${callIdToUpdate}_timeline.json`,
-          activeCallId ? `${activeCallId}_timeline.json` : null
+          activeCallId ? `${activeCallId}_timeline.json` : null,
+          activeCallData && activeCallData.filename ? `${activeCallData.filename}_timeline.json` : null
         ].filter(Boolean);
         for (const name of possibleNames) {
           const fullP = path.join(storageDir, name);

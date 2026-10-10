@@ -165,14 +165,21 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
   }, [embedded]);
 
   const handleReEvaluate = async () => {
-    // Include 'processing' so they don't disappear if a previous run was interrupted
-    const evCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
-    if (evCalls.length === 0) return;
+    // Only re-evaluate calls that are currently visible in the active tab (Audio vs Video)
+    const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
+    const currentlyVisibleCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
+    
+    // Also respect the dropdown if they selected a specific call, otherwise do all visible
+    const callsToEvaluate = selectedCallIdx === 'all' 
+      ? currentlyVisibleCalls 
+      : [currentlyVisibleCalls[selectedCallIdx]].filter(Boolean);
+
+    if (callsToEvaluate.length === 0) return;
 
     setIsEvaluating(true);
     try {
-      // Trigger background evaluation for ALL calls in parallel
-      await Promise.all(evCalls.map(c => evaluateCall(c.id)));
+      // Trigger background evaluation for ALL targeted calls in parallel
+      await Promise.all(callsToEvaluate.map(c => evaluateCall(c.id)));
 
       // Poll until ALL calls' qc_status is no longer 'processing'
       let attempts = 0;
@@ -182,7 +189,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
           const leadData = await getQCLead(leadId);
 
           const anyProcessing = (leadData?.calls || []).some(c =>
-            evCalls.find(ec => ec.id === c.id) && c.qc_status === 'processing'
+            callsToEvaluate.find(ec => ec.id === c.id) && c.qc_status === 'processing'
           );
 
           if (!anyProcessing && attempts > 1) { 

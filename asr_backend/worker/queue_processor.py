@@ -174,7 +174,7 @@ def process_queue_item(queue_id: str):
                     SLIDES_DIR = os.path.join(WORKSPACE, "storage", "reference_slides", "images")
                     
                     slide_data = video_analyzer.extract_slides_from_pdf(PDF_PATH, SLIDES_DIR)
-                    timeline, camera_pct = video_analyzer.analyze_video(str(temp_mp4_path), slide_data, interval_seconds=10)
+                    timeline, face_timeline, camera_pct = video_analyzer.analyze_video(str(temp_mp4_path), slide_data, interval_seconds=10)
                     
                     clean_slide_names = {
                         18: "Placement Statistics & Outcomes",
@@ -189,7 +189,7 @@ def process_queue_item(queue_id: str):
                     json_report_path = storage_dir / f"{internal_call_id}_timeline.json"
                     
                     video_analyzer.generate_report(
-                        timeline, slide_data, 
+                        timeline, face_timeline, slide_data, 
                         slide_names_config=clean_slide_names, 
                         debounce_sec=5, 
                         camera_pct=camera_pct, 

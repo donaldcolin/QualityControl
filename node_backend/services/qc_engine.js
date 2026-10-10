@@ -41,6 +41,15 @@ try {
   console.warn("WARNING: bd_playbook.txt not found in config/. AI coaching will be generic.");
 }
 
+// Load University Fee Structure Knowledge Base
+let universityFeeKB = '';
+try {
+  universityFeeKB = fs.readFileSync(path.join(configDir, 'university_fee_structure.csv'), 'utf8');
+  console.log(`Loaded University Fee Structure KB`);
+} catch (err) {
+  console.warn("WARNING: university_fee_structure.csv not found.");
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  Gemini Schema Key Sanitizer
 //  Gemini structured output requires property names to be valid
@@ -97,6 +106,10 @@ Evaluate the associate's adherence to this 10-stage flow.`;
     if (leadState.journey_summary) ctx += `\n- CRM Journey Summary (Past Calls): ${leadState.journey_summary}`;
 
     ctx += `\n\nIMPORTANT: The CRM "Lead Stage" might statically say "New Lead", so you MUST rely on the Funnel Stage, Next Activity, and Journey Summary above to determine where they actually are in the sales cycle. Do NOT penalize the associate for skipping introductory steps if the Journey Summary proves the customer already completed them!`;
+  }
+
+  if (universityFeeKB) {
+    ctx += `\n\n--- GROUND TRUTH KNOWLEDGE BASE: UNIVERSITY FEE STRUCTURE ---\nWhen verifying Fee, Pricing, or Scholarship claims (e.g. FP-10 Total Fee Improvised or FP-08 Scholarship Limits), YOU MUST cross-reference the numbers quoted by the counselor against the following official data. If the counselor's numbers match this official CSV, DO NOT flag it as an improvised fee or mis-selling. Only flag if it contradicts this data.\n\n${universityFeeKB}\n-----------------------------------------------------------`;
   }
 
   return ctx;
@@ -251,6 +264,21 @@ function getInsightsSchema(dataCaptureQuestions) {
         type: 'object',
         properties: {
           intent_score: { type: 'number', description: 'Buying intent score 0-100' },
+          actual_meeting_start_time: { type: 'string', description: 'The exact timestamp when attendees first appeared on camera (from video timeline) or when the actual conversation began, ignoring pre-meeting silence. Format: MM:SS' },
+          attendee_timeline: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                start_time: { type: 'string', description: 'Start time of presence (e.g. 05:00 or 00:05:00)' },
+                end_time: { type: 'string', description: 'End time of presence (e.g. 30:00 or 00:30:00)' },
+                person: { type: 'string', description: 'The role or name of the attendee (e.g. Student, Mother)' },
+                status: { type: 'string', description: 'Whether they were present, joined late, or left early' }
+              },
+              required: ['start_time', 'end_time', 'person', 'status']
+            },
+            description: 'Chronological timeline mapping who was present when, fusing video face counts with audio speaker roles'
+          },
           high_intent_factors: {
             type: 'array',
             items: { type: 'string' },
@@ -309,7 +337,7 @@ function getInsightsSchema(dataCaptureQuestions) {
             description: 'Key topics discussed during the conversation (e.g., "K-NET Exam", "Program Curriculum")'
           }
         },
-        required: ['intent_score', 'high_intent_factors', 'low_intent_factors', 'objections', 'bant', 'data_capture', 'conversation_topics']
+        required: ['intent_score', 'attendee_timeline', 'high_intent_factors', 'low_intent_factors', 'objections', 'bant', 'data_capture', 'conversation_topics']
       },
       summary: {
         type: 'object',
@@ -354,7 +382,7 @@ function getInsightsSchema(dataCaptureQuestions) {
   };
 }
 
-function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls, leadState) {
+function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls, leadState, videoTimeline = null) {
   const role = source === 'google_meet' ? 'Expert Video Demo Analyst' : 'Expert Sales Call Analyst';
   const context = getKalviumContext(source, leadState);
   const callNumber = (pastCalls?.length || 0) + 1;
@@ -451,6 +479,20 @@ function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls
     prompt += `9. Write an updated JOURNEY SUMMARY that incorporates insights from ALL ${callNumber} calls. This must be a complete, rolling narrative covering the entire prospect journey from the first call to now. Include: what was discussed, what was promised, what objections were raised and how they were handled, what commitments were made (e.g., "ES said he will join the meeting"), and whether those commitments were kept.\n`;
   }
   prompt += `10. Suggest concrete NEXT STEPS with suggested dialogue and due dates.\n\n`;
+
+  prompt += `11. CONSTRUCT AN ATTENDEE TIMELINE (SENSOR FUSION):\n`;
+  if (videoTimeline) {
+    prompt += `    - Cross-reference the speakers in the Audio Transcript with the Visual Face Timeline provided below.\n`;
+    prompt += `    - Visual Face Timeline reveals EXACTLY when new people entered or left the video frame.\n`;
+    prompt += `    - CRITICAL GOOGLE MEET UI QUIRK: In Google Meet, webcams are often hidden when the Associate is talking (Active Speaker View).\n`;
+    prompt += `    - If the face count temporarily drops to 0, or rapidly fluctuates between 1 and 2, DO NOT assume people left!\n`;
+    prompt += `    - Assume attendees are still present unless they explicitly state they are leaving, or if the face count stays reduced for a prolonged period (e.g. 5+ minutes).\n`;
+    prompt += `    - Example: If face count goes from 1 to 2 at 05:00, and SPEAKER_01 says 'I am his mother' at 05:12, then the Mother joined at 05:00.\n`;
+    prompt += `    - Determine the 'actual_meeting_start_time' by finding the exact timestamp when the face count first changes from 0 to 1 (or 2) and stays there, ignoring the initial period where the camera was off.\n`;
+    prompt += `    - Visual Timeline: \n${formatVisualTimeline(videoTimeline)}\n\n`;
+  } else {
+    prompt += `    - Infer the timeline of who was present (Student, Parent, etc.) based purely on when their distinct voices spoke in the transcript.\n\n`;
+  }
 
   prompt += `Be specific and cite evidence from the transcript wherever possible.\n`;
   prompt += `CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.\n`;
@@ -747,6 +789,17 @@ function formatVisualTimeline(videoTimeline) {
     const passed = tl.facial_analytics.trust_metric_passed ? 'PASSED (>=50%)' : 'FAILED (<50%)';
     out += `Webcam Face Presence:\n`;
     out += `- Advisor Camera Active: ${camPct} of call (${passed})\n\n`;
+  }
+
+  // 1b. Face Count Timeline (Sensor Fusion)
+  if (Array.isArray(tl.face_timeline) && tl.face_timeline.length > 0) {
+    out += `Attendee Face Count Timeline (Extracted from Video frames):\n`;
+    tl.face_timeline.forEach(event => {
+      const s = Math.floor(event.start_time / 60) + ':' + ('0' + (event.start_time % 60)).slice(-2);
+      const e = Math.floor(event.end_time / 60) + ':' + ('0' + (event.end_time % 60)).slice(-2);
+      out += `  • [${s} - ${e}] -> ${event.faces_detected} Faces Detected in Video Feed\n`;
+    });
+    out += '\n';
   }
 
   // 2. Presentation & Slide Analytics
@@ -1068,7 +1121,7 @@ Focus specifically on CROSS-CALL continuity (e.g., "The pricing objection from C
         temperature: 0.2
       }
     });
-
+  
     const result = JSON.parse(response.text);
     
     // 4. Update the lead with the synthesized JSONB

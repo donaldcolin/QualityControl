@@ -32,6 +32,69 @@ export default function OverviewTab({ lead, callsToDisplay, evaluatedCalls, acti
                     </CardContent>
                   </Card>
 
+                  {/* Attendee Presence */}
+                  {(() => {
+                    const timelines = [];
+                    callsToDisplay.forEach((c) => {
+                      const absoluteIdx = evaluatedCalls.findIndex(ec => ec.id === c.id);
+                      const callLabel = callsToDisplay.length > 1 ? `Call ${absoluteIdx + 1}` : null;
+                      if (c.insights_data?.attendee_timeline) {
+                        timelines.push({
+                          callLabel,
+                          start_time: c.insights_data.actual_meeting_start_time,
+                          attendees: c.insights_data.attendee_timeline
+                        });
+                      }
+                    });
+                    
+                    if (timelines.length === 0) return null;
+                    
+                    return (
+                      <Card className="shadow-md mt-6 border-slate-200 overflow-hidden p-0 gap-0">
+                        <CardHeader className="p-4 pb-3 border-b bg-slate-50">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <BrainCircuit className="w-4 h-4 text-purple-500" /> Attendee Presence (Sensor Fusion)
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-5">
+                          <div className="space-y-6">
+                            {timelines.map((tl, i) => (
+                              <div key={i} className="flex flex-col gap-3">
+                                {tl.callLabel && <div className="text-[11px] font-bold text-slate-500 uppercase">{tl.callLabel}</div>}
+                                {tl.start_time && (
+                                  <div className="flex items-center gap-2 text-sm text-slate-700 bg-purple-50 border border-purple-100 px-3 py-2 rounded-md font-medium w-fit">
+                                    <Clock className="w-4 h-4 text-purple-500" />
+                                    Actual Meeting Start: <span className="font-bold text-purple-700">{tl.start_time}</span>
+                                  </div>
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                                  {tl.attendees.map((attendee, idx) => (
+                                    <div key={idx} className="flex items-start gap-3 border border-slate-100 rounded-lg p-3 bg-white shadow-sm">
+                                      <div className="bg-blue-50 p-1.5 rounded-md mt-0.5">
+                                        <User className="w-4 h-4 text-blue-500" />
+                                      </div>
+                                      <div>
+                                        <div className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                                          {attendee.person || (attendee.roles ? attendee.roles.join(', ') : 'Unknown')}
+                                          <Badge variant="outline" className={cn("text-[9px] h-4 py-0 px-1.5 font-bold", (attendee.status || '').includes('Left') ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200')}>
+                                            {attendee.status || (attendee.faces_detected !== undefined ? `${attendee.faces_detected} faces detected` : 'Present')}
+                                          </Badge>
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-1 font-mono">
+                                          <Clock className="w-3 h-3" /> {attendee.start_time} - {attendee.end_time}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+
                   {/* Buying Intent Analysis */}
                   {(() => {
                     const highIntent = [];
@@ -90,7 +153,6 @@ export default function OverviewTab({ lead, callsToDisplay, evaluatedCalls, acti
                       </Card>
                     );
                   })()}
-
 
                   {/* BANT Analysis */}
                   {(() => {
