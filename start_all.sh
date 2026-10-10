@@ -22,7 +22,7 @@ cd frontend && npm run dev &
 VITE_PID=$!
 
 echo "Starting ASR Worker (port 8000)..."
-cd asr_backend && source venv/bin/activate && uvicorn api.api_webhook:app --reload --reload-dir asr --reload-dir api --reload-dir worker --reload-dir coaching --port 8000 &
+cd asr_backend && source venv/bin/activate && uvicorn api.api_webhook:app --reload --reload-dir asr --reload-dir api --reload-dir worker --port 8000 &
 ASR_PID=$!
 
 echo ""

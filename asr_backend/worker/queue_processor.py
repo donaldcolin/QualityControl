@@ -44,7 +44,11 @@ def process_queue_item(queue_id: str):
         audio_url = row["audio_url"]
         language = row["language"]
         call_type = row.get("call_type", "")
-        source = "google_meet" if call_type == "Video Demo" else "phone_call"
+        # If it's explicitly a Video Demo or it's a locally uploaded MP4/MKV video, treat it as a google_meet demo
+        if call_type == "Video Demo" or str(audio_url).lower().endswith(('.mp4', '.mkv', '.webm', '.mov')):
+            source = "google_meet"
+        else:
+            source = "phone_call"
         
         # Update status
         supabase.table("callizer_queue").update({"status": "Initializing..."}).eq("id", queue_id).execute()
@@ -154,8 +158,15 @@ def process_queue_item(queue_id: str):
                 logger.info(f"[{queue_id}] Running computer vision video analysis...")
                 import video_analyzer
                 
-                # temp_audio directory is where drive_audio_extractor.js puts the temp mp4
-                temp_mp4_path = local_audio_path.parent / f"{queue_id}_temp.mp4"
+                # temp_audio directory is where drive_audio_extractor.js puts the temp mp4, 
+                # but if it's a local upload, local_audio_path is already the mp4 file.
+                if str(local_audio_path).lower().endswith(('.mp4', '.mkv', '.mov', '.webm')):
+                    temp_mp4_path = local_audio_path
+                    is_temp = False
+                else:
+                    temp_mp4_path = local_audio_path.parent / f"{queue_id}_temp.mp4"
+                    is_temp = True
+
                 if temp_mp4_path.exists():
                     # Process slides and analyze video
                     WORKSPACE = "/Users/donaldcolin/Developer/Quality Control"
@@ -186,12 +197,13 @@ def process_queue_item(queue_id: str):
                     )
                     logger.info(f"[{queue_id}] Video analysis complete. Timeline saved to {json_report_path}")
                     
-                    # Clean up the large temp video file now that vision analysis is done
-                    try:
-                        temp_mp4_path.unlink()
-                        logger.info(f"[{queue_id}] Deleted heavy temp mp4 file: {temp_mp4_path.name}")
-                    except OSError as e:
-                        logger.warning(f"Failed to delete {temp_mp4_path}: {e}")
+                    # Clean up the large temp video file now that vision analysis is done (only if it was a drive temp file)
+                    if is_temp:
+                        try:
+                            temp_mp4_path.unlink()
+                            logger.info(f"[{queue_id}] Deleted heavy temp mp4 file: {temp_mp4_path.name}")
+                        except OSError as e:
+                            logger.warning(f"Failed to delete {temp_mp4_path}: {e}")
                 else:
                     logger.warning(f"[{queue_id}] Expected {temp_mp4_path} for google_meet but it was missing!")
             except Exception as e:

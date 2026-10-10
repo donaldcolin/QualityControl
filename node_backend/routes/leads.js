@@ -96,6 +96,15 @@ router.get('/:id', async (req, res) => {
 
   const enrichedCalls = (calls || []).map(c => {
     const evaluation = evalMap[c.id];
+    
+    // Resolve visual timeline
+    let visualTimeline = null;
+    if (evaluation?.results?.visual_timeline) {
+      visualTimeline = evaluation.results.visual_timeline;
+    } else if (c.insights_data?.visual_timeline) {
+      visualTimeline = c.insights_data.visual_timeline;
+    }
+
     if (evaluation && evaluation.results) {
       c.insights_data = evaluation.results.insights_data;
       c.quality_data = evaluation.results.quality_data;
@@ -110,6 +119,8 @@ router.get('/:id', async (req, res) => {
         c.call_quality_raw = evaluation.results.call_quality_raw;
       }
     }
+    
+    c.visual_timeline = visualTimeline;
     return c;
   });
 

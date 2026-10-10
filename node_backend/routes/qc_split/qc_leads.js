@@ -149,10 +149,19 @@ router.get('/leads/:id', async (req, res) => {
         c.qc_results = evaluation.results.qc_results;
       }
       c.visual_timeline = resolveVisualTimeline(c, evaluation);
+      if (c.source === 'google_meet') {
+        console.log(`[DEBUG] Call ${c.id}: eval exists=${!!evaluation}, eval.results.visual_timeline=${!!evaluation?.results?.visual_timeline}, c.insights_data.visual_timeline=${!!c.insights_data?.visual_timeline}, resolved=${!!c.visual_timeline}`);
+      }
       return c;
     });
 
     lead.calls = enrichedCalls;
+    // DEBUG: check if visual_timeline survived enrichment
+    enrichedCalls.forEach(c => {
+      if (c.source === 'google_meet') {
+        console.log(`[DEBUG-RESPONSE] Call ${c.id}: visual_timeline=${!!c.visual_timeline}, keys=${c.visual_timeline ? Object.keys(c.visual_timeline) : 'N/A'}`);
+      }
+    });
     res.json(lead);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -5,17 +5,19 @@ import { cn } from "@/lib/utils";
 import { TabsContent } from "@/components/ui/tabs";
 
 const SlideTimelineTab = ({ activeCall }) => {
-  const visualTimeline = activeCall?.insights_data?.visual_timeline;
+  const visualTimeline = activeCall?.visual_timeline || activeCall?.insights_data?.visual_timeline;
 
   if (!visualTimeline) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-slate-500">
-        <Monitor className="w-12 h-12 mb-4 text-slate-300" />
-        <h3 className="text-lg font-bold">No Visual Timeline Available</h3>
-        <p className="mt-2 text-sm text-center max-w-sm">
-          This call does not have visual timeline data. This might be an audio-only call or the video analysis was not completed.
-        </p>
-      </div>
+      <TabsContent value="timeline" className="h-full mt-0">
+        <div className="flex flex-col items-center justify-center p-12 text-slate-500">
+          <Monitor className="w-12 h-12 mb-4 text-slate-300" />
+          <h3 className="text-lg font-bold">No Visual Timeline Available</h3>
+          <p className="mt-2 text-sm text-center max-w-sm">
+            This call does not have visual timeline data. This might be an audio-only call or the video analysis was not completed.
+          </p>
+        </div>
+      </TabsContent>
     );
   }
 
