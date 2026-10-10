@@ -841,6 +841,18 @@ async function getQualityChecks(source) {
 }
 
 async function getDataCaptureQuestions(source) {
+  // Always prioritize the dedicated table
+  const { data: questions } = await supabase
+    .from('data_capture_questions')
+    .select('*')
+    .eq('source', source)
+    .order('sort_order', { ascending: true });
+    
+  if (questions && questions.length > 0) {
+    return questions;
+  }
+  
+  // Fallback to rubric embedded questions
   const rubric = await getActiveRubricVersion(source);
   if (!rubric) return [];
   return getDataCaptureQuestionsFromRubric(rubric);
