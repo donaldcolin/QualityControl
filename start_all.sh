@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "Starting Node Backend (port 3000)..."
-cd node_backend && node server.js &
+cd node_backend && node --watch server.js &
 NODE_PID=$!
 
 echo "Starting Frontend (port 5173)..."

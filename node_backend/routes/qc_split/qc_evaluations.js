@@ -833,14 +833,10 @@ router.get('/dashboard_kpis', async (req, res) => {
       .from('calls')
       .select('*', { count: 'exact', head: true });
 
-    // 3. Aggregate performance stats from recent working window (default: last 30 days)
-    const days = parseInt(req.query.days || '30', 10);
-    const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
+    // 3. Aggregate performance stats from calls
     const { data: calls, error: callsErr } = await supabase
       .from('calls')
-      .select('call_quality_score, talk_to_listen_ratio, created_at')
-      .gte('created_at', windowStart);
+      .select('call_quality_score, talk_to_listen_ratio');
 
     if (callsErr) throw callsErr;
 
@@ -868,10 +864,15 @@ router.get('/dashboard_kpis', async (req, res) => {
       ? `${Math.round(totalAgentPct / ratioCount)}:${100 - Math.round(totalAgentPct / ratioCount)}`
       : '50:50';
 
-    // Calls analyzed today
+    // Calls analyzed today (from callizer_queue which possesses created_at timestamp)
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
-    const callsToday = (calls || []).filter(c => c.created_at && new Date(c.created_at) >= startOfToday).length;
+    const { count: callsTodayCount } = await supabase
+      .from('callizer_queue')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'completed')
+      .gte('created_at', startOfToday.toISOString());
+    const callsToday = callsTodayCount || 0;
 
     res.json({
       active_associates: associatesCount || 0,

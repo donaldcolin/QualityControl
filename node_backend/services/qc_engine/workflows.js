@@ -55,13 +55,12 @@ async function evaluateLeadJourney(leadId) {
     return;
   }
 
-  // 2. Fetch the newly evaluated calls (ordered by date)
+  // 2. Fetch the newly evaluated calls
   const { data: calls } = await supabase
     .from('calls')
-    .select('id, created_at, source, duration_sec, transcript, summary_data, insights_data, filename, qc_status')
+    .select('id, source, duration_sec, transcript, summary_data, insights_data, filename, qc_status')
     .eq('prospect_id', leadId)
-    .in('qc_status', ['evaluated', 'completed', 'fatal_audit_failure'])
-    .order('created_at', { ascending: true });
+    .in('qc_status', ['evaluated', 'completed', 'fatal_audit_failure']);
 
   if (!calls || calls.length === 0) return;
 
@@ -90,7 +89,7 @@ async function evaluateLeadJourney(leadId) {
 
     return `
 --- Touchpoint ${calls.length - recentCalls.length + idx + 1} (${c.source || 'telephony'}) ---
-Date: ${c.created_at}
+Date: ${c.created_at || 'Recent'}
 Duration: ${Math.round((c.duration_sec || 0)/60)} mins
 ${contentBlock}
 `;

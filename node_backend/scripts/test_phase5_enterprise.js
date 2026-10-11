@@ -91,10 +91,10 @@ runTest('Quality checks and Demo Seed endpoints require admin role', () => {
 });
 
 // ── TEST 8: Dashboard KPI PostgREST Query Optimization ──
-runTest('Dashboard KPIs use head counts and 30-day bounded query', () => {
+runTest('Dashboard KPIs use head counts and schema-safe aggregations', () => {
   const qcEvalSrc = fs.readFileSync(path.join(__dirname, '../routes/qc_split/qc_evaluations.js'), 'utf8');
   assert(qcEvalSrc.includes("select('*', { count: 'exact', head: true })"), 'dashboard_kpis must use head count query');
-  assert(qcEvalSrc.includes(".gte('created_at', windowStart)"), 'dashboard_kpis must bound query with windowStart');
+  assert(qcEvalSrc.includes("from('callizer_queue')"), 'dashboard_kpis must query callsToday from callizer_queue');
 });
 
 console.log(`\n================================================================`);
