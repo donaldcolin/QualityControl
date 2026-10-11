@@ -17,7 +17,7 @@ router.get('/:phone', async (req, res) => {
         Parameter: { LookupName: "Phone", LookupValue: phoneStr, SqlType: "nvarchar" },
         Columns: { Include_CSV: "ProspectID,FirstName,LastName,Phone,Source,ProspectStage,OwnerId" },
         Paging: { PageIndex: 1, PageSize: 5 }
-      });
+      }, { timeout: 10000 });
       return res.data || [];
     };
 

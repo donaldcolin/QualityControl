@@ -44,7 +44,8 @@ router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) =
         associates_scanned: 0,
         leads_found: 0,
         calls_queued: 0,
-        calls_skipped: 0
+        calls_skipped: 0,
+        crm_timeouts: 0
       },
       last_error: null
     };
@@ -63,6 +64,7 @@ router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) =
       let totalLeadsFound = 0;
       let totalCallsQueued = 0;
       let totalCallsSkipped = 0;
+      let totalTimeouts = 0;
 
       try {
         for (const assoc of (associates || [])) {
@@ -100,17 +102,28 @@ router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) =
                   }
                 }
               } catch (leadErr) {
-                console.error(`[Orchestrator] Failed fetching activities for lead ${lead.prospect_id}:`, leadErr.message);
+                if (leadErr.code === 'ECONNABORTED' || leadErr.message?.includes('timeout')) {
+                  totalTimeouts++;
+                  console.warn(`⚠️ [Orchestrator] LSQ Timeout fetching activities for lead ${lead.prospect_id}`);
+                } else {
+                  console.error(`[Orchestrator] Failed fetching activities for lead ${lead.prospect_id}:`, leadErr.message);
+                }
               }
             }
           } catch (assocErr) {
-            console.error(`[Orchestrator] Failed fetching leads for associate ${assoc.emp_number}:`, assocErr.message);
+            if (assocErr.code === 'ECONNABORTED' || assocErr.message?.includes('timeout')) {
+              totalTimeouts++;
+              console.warn(`⚠️ [Orchestrator] LSQ Timeout fetching leads for associate ${assoc.emp_number}`);
+            } else {
+              console.error(`[Orchestrator] Failed fetching leads for associate ${assoc.emp_number}:`, assocErr.message);
+            }
           }
 
           currentScan.summary.associates_scanned++;
           currentScan.summary.leads_found = totalLeadsFound;
           currentScan.summary.calls_queued = totalCallsQueued;
           currentScan.summary.calls_skipped = totalCallsSkipped;
+          currentScan.summary.crm_timeouts = totalTimeouts;
         }
 
         console.log(`✅ [Orchestrator] Background scan ${scanId} finished. Queued: ${totalCallsQueued}, Skipped: ${totalCallsSkipped}`);

@@ -764,13 +764,16 @@ router.post('/activities/push_demo_to_qc', async (req, res) => {
       }, { onConflict: 'id', ignoreDuplicates: true });
     }
 
-    // 2. Fetch recording MP4 link from Google Drive via internal loopback
+    // 2. Fetch recording MP4 link from Google Drive via internal loopback with worker auth
     const port = process.env.PORT || 3000;
+    const workerToken = process.env.INTERNAL_WORKER_SECRET;
+    const loopbackConfig = workerToken ? { headers: { Authorization: `Bearer ${workerToken}` }, timeout: 15000 } : { timeout: 15000 };
+
     const driveParams = new URLSearchParams();
     if (phone) driveParams.append('phone', phone);
     if (name) driveParams.append('name', name);
 
-    const driveRes = await axios.get(`http://localhost:${port}/api/drive/recording?${driveParams.toString()}`);
+    const driveRes = await axios.get(`http://localhost:${port}/api/drive/recording?${driveParams.toString()}`, loopbackConfig);
     const driveLink = driveRes.data?.webViewLink;
 
     if (!driveLink) {
@@ -782,7 +785,7 @@ router.post('/activities/push_demo_to_qc', async (req, res) => {
       drive_link: driveLink,
       language: language || 'hi', 
       prospect_id: prospect_id
-    });
+    }, loopbackConfig);
 
     console.log(`🎥 [Demo QC] Google Meet video queued for ASR pipeline. Prospect: ${prospect_id}, Queue ID: ${queueRes.data?.queue_id}`);
     res.json({ success: true, status: 'queued_for_asr', queue_id: queueRes.data?.queue_id });
@@ -820,19 +823,28 @@ router.post('/qc/evaluate_journey', requireAuth, requireRole(['admin', 'ai_worke
 
 router.get('/dashboard_kpis', async (req, res) => {
   try {
-    // 1. Active associates count
+    // 1. Active associates count (lightweight head query)
     const { count: associatesCount } = await supabase
       .from('qc_associates')
       .select('*', { count: 'exact', head: true });
 
-    // 2. Aggregate stats from calls
+    // 2. Total lifetime calls count (zero row memory payload via PostgREST head query)
+    const { count: totalCallsCount } = await supabase
+      .from('calls')
+      .select('*', { count: 'exact', head: true });
+
+    // 3. Aggregate performance stats from recent working window (default: last 30 days)
+    const days = parseInt(req.query.days || '30', 10);
+    const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
     const { data: calls, error: callsErr } = await supabase
       .from('calls')
-      .select('call_quality_score, talk_to_listen_ratio, created_at');
+      .select('call_quality_score, talk_to_listen_ratio, created_at')
+      .gte('created_at', windowStart);
 
     if (callsErr) throw callsErr;
 
-    const totalCalls = (calls || []).length;
+    const totalCalls = totalCallsCount || (calls || []).length;
     
     // Average QC Score
     const scoredCalls = (calls || []).filter(c => c.call_quality_score != null && !isNaN(c.call_quality_score));

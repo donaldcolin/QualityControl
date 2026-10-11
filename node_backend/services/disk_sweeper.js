@@ -13,14 +13,41 @@ const TTL_MS = TTL_HOURS * 60 * 60 * 1000;
 
 // Safety window: Never touch files created/modified in the last 15 minutes
 const SAFETY_GRACE_MS = 15 * 60 * 1000;
+const HIGH_WATERMARK_PCT = 85; // Emergency threshold
+
+/**
+ * Checks disk usage percentage if supported by OS filesystem.
+ */
+function getDiskUsagePct() {
+  try {
+    if (fs.statfsSync) {
+      const stats = fs.statfsSync(STORAGE_ROOT);
+      const total = stats.bsize * stats.blocks;
+      const free = stats.bsize * stats.bfree;
+      if (total > 0) {
+        return ((total - free) / total) * 100;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
 
 /**
  * Sweeps temporary media directories and removes files exceeding TTL.
+ * Automatically activates emergency 2h purge if disk capacity exceeds 85%.
  */
 function sweepStorage(customTtlMs = TTL_MS) {
   const now = Date.now();
   let totalDeleted = 0;
   let bytesFreed = 0;
+
+  const usedPct = getDiskUsagePct();
+  let effectiveTtlMs = customTtlMs;
+
+  if (usedPct !== null && usedPct > HIGH_WATERMARK_PCT) {
+    console.warn(`🚨 [Disk Sweeper] High-watermark disk capacity reached (${usedPct.toFixed(1)}% used). Activating emergency 2-hour TTL purge.`);
+    effectiveTtlMs = 2 * 60 * 60 * 1000; // 2 hours emergency TTL
+  }
 
   for (const dir of TARGET_DIRS) {
     if (!fs.existsSync(dir)) continue;
@@ -37,8 +64,8 @@ function sweepStorage(customTtlMs = TTL_MS) {
 
           const fileAgeMs = now - stats.mtimeMs;
 
-          // If file is older than TTL and safely past the grace window
-          if (fileAgeMs > customTtlMs && fileAgeMs > SAFETY_GRACE_MS) {
+          // If file is older than effective TTL and safely past the grace window
+          if (fileAgeMs > effectiveTtlMs && fileAgeMs > SAFETY_GRACE_MS) {
             bytesFreed += stats.size;
             fs.unlinkSync(filePath);
             totalDeleted++;

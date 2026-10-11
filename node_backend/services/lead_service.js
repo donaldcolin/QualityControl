@@ -3,11 +3,15 @@ const { v4: uuidv4 } = require('uuid');
 const supabase = require('../config/supabase');
 const { lsqUrl } = require('../config/lsq');
 
+const lsqClient = axios.create({
+  timeout: 10000 // 10-second hard circuit breaker timeout
+});
+
 /**
  * Fetch leads owned by a specific sales associate from LeadSquared.
  */
 async function getLeadsForAssociate(userId, page = 1, pageSize = 50) {
-  const lsqRes = await axios.post(lsqUrl('LeadManagement.svc/Leads.Get'), {
+  const lsqRes = await lsqClient.post(lsqUrl('LeadManagement.svc/Leads.Get'), {
     Parameter: { LookupName: "OwnerId", LookupValue: userId, SqlType: "uniqueidentifier" },
     Columns: { Include_CSV: "ProspectID,FirstName,LastName,Phone,Source,ProspectStage,OwnerId" },
     Paging: { PageIndex: page, PageSize: pageSize }
@@ -28,7 +32,7 @@ async function getLeadsForAssociate(userId, page = 1, pageSize = 50) {
  * Fetch phone call and meeting activities for a prospect from LeadSquared.
  */
 async function getActivitiesForLead(prospectId) {
-  const actRes = await axios.post(
+  const actRes = await lsqClient.post(
     lsqUrl('ProspectActivity.svc/Retrieve') + `&leadId=${encodeURIComponent(prospectId)}`,
     { Paging: { Offset: "0", RowCount: "200" } }
   );

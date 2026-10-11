@@ -55,25 +55,46 @@ async function evaluateLeadJourney(leadId) {
     return;
   }
 
-  // 2. Fetch the newly evaluated calls (or just all calls ordered by date)
-  // To keep the rolling context pure, we fetch ALL calls to let the LLM see the timeline.
+  // 2. Fetch the newly evaluated calls (ordered by date)
   const { data: calls } = await supabase
     .from('calls')
-    .select('id, created_at, source, duration_sec, transcript, filename, qc_status')
+    .select('id, created_at, source, duration_sec, transcript, summary_data, insights_data, filename, qc_status')
     .eq('prospect_id', leadId)
     .in('qc_status', ['evaluated', 'completed', 'fatal_audit_failure'])
     .order('created_at', { ascending: true });
 
   if (!calls || calls.length === 0) return;
 
-  // 3. Construct the prompt
-  let transcriptHistory = calls.map((c, idx) => `
---- Touchpoint ${idx + 1} (${c.source || 'telephony'}) ---
+  // 3. Construct prompt with bounded context window (prevents token explosion on long funnels)
+  const MAX_JOURNEY_CALLS = 5;
+  const recentCalls = calls.length > MAX_JOURNEY_CALLS ? calls.slice(-MAX_JOURNEY_CALLS) : calls;
+  const lastIndex = recentCalls.length - 1;
+
+  let transcriptHistory = recentCalls.map((c, idx) => {
+    const isLatestCall = idx === lastIndex;
+    let contentBlock = '';
+
+    if (isLatestCall) {
+      // Latest call gets full transcript for rich grounding
+      contentBlock = `Full Transcript:\n${c.transcript || 'No transcript available'}`;
+    } else {
+      // Prior calls are compressed to structured summaries (saving up to 90% tokens)
+      const summaryList = Array.isArray(c.summary_data?.call_summary) 
+        ? c.summary_data.call_summary.join('; ')
+        : (typeof c.summary_data === 'string' ? c.summary_data : 'Call completed');
+      const keyPoints = Array.isArray(c.summary_data?.key_points)
+        ? c.summary_data.key_points.join('; ')
+        : '';
+      contentBlock = `Prior Call Summary: ${summaryList}\nKey Takeaways: ${keyPoints || 'N/A'}`;
+    }
+
+    return `
+--- Touchpoint ${calls.length - recentCalls.length + idx + 1} (${c.source || 'telephony'}) ---
 Date: ${c.created_at}
 Duration: ${Math.round((c.duration_sec || 0)/60)} mins
-Transcript:
-${c.transcript || 'No transcript'}
-`).join('\n\n');
+${contentBlock}
+`;
+  }).join('\n\n');
 
   const journeySchema = {
     type: 'object',

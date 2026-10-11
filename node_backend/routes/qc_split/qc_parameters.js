@@ -29,7 +29,7 @@ router.get('/quality_checks', async (req, res) => {
   }
 });
 
-router.post('/quality_checks', async (req, res) => {
+router.post('/quality_checks', requireRole(['admin']), async (req, res) => {
   const { source, category, parameter, check_question, description, max_score, parameter_type, mark_fatal, enable_subjective_marking, na_condition, auto_detect_na, default_na, applicable_only_once_per_customer, sort_order } = req.body;
   if (!category || !parameter) {
     return res.status(400).json({ error: 'category and parameter are required' });
@@ -47,7 +47,7 @@ router.post('/quality_checks', async (req, res) => {
   }
 });
 
-router.put('/quality_checks/:id', async (req, res) => {
+router.put('/quality_checks/:id', requireRole(['admin']), async (req, res) => {
   const { id } = req.params;
   const { source, category, parameter, check_question, description, max_score, parameter_type, mark_fatal, enable_subjective_marking, na_condition, auto_detect_na, default_na, applicable_only_once_per_customer, sort_order } = req.body;
   try {
@@ -64,7 +64,7 @@ router.put('/quality_checks/:id', async (req, res) => {
   }
 });
 
-router.delete('/quality_checks/:id', async (req, res) => {
+router.delete('/quality_checks/:id', requireRole(['admin']), async (req, res) => {
   try {
     const { error } = await supabase.from('qc_parameters').delete().eq('id', req.params.id);
     if (error) throw error;

@@ -204,7 +204,7 @@ router.get('/leads/:id', async (req, res) => {
   }
 });
 
-router.post('/demo/seed', async (req, res) => {
+router.post('/demo/seed', requireRole(['admin']), async (req, res) => {
   try {
     // 0. Ensure the demo owners exist in qc_associates
     const sivaName = 'Siva Sandhiya P';

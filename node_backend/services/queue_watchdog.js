@@ -14,11 +14,14 @@ async function sweepStaleQueueJobs(timeoutMs = STALE_TIMEOUT_MS) {
   let failedDownloads = 0;
   let resetLeases = 0;
 
+  const TERMINAL_STATUSES = ['completed', 'failed', 'fatal_audit_failure', 'rejected'];
+  const MAX_ATTEMPTS = 3;
+
   try {
-    // 1. Fail orphaned download jobs stuck in "Downloading Video..."
+    // 1. Fail orphaned download jobs stuck in explicit download states
     const { data: stuckDownloads, error: downloadErr } = await supabase
       .from('callizer_queue')
-      .select('id, call_id, created_at, errors')
+      .select('id, call_id, created_at, errors, attempt_count')
       .in('status', ['Downloading Video...', 'downloading'])
       .lt('created_at', thresholdIso);
 
@@ -51,29 +54,70 @@ async function sweepStaleQueueJobs(timeoutMs = STALE_TIMEOUT_MS) {
       console.log(`🛡️ [Queue Watchdog] Cleaned up ${failedDownloads} orphaned download jobs stuck past timeout.`);
     }
 
-    // 2. Recover dead worker leases stuck in "claimed" with expired lease
-    const { data: expiredLeases, error: leaseErr } = await supabase
+    // 2. Recover ANY abandoned in-flight worker job whose lease expired or timed out
+    // Catches 'claimed', 'Initializing...', 'Starting ASR pipeline...', 'Transcribing segment...', etc.
+    const { data: inFlightJobs, error: inFlightErr } = await supabase
       .from('callizer_queue')
-      .select('id, call_id, worker_id, lease_expires_at')
-      .eq('status', 'claimed')
-      .lt('lease_expires_at', now.toISOString());
+      .select('id, call_id, status, worker_id, lease_expires_at, claimed_at, created_at, attempt_count, errors')
+      .neq('status', 'pending');
 
-    if (leaseErr) {
-      console.warn('⚠️ [Queue Watchdog] Error checking expired leases:', leaseErr.message);
-    } else if (expiredLeases && expiredLeases.length > 0) {
-      for (const item of expiredLeases) {
-        await supabase
-          .from('callizer_queue')
-          .update({
-            status: 'pending',
-            worker_id: null,
-            claimed_at: null
-          })
-          .eq('id', item.id);
+    if (inFlightErr) {
+      console.warn('⚠️ [Queue Watchdog] Error checking in-flight jobs:', inFlightErr.message);
+    } else if (inFlightJobs && inFlightJobs.length > 0) {
+      for (const item of inFlightJobs) {
+        if (TERMINAL_STATUSES.includes(item.status)) continue;
 
-        resetLeases++;
+        // Check if lease is expired or if task was abandoned with no heartbeat past timeout
+        const isLeaseExpired = item.lease_expires_at && new Date(item.lease_expires_at) < now;
+        const isTimeExceeded = !item.lease_expires_at && (
+          (item.claimed_at && new Date(item.claimed_at) < new Date(now.getTime() - timeoutMs)) ||
+          (item.created_at && new Date(item.created_at) < new Date(now.getTime() - timeoutMs))
+        );
+
+        if (isLeaseExpired || isTimeExceeded) {
+          const attempts = (item.attempt_count || 0);
+
+          if (attempts >= MAX_ATTEMPTS) {
+            // Max retries exceeded -> Fail the job with an explicit error
+            let existingErrors = [];
+            try {
+              existingErrors = JSON.parse(item.errors || '[]');
+              if (!Array.isArray(existingErrors)) existingErrors = [];
+            } catch (_) {}
+
+            existingErrors.push({
+              stage: 'watchdog_max_retries',
+              error: `Job abandoned by worker in state "${item.status}" after ${attempts} attempts. Failsafe triggered.`,
+              timestamp: new Date().toISOString()
+            });
+
+            await supabase
+              .from('callizer_queue')
+              .update({
+                status: 'failed',
+                errors: JSON.stringify(existingErrors)
+              })
+              .eq('id', item.id);
+
+            console.warn(`🛑 [Queue Watchdog] Job ${item.id} exceeded max retries (${attempts}). Marked as failed.`);
+            failedDownloads++;
+          } else {
+            // Reclaim job and return to pending queue
+            await supabase
+              .from('callizer_queue')
+              .update({
+                status: 'pending',
+                worker_id: null,
+                claimed_at: null,
+                lease_expires_at: null
+              })
+              .eq('id', item.id);
+
+            resetLeases++;
+            console.log(`🔄 [Queue Watchdog] Reclaimed abandoned job ${item.id} from status "${item.status}" (Attempt ${attempts + 1}/${MAX_ATTEMPTS}).`);
+          }
+        }
       }
-      console.log(`🔄 [Queue Watchdog] Reclaimed ${resetLeases} orphaned jobs with expired worker leases.`);
     }
   } catch (err) {
     console.error('❌ [Queue Watchdog] Sweep failed unexpectedly:', err.message);

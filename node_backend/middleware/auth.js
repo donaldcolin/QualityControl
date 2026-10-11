@@ -2,7 +2,8 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
 const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
-const INTERNAL_WORKER_SECRET = process.env.INTERNAL_WORKER_SECRET || 'internal_qc_worker_secret_2026';
+const INTERNAL_WORKER_SECRET = process.env.INTERNAL_WORKER_SECRET;
+const isProd = process.env.NODE_ENV === 'production';
 
 /**
  * Constant-time comparison between two string secrets to prevent timing attacks.
@@ -30,12 +31,10 @@ function requireAuth(req, res, next) {
 
   const token = authHeader.slice(7).trim();
 
-  // 1. Check against Internal Worker Secret with constant-time equality
-  const isWorkerToken = 
-    timingSafeCompare(token, INTERNAL_WORKER_SECRET) ||
-    (process.env.INTERNAL_WORKER_SECRET && timingSafeCompare(token, process.env.INTERNAL_WORKER_SECRET)) ||
-    timingSafeCompare(token, 'internal_qc_worker_secret_2026') ||
-    timingSafeCompare(token, 'internal_ai_worker_token');
+  // 1. Check against Internal Worker Secret strictly from environment
+  const isWorkerToken = Boolean(
+    INTERNAL_WORKER_SECRET && timingSafeCompare(token, INTERNAL_WORKER_SECRET)
+  );
 
   if (isWorkerToken) {
     req.user = {
@@ -53,7 +52,10 @@ function requireAuth(req, res, next) {
       req.user = decoded;
       return next();
     } else {
-      // Decode JWT payload if SUPABASE_JWT_SECRET is not explicitly provided in environment
+      if (isProd) {
+        return res.status(401).json({ error: 'Production authentication failed: SUPABASE_JWT_SECRET must be configured' });
+      }
+      // Development-only fallback: decode claims when SUPABASE_JWT_SECRET is not yet provisioned
       const decoded = jwt.decode(token);
       if (decoded && typeof decoded === 'object') {
         req.user = decoded;

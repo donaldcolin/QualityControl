@@ -36,8 +36,16 @@ function validateEnvironment() {
     warnings.push("GEMINI_API_KEY is not set. AI evaluation will be unavailable.");
   }
 
-  if (!process.env.JWT_SECRET && isProd) {
-    warnings.push("JWT_SECRET is using default fallback secret. Set a unique JWT_SECRET for production.");
+  if (!process.env.INTERNAL_WORKER_SECRET) {
+    if (isProd) {
+      errors.push("Missing required environment variable: INTERNAL_WORKER_SECRET");
+    } else {
+      warnings.push("INTERNAL_WORKER_SECRET is not set. Microservice worker authentication will fail.");
+    }
+  }
+
+  if (!process.env.SUPABASE_JWT_SECRET && isProd) {
+    errors.push("SUPABASE_JWT_SECRET is required in production to cryptographically verify client JWT signatures.");
   }
 
   // 2. Ensure Required Storage Directories Exist

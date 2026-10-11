@@ -17,7 +17,7 @@ router.get('/sync', async (req, res) => {
       return res.status(400).json({ error: "LeadSquared API keys not set in .env" });
     }
 
-    const lsqRes = await axios.get(lsqUrl('UserManagement.svc/Users.Get'));
+    const lsqRes = await axios.get(lsqUrl('UserManagement.svc/Users.Get'), { timeout: 10000 });
 
     let data = [];
     if (lsqRes.data && Array.isArray(lsqRes.data)) {

@@ -4,6 +4,7 @@ import json
 import logging
 import requests
 import threading
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -121,7 +122,12 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
                 logger.info(f"[{queue_id}] {msg}")
                 
             try:
-                supabase.table("callizer_queue").update({"status": msg}).eq("id", queue_id).execute()
+                # Extend worker lease dynamically during active transcription so long jobs are not reclaimed
+                expiry_iso = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+                supabase.table("callizer_queue").update({
+                    "status": msg,
+                    "lease_expires_at": expiry_iso
+                }).eq("id", queue_id).execute()
             except Exception as e:
                 logger.warning(f"\nFailed to update status for {queue_id} (non-fatal): {e}")
 
