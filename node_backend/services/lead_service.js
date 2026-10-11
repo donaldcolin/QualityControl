@@ -123,7 +123,8 @@ async function pushActivityToQCQueue({
   client_number,
   language = 'hi',
   lead_name,
-  lead_source
+  lead_source,
+  call_date
 }) {
   if (!resource_url) {
     const err = new Error("No recording URL available for this activity");
@@ -168,7 +169,7 @@ async function pushActivityToQCQueue({
 
   const queue_id = uuidv4();
 
-  const { error: insertErr } = await supabase.from('callizer_queue').insert({
+  const queuePayload = {
     id: queue_id,
     call_id: activity_id,
     audio_url: resource_url,
@@ -180,7 +181,23 @@ async function pushActivityToQCQueue({
     duration: parseFloat(duration) || 0,
     prospect_id: prospect_id || '',
     errors: '[]'
-  });
+  };
+
+  if (call_date) {
+    try {
+      queuePayload.call_date = new Date(call_date).toISOString();
+    } catch (e) {
+      console.warn("Invalid call_date format:", call_date);
+    }
+  }
+
+  let { error: insertErr } = await supabase.from('callizer_queue').insert(queuePayload);
+  if (insertErr && insertErr.message && insertErr.message.includes('call_date')) {
+    console.warn("⚠️ [Queue] 'call_date' column missing in callizer_queue. Retrying without call_date. (Run v3_call_date_migration.sql in Supabase)");
+    delete queuePayload.call_date;
+    const retry = await supabase.from('callizer_queue').insert(queuePayload);
+    insertErr = retry.error;
+  }
 
   if (insertErr) throw insertErr;
 

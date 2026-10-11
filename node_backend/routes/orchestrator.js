@@ -87,7 +87,8 @@ router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) =
                         prospect_id: act.prospect_id,
                         emp_number: assoc.emp_number,
                         client_number: lead.phone,
-                        language: 'hi'
+                        language: 'hi',
+                        call_date: act.created_on
                       });
                       if (pushRes && pushRes.status === 'queued') {
                         totalCallsQueued++;

@@ -21,7 +21,7 @@ You must judge the associate based on where they are in this cycle.`;
 
   if (source !== 'google_meet') {
     ctx += `\n\nEXPECTED CALL STRUCTURE (1:1 COUNSELLING BOOKING CALL - 10 STAGES):
-1. Warm Opening: Establish context, ask about 12th Std stream, and check if they know Kalvium.
+1. Warm Opening: Establish context, ask about 12th Std stream (note: in Tamil Nadu / South India, "Bio-Maths" is PCMB and "Computer Science" is PCMC — both include Physics, Chemistry & Maths and qualify for B.Tech CSE), and check if they know Kalvium.
 2. Probing and Aligning: Understand their current college search status, post-12th plans, and learning style (practical vs theory).
 3. Understand Student + Parent Priorities: Go past generic priorities and surface internal conflicts.
 4. Introduce Kalvium Based on Answers: Create curiosity about the gap in the current education market before introducing Kalvium.

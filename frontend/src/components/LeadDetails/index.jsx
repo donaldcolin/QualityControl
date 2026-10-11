@@ -283,7 +283,21 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
       const gradeVal = String(validGrade.value).toLowerCase();
       const streamVal = String(validStream.value).toLowerCase();
       const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
-      const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
+      const isPCM = 
+        streamVal.includes('pcm') ||
+        streamVal.includes('pcmc') ||
+        streamVal.includes('pcmb') ||
+        streamVal.includes('mpc') ||
+        streamVal.includes('science') ||
+        streamVal.includes('bio-math') ||
+        streamVal.includes('biomath') ||
+        streamVal.includes('bio math') ||
+        streamVal.includes('bio') ||
+        streamVal.includes('math') ||
+        streamVal.includes('computer science') ||
+        streamVal.includes('computer') ||
+        streamVal.includes('cs') ||
+        streamVal.includes('bpc');
       return (is12 && isPCM) ? 'SQL' : 'No SQL';
     }
 
@@ -294,7 +308,20 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
       if (classParam && classParam.reason) {
         const reason = classParam.reason.toLowerCase();
         const is12 = reason.includes('12') || reason.includes('twelfth');
-        const isPCM = reason.includes('pcm') || reason.includes('science') || reason.includes('bio') || reason.includes('math') || reason.includes('computer');
+        const isPCM = 
+          reason.includes('pcm') ||
+          reason.includes('pcmc') ||
+          reason.includes('pcmb') ||
+          reason.includes('mpc') ||
+          reason.includes('science') ||
+          reason.includes('bio-math') ||
+          reason.includes('biomath') ||
+          reason.includes('bio math') ||
+          reason.includes('bio') ||
+          reason.includes('math') ||
+          reason.includes('computer') ||
+          reason.includes('cs') ||
+          reason.includes('bpc');
         if (is12 || isPCM) {
           return (is12 && isPCM) ? 'SQL' : 'No SQL';
         }

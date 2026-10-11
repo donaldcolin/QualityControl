@@ -662,6 +662,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       const callSnapshot = {
         call_number: thisCallNumber,
         call_id: callIdToUpdate,
+        call_date: activeCallData?.call_date || null,
         intent_score: thisCallIntentScore,
         source: effectiveSource,
         evaluated_at: new Date().toISOString()

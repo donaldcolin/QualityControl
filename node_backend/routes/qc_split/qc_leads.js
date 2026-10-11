@@ -114,6 +114,17 @@ router.get('/leads', async (req, res) => {
         if (!callsByProspect[c.prospect_id]) callsByProspect[c.prospect_id] = [];
         callsByProspect[c.prospect_id].push(c);
       });
+
+      Object.values(callsByProspect).forEach(prospectCalls => {
+        prospectCalls.sort((a, b) => {
+          if (a.call_date && b.call_date) {
+            return new Date(a.call_date).getTime() - new Date(b.call_date).getTime();
+          }
+          if (a.call_date) return -1;
+          if (b.call_date) return 1;
+          return String(a.id || '').localeCompare(String(b.id || ''));
+        });
+      });
     }
 
     const leadsWithCounts = leads.map(l => {
@@ -146,13 +157,34 @@ router.get('/leads/:id', async (req, res) => {
       
     if (leadError) throw leadError;
     
-    const { data: calls, error: callsError } = await supabase
+    let { data: calls, error: callsError } = await supabase
       .from('calls')
       .select('*')
       .eq('prospect_id', req.params.id)
-      .order('id', { ascending: true });
+      .order('call_date', { ascending: true, nullsFirst: false });
+      
+    if (callsError && callsError.message && callsError.message.includes('call_date')) {
+      const fallback = await supabase
+        .from('calls')
+        .select('*')
+        .eq('prospect_id', req.params.id)
+        .order('id', { ascending: true });
+      calls = fallback.data;
+      callsError = fallback.error;
+    }
       
     if (callsError) throw callsError;
+
+    if (calls) {
+      calls.sort((a, b) => {
+        if (a.call_date && b.call_date) {
+          return new Date(a.call_date).getTime() - new Date(b.call_date).getTime();
+        }
+        if (a.call_date) return -1;
+        if (b.call_date) return 1;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    }
 
     // Fetch evaluation_runs and enrich calls (chunked to prevent HTTP 414)
     const callIds = (calls || []).map(c => c.id);

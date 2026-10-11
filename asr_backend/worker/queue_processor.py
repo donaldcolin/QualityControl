@@ -58,6 +58,7 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
         audio_url = row["audio_url"]
         language = row["language"]
         call_type = row.get("call_type", "")
+        call_date = row.get("call_date")
         # If it's explicitly a Video Demo or it's a locally uploaded MP4/MKV video, treat it as a google_meet demo
         if call_type == "Video Demo" or str(audio_url).lower().endswith(('.mp4', '.mkv', '.webm', '.mov')):
             source = "google_meet"
@@ -250,9 +251,19 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
             "participant_stats": json.dumps(participant_stats),
             "role_assignment_method": result.get("role_assignment_method", "heuristic"),
         }
+        if call_date:
+            call_data["call_date"] = call_date
         
         logger.info(f"[{queue_id}] Inserting call data into Supabase...")
-        supabase.table("calls").insert(call_data).execute()
+        try:
+            supabase.table("calls").insert(call_data).execute()
+        except Exception as insert_err:
+            if "call_date" in str(insert_err):
+                logger.warning(f"[{queue_id}] 'call_date' column missing in calls table. Retrying without call_date. (Run v3_call_date_migration.sql in Supabase)")
+                call_data.pop("call_date", None)
+                supabase.table("calls").insert(call_data).execute()
+            else:
+                raise insert_err
         logger.info(f"[{queue_id}] Saved call data to Supabase (ID: {internal_call_id})")
 
         # 5. Run QC Coaching via QA_LLm service

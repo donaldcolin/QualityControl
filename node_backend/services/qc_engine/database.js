@@ -76,19 +76,40 @@ async function getPastCalls(prospectId, currentCallId) {
   let query = supabase
     .from('calls')
     .select('*')
-    .eq('prospect_id', prospectId)
-    .order('id', { ascending: true });
+    .eq('prospect_id', prospectId);
 
   if (currentCallId) {
     query = query.neq('id', currentCallId);
   }
 
-  const { data, error } = await query;
+  let { data, error } = await query.order('call_date', { ascending: true, nullsFirst: false });
+  if (error && error.message && error.message.includes('call_date')) {
+    // Graceful fallback if call_date column has not yet been migrated in Supabase
+    let fallbackQuery = supabase
+      .from('calls')
+      .select('*')
+      .eq('prospect_id', prospectId);
+    if (currentCallId) fallbackQuery = fallbackQuery.neq('id', currentCallId);
+    const fallback = await fallbackQuery.order('id', { ascending: true });
+    data = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) {
     console.error("Failed to fetch past calls:", error.message);
     return [];
   }
   const calls = data || [];
+
+  // Deterministic in-memory chronological sort (call_date ASC, fallback to id ASC)
+  calls.sort((a, b) => {
+    if (a.call_date && b.call_date) {
+      return new Date(a.call_date).getTime() - new Date(b.call_date).getTime();
+    }
+    if (a.call_date) return -1;
+    if (b.call_date) return 1;
+    return String(a.id).localeCompare(String(b.id));
+  });
 
   // Enrich calls with evaluation_runs data (insights_data, summary_data)
   // so the prompt builder has full prior analysis context

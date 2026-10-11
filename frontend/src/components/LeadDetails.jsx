@@ -210,7 +210,15 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
   }
 
   const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
-  const evaluatedCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
+  const rawEvaluatedCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
+  const evaluatedCalls = [...rawEvaluatedCalls].sort((a, b) => {
+    if (a.call_date && b.call_date) {
+      return new Date(a.call_date).getTime() - new Date(b.call_date).getTime();
+    }
+    if (a.call_date) return -1;
+    if (b.call_date) return 1;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
 
   if (!lead || allEvaluatedCalls.length === 0) {
     return (
@@ -275,7 +283,52 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     const streamVal = String(validStream.value).toLowerCase();
 
     const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
-    const isPCM = streamVal.includes('pcm') || streamVal.includes('science') || streamVal.includes('bio') || streamVal.includes('math') || streamVal.includes('computer science') || streamVal.includes('computer');
+    const isPCM = 
+      streamVal.includes('pcm') ||
+      streamVal.includes('pcmc') ||
+      streamVal.includes('pcmb') ||
+      streamVal.includes('mpc') ||
+      streamVal.includes('science') ||
+      streamVal.includes('bio-math') ||
+      streamVal.includes('biomath') ||
+      streamVal.includes('bio math') ||
+      streamVal.includes('bio') ||
+      streamVal.includes('math') ||
+      streamVal.includes('computer science') ||
+      streamVal.includes('computer') ||
+      streamVal.includes('cs') ||
+      streamVal.includes('bpc');
+
+    if (validGrade && validStream) {
+      return (is12 && isPCM) ? 'SQL' : 'No SQL';
+    }
+
+    // Fallback for V3 Video Calls or Quality Data
+    for (const call of callsToDisplay) {
+      const qData = call.quality_data || {};
+      const classParam = qData['Class, Stream, Board and Location Captured'];
+      if (classParam && classParam.reason) {
+        const reason = classParam.reason.toLowerCase();
+        const rIs12 = reason.includes('12') || reason.includes('twelfth');
+        const rIsPCM = 
+          reason.includes('pcm') ||
+          reason.includes('pcmc') ||
+          reason.includes('pcmb') ||
+          reason.includes('mpc') ||
+          reason.includes('science') ||
+          reason.includes('bio-math') ||
+          reason.includes('biomath') ||
+          reason.includes('bio math') ||
+          reason.includes('bio') ||
+          reason.includes('math') ||
+          reason.includes('computer') ||
+          reason.includes('cs') ||
+          reason.includes('bpc');
+        if (rIs12 || rIsPCM) {
+          return (rIs12 && rIsPCM) ? 'SQL' : 'No SQL';
+        }
+      }
+    }
 
     return (is12 && isPCM) ? 'SQL' : 'No SQL';
   })();
@@ -435,7 +488,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                 value={selectedCallIdx.toString()}
                 onValueChange={(val) => setSelectedCallIdx(val === 'all' ? 'all' : parseInt(val))}
               >
-                <SelectTrigger className="w-[200px] bg-white border-slate-200 text-slate-900 font-bold h-11 rounded-lg shadow-sm">
+                <SelectTrigger className="min-w-[240px] max-w-[320px] bg-white border-slate-200 text-slate-900 font-bold h-11 rounded-lg shadow-sm">
                   <div className="flex items-center gap-2">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
                     <SelectValue placeholder="Select a call" />
@@ -445,11 +498,20 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                   <SelectItem value="all">
                     All Calls <span className="text-muted-foreground ml-2 text-xs">({evaluatedCalls.length})</span>
                   </SelectItem>
-                  {evaluatedCalls.map((c, idx) => (
-                    <SelectItem key={idx} value={idx.toString()}>
-                      Call {idx + 1} <span className="text-muted-foreground ml-2 text-xs">({c.duration_sec ? formatDuration(c.duration_sec) : '00:00'})</span>
-                    </SelectItem>
-                  ))}
+                  {evaluatedCalls.map((c, idx) => {
+                    let timeLabel = '';
+                    if (c.call_date) {
+                      try {
+                        const d = new Date(c.call_date);
+                        timeLabel = ` • ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}, ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+                      } catch (e) {}
+                    }
+                    return (
+                      <SelectItem key={c.id || idx} value={idx.toString()}>
+                        Call {idx + 1}{timeLabel} <span className="text-muted-foreground ml-2 text-xs">({c.duration_sec ? formatDuration(c.duration_sec) : '00:00'})</span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             )}

@@ -276,7 +276,8 @@ export default function TeamQC({ onPushToQueue }) {
         client_number: lead?.phone || '',
         language: lang,
         lead_name: lead?.name || 'Unknown',
-        lead_source: lead?.source || 'Phone'
+        lead_source: lead?.source || 'Phone',
+        call_date: activity.created_on
       });
       if (res.error) {
         alert(res.error);
