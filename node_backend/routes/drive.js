@@ -3,8 +3,12 @@ const router = express.Router();
 const { google } = require('googleapis');
 const path = require('path');
 const fs = require('fs');
+const { requireAuth } = require('../middleware/auth');
 
 const CREDENTIALS_PATH = path.join(__dirname, '../config/credentials.json');
+
+// Enforce authentication on all drive endpoints
+router.use(requireAuth);
 
 // Only init auth if credentials exist to prevent crashing
 let drive = null;
@@ -35,11 +39,11 @@ router.get('/transcript', async (req, res) => {
         const digits = phone.replace(/\D/g, '');
         const last10 = digits.slice(-10);
         if (last10 && last10.length > 5) {
-            conditions.push(`name contains '${last10}'`);
+            conditions.push(`name contains '${last10.replace(/'/g, "\\'")}'`);
         }
     }
     if (name) {
-        const firstName = name.split(' ')[0].toLowerCase();
+        const firstName = name.split(' ')[0].toLowerCase().replace(/'/g, "\\'");
         if (firstName.length > 2) {
             conditions.push(`name contains '${firstName}'`);
         }

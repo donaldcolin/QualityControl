@@ -1,6 +1,7 @@
 import fitz
 import os
-WORKSPACE = "/Users/donaldcolin/Developer/Quality Control"
+from pathlib import Path
+WORKSPACE = os.environ.get("WORKSPACE_DIR", str(Path(__file__).resolve().parent.parent))
 PDF_PATH = os.path.join(WORKSPACE, "storage", "reference_slides", "Kalvium_ B.Tech CSE to excel in career & life AY27.pdf")
 doc = fitz.open(PDF_PATH)
 for i in range(10):

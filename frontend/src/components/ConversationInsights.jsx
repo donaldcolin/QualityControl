@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAssociates, seedQCDemo } from '../api';
+import { getAssociates, getDashboardKPIs, seedQCDemo } from '../api';
 import { Users, ChevronRight, Activity, Target } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,20 +9,33 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 export default function ConversationInsights({ onSelectOwner }) {
   const [owners, setOwners] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [kpis, setKpis] = useState({
+    active_associates: 0,
+    avg_qc_score: null,
+    avg_talk_listen: '50:50',
+    calls_today: 0
+  });
 
   useEffect(() => {
-    loadOwners();
+    loadData();
   }, []);
 
-  const loadOwners = () => {
+  const loadData = () => {
     setLoading(true);
-    getAssociates().then(data => {
-      setOwners(data || []);
-      setLoading(false);
-    }).catch(e => {
-      console.error(e);
-      setLoading(false);
-    });
+    Promise.allSettled([getAssociates(), getDashboardKPIs()])
+      .then(([assocResult, kpiResult]) => {
+        if (assocResult.status === 'fulfilled' && Array.isArray(assocResult.value)) {
+          setOwners(assocResult.value);
+        }
+        if (kpiResult.status === 'fulfilled' && kpiResult.value && !kpiResult.value.error) {
+          setKpis(kpiResult.value);
+        }
+        setLoading(false);
+      })
+      .catch(e => {
+        console.error(e);
+        setLoading(false);
+      });
   };
 
 
@@ -42,7 +55,7 @@ export default function ConversationInsights({ onSelectOwner }) {
               <div className="flex items-center gap-4">
                  <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-600 shadow-inner"><Users className="w-5 h-5"/></div>
                  <div>
-                    <div className="text-2xl font-black text-slate-800">{owners.length}</div>
+                    <div className="text-2xl font-black text-slate-800">{kpis.active_associates || owners.length}</div>
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Active Associates</div>
                  </div>
               </div>
@@ -55,7 +68,9 @@ export default function ConversationInsights({ onSelectOwner }) {
               <div className="flex items-center gap-4">
                  <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600 shadow-inner"><Target className="w-5 h-5"/></div>
                  <div>
-                    <div className="text-2xl font-black text-slate-800">84%</div>
+                    <div className="text-2xl font-black text-slate-800">
+                      {kpis.avg_qc_score != null && kpis.avg_qc_score > 0 ? `${kpis.avg_qc_score}%` : 'N/A'}
+                    </div>
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Avg QC Score</div>
                  </div>
               </div>
@@ -68,7 +83,7 @@ export default function ConversationInsights({ onSelectOwner }) {
               <div className="flex items-center gap-4">
                  <div className="p-3 bg-amber-500/10 rounded-xl text-amber-600 shadow-inner"><Activity className="w-5 h-5"/></div>
                  <div>
-                    <div className="text-2xl font-black text-slate-800">42:58</div>
+                    <div className="text-2xl font-black text-slate-800">{kpis.avg_talk_listen || '50:50'}</div>
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Avg Talk:Listen</div>
                  </div>
               </div>
@@ -81,7 +96,7 @@ export default function ConversationInsights({ onSelectOwner }) {
               <div className="flex items-center gap-4">
                  <div className="p-3 bg-rose-500/10 rounded-xl text-rose-600 shadow-inner"><Activity className="w-5 h-5"/></div>
                  <div>
-                    <div className="text-2xl font-black text-slate-800">24</div>
+                    <div className="text-2xl font-black text-slate-800">{kpis.calls_today ?? 0}</div>
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-0.5">Calls Analyzed Today</div>
                  </div>
               </div>

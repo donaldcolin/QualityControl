@@ -2,6 +2,9 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const { lsqUrl } = require('../config/lsq');
+const { requireAuth } = require('../middleware/auth');
+
+router.use(requireAuth);
 
 router.get('/:phone', async (req, res) => {
   try {

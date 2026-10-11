@@ -1,4 +1,5 @@
 const { getInsightsSchema, getQualitySchema, getCombinedQualityCoachingSchema } = require('./schemas');
+const { universityFeeKB, bdPlaybook } = require('./index');
 const _staticPromptCache = new Map();
 
 function getKalviumContext(source, leadState = null) {
@@ -26,7 +27,7 @@ You must judge the associate based on where they are in this cycle.`;
 4. Introduce Kalvium Based on Answers: Create curiosity about the gap in the current education market before introducing Kalvium.
 5. Why connect early?: Frame KNET as a parallel pathway and timing advantage.
 6. Create Need for 1:1 Counselling: De-sell it; explain it's not a webinar and it's to gather info.
-7. University Structure (If asked): Student does NOT choose a university now, only a preferred state/location.
+7. University Structure (If asked): Student indicates preferred location/state; mentioning genuine partner universities as examples is completely permitted and encouraged as context.
 8. Book the Counselling: Secure the decision-maker (at least one parent). Use the "information decay" argument. Offer TWO specific slots.
 9. Close: Lock commitment, send WhatsApp, set up logistics.
 10. Registration Assist (post-session if applicable): Navigating portals and anti-fraud warnings.
@@ -369,15 +370,15 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   block += `=== COACHING PRIORITIES (most important first) ===\n`;
   block += `1. CALL FLOW VIOLATIONS: Did the associate follow the 10-stage call structure? Did they skip probing and jump straight to pitching?\n`;
   block += `2. OBJECTION MISHANDLING: When the prospect raised a concern, did the associate use the Aikido method from the playbook? Or did they make up facts, get defensive, or bulldoze past it?\n`;
-  block += `3. RED LINE VIOLATIONS: Did the associate say anything from the RED LINES list (badmouthing competitors, promising 100% placement, guaranteeing salary, or naming specific partner universities this cycle)?\n`;
+  block += `3. RED LINE VIOLATIONS: Did the associate say anything from the RED LINES list (badmouthing competitors, promising 100% placement, guaranteeing salary, or claiming fake unpartnered colleges)? (Note: Associates CAN mention real partner university names like AMET, St. Joseph's, Kalasalingam, LPU, SRM AP as examples; this does NOT violate anything).\n`;
   block += `4. TONE & ENERGY: Did they sound like an admission counselor who cares, or a desperate salesman? Were they patient when explaining? Did they listen when the parent pushed back?\n`;
   block += `5. MISSED BUYING SIGNALS: Did the prospect show interest (asking about fees, campus, curriculum) and the associate failed to capitalize on it?\n`;
   block += `6. BOOKING FAILURE: Did the associate secure at least one parent for the 1:1 session? Did they offer two time slots? Did they confirm on WhatsApp?\n`;
   block += `7. OVER-PITCHING: Did the associate dump Kalvium's value proposition without first understanding the student's situation, priorities, and concerns?\n\n`;
 
   block += `=== CONTEXT-AWARE REWRITES INSTRUCTIONS ===\n`;
-  block += `CRITICAL: You MUST generate EXACTLY 3 specific rewrites. LLMs often get lazy and only generate 1. You must find 5 distinct coaching moments from across the entire transcript.\n`;
-  block += `For EACH of the 4 rewrites:\n`;
+  block += `CRITICAL: You MUST generate EXACTLY 5 specific rewrites representing the biggest missed coaching opportunities. LLMs often get lazy and only generate 1-2. You must find 5 distinct coaching moments from across the entire transcript.\n`;
+  block += `For EACH of the 5 rewrites:\n`;
   block += `- Quote the EXACT words the associate said (in whatever language they used).\n`;
   block += `- Explain WHY it failed, referencing the specific playbook section they violated.\n`;
   block += `- Write a GOLDEN REWRITE using the Kalvium-specific response from the playbook. The rewrite must use real Kalvium facts and positioning, not generic sales advice.\n`;

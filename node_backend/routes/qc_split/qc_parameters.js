@@ -15,19 +15,6 @@ const { v4: uuidv4 } = require('uuid');
 // ═══════════════════════════════════════════════════════════════
 
 
-router.get('/coaching_templates', (req, res) => {
-  try {
-    const templatesPath = path.join(__dirname, '../config/coaching_templates.json');
-    if (!fs.existsSync(templatesPath)) {
-      return res.json([]);
-    }
-    const templates = JSON.parse(fs.readFileSync(templatesPath, 'utf8'));
-    res.json(templates);
-  } catch (error) {
-    console.error('Error reading coaching templates:', error);
-    res.status(500).json({ error: 'Failed to load coaching templates' });
-  }
-});
 
 router.get('/quality_checks', async (req, res) => {
   const { source } = req.query;

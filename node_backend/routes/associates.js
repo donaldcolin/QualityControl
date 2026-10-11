@@ -3,6 +3,11 @@ const router = express.Router();
 const axios = require('axios');
 const supabase = require('../config/supabase');
 const { lsqParams, lsqUrl } = require('../config/lsq');
+const { getLeadsForAssociate } = require('../services/lead_service');
+const { requireAuth, requireRole } = require('../middleware/auth');
+
+// Enforce authentication across all associate management routes
+router.use(requireAuth);
 
 // Sync all LSQ users (sales reps) so user can pick who to track
 router.get('/sync', async (req, res) => {
@@ -39,9 +44,12 @@ router.get('/', async (req, res) => {
   res.json(data);
 });
 
-// Add associate to tracking
-router.post('/', async (req, res) => {
+// Add associate to tracking (Admin or AI Worker only)
+router.post('/', requireRole(['admin', 'ai_worker']), async (req, res) => {
   const { emp_number, emp_name, emp_tags, language } = req.body;
+  if (!emp_number || !emp_name) {
+    return res.status(400).json({ error: "emp_number and emp_name are required" });
+  }
   let finalTags = emp_tags || '';
   if (language) {
     finalTags = finalTags ? `${finalTags}, |lang:${language}` : `|lang:${language}`;
@@ -54,8 +62,8 @@ router.post('/', async (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Remove associate from tracking
-router.delete('/:emp_number', async (req, res) => {
+// Remove associate from tracking (Admin or AI Worker only)
+router.delete('/:emp_number', requireRole(['admin', 'ai_worker']), async (req, res) => {
   const { error } = await supabase.from('qc_associates').delete().eq('emp_number', req.params.emp_number);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ status: "ok" });
@@ -68,22 +76,7 @@ router.get('/:user_id/leads', async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 50;
 
-    const lsqRes = await axios.post(lsqUrl('LeadManagement.svc/Leads.Get'), {
-      Parameter: { LookupName: "OwnerId", LookupValue: userId, SqlType: "uniqueidentifier" },
-      Columns: { Include_CSV: "ProspectID,FirstName,LastName,Phone,Source,ProspectStage,OwnerId" },
-      Paging: { PageIndex: page, PageSize: pageSize }
-    });
-
-    let leads = (lsqRes.data || []).filter(l => l.ProspectStage === 'New Lead');
-
-    leads = leads.map(l => ({
-      prospect_id: l.ProspectID,
-      name: `${l.FirstName || ''} ${l.LastName || ''}`.trim() || 'Unknown',
-      phone: l.Phone || '',
-      source: l.Source || '',
-      stage: l.ProspectStage || ''
-    }));
-
+    const leads = await getLeadsForAssociate(userId, page, pageSize);
     res.json(leads);
   } catch (err) {
     console.error("Leads fetch error:", err.message);

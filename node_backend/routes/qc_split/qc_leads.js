@@ -35,10 +35,6 @@ function resolveVisualTimeline(c, evaluation) {
           try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) {}
         }
       }
-      const anyTimeline = fs.readdirSync(storageDir).filter(f => f.endsWith('_timeline.json'));
-      if (anyTimeline.length > 0) {
-        try { return JSON.parse(fs.readFileSync(path.join(storageDir, anyTimeline[0]), 'utf8')); } catch (e) {}
-      }
     }
   }
   return null;
@@ -46,30 +42,57 @@ function resolveVisualTimeline(c, evaluation) {
 
 router.get('/leads', async (req, res) => {
   try {
-    const { data: leads, error } = await supabase
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const offset = (page - 1) * limit;
+
+    const { data: leads, error, count } = await supabase
       .from('leads')
-      .select('*')
-      .order('updated_at', { ascending: false });
+      .select('*', { count: 'exact' })
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + limit - 1);
     
     if (error) throw error;
-    
-    // Fetch all calls and their latest evaluation runs for the dashboard
-    const { data: callsData } = await supabase
-      .from('calls')
-      .select('*');
 
-    const { data: evalsData } = await supabase
-      .from('evaluation_runs')
+    if (!leads || leads.length === 0) {
+      res.set({
+        'X-Total-Count': count || 0,
+        'X-Page': page,
+        'X-Limit': limit
+      });
+      return res.json([]);
+    }
+
+    const leadIds = leads.map(l => l.id);
+    
+    // Fetch ONLY calls for these paginated leads, NOT the entire calls table!
+    const { data: callsData, error: callsError } = await supabase
+      .from('calls')
       .select('*')
-      .order('created_at', { ascending: false });
+      .in('prospect_id', leadIds);
+
+    if (callsError) console.error("Error fetching calls:", callsError);
+
+    const callIds = (callsData || []).map(c => c.id);
+
+    // Fetch ONLY latest evaluation runs for these calls, NOT the entire evaluation_runs table!
+    let evalsData = [];
+    if (callIds.length > 0) {
+      const { data: evals, error: evalsError } = await supabase
+        .from('evaluation_runs')
+        .select('*')
+        .in('call_id', callIds)
+        .order('created_at', { ascending: false });
+
+      if (evalsError) console.error("Error fetching evaluation_runs:", evalsError);
+      evalsData = evals || [];
+    }
 
     // Map latest evaluation to calls
     const evalMap = {};
-    if (evalsData) {
-      evalsData.forEach(e => {
-        if (!evalMap[e.call_id]) evalMap[e.call_id] = e;
-      });
-    }
+    evalsData.forEach(e => {
+      if (!evalMap[e.call_id]) evalMap[e.call_id] = e;
+    });
 
     const callsByProspect = {};
     if (callsData) {
@@ -98,6 +121,11 @@ router.get('/leads', async (req, res) => {
       };
     });
     
+    res.set({
+      'X-Total-Count': count || leadsWithCounts.length,
+      'X-Page': page,
+      'X-Limit': limit
+    });
     res.json(leadsWithCounts);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -335,13 +363,13 @@ router.post('/intelligence/evaluate_lead', async (req, res) => {
     });
 
     const responseSchema = qcEngine.getIntelligenceSchema();
-    const response = await qcEngine.ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const response = await qcEngine.generateContentWithRetry({
+      model: qcEngine.GEMINI_MODEL,
       contents: prompt,
       config: { responseMimeType: 'application/json', responseSchema, temperature: 0.2 }
     });
 
-    const resultObj = JSON.parse(response.text);
+    const resultObj = qcEngine.safeParseGeminiJSON(response.text);
     await supabase.from('leads').update({
         overall_prediction: resultObj.overall_prediction,
         overall_reasoning: resultObj.overall_reasoning,

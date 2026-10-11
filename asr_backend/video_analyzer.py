@@ -1,12 +1,9 @@
 import os
+import json
+from pathlib import Path
 import cv2
 import imagehash
 from PIL import Image
-import fitz  # PyMuPDF
-import os
-import json
-from PIL import Image
-import fitz  # PyMuPDF
 import fitz  # PyMuPDF
 import mediapipe as mp
 def extract_slides_from_pdf(pdf_path, output_dir):
@@ -256,7 +253,7 @@ def generate_report(timeline, face_timeline, slide_data, slide_names_config=None
 
 if __name__ == "__main__":
     # --- Configuration ---
-    WORKSPACE = "/Users/donaldcolin/Developer/Quality Control"
+    WORKSPACE = os.environ.get("WORKSPACE_DIR", str(Path(__file__).resolve().parent.parent))
     PDF_PATH = os.path.join(WORKSPACE, "storage", "reference_slides", "Kalvium_ B.Tech CSE to excel in career & life AY27.pdf")
     SLIDES_DIR = os.path.join(WORKSPACE, "storage", "reference_slides", "images")
     

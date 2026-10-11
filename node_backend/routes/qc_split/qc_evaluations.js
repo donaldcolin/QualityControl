@@ -192,7 +192,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
             transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline
           );
 
-          const omniResponse = await qcEngine.ai.models.generateContent({
+          const omniResponse = await qcEngine.generateContentWithRetry({
             model: qcEngine.GEMINI_MODEL,
             contents: omniPrompt,
             config: {
@@ -202,7 +202,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
             }
           });
 
-          const omniResult = JSON.parse(omniResponse.text);
+          const omniResult = qcEngine.safeParseGeminiJSON(omniResponse.text);
           
           insightsResult = {
             insights: omniResult.insights,
@@ -374,7 +374,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           // MUST run insights manually first!
           const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions);
           const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
-          const insightsResponse = await qcEngine.ai.models.generateContent({
+          const insightsResponse = await qcEngine.generateContentWithRetry({
             model: qcEngine.GEMINI_MODEL,
             contents: insightsPrompt,
             config: {
@@ -383,11 +383,11 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
               temperature: 0.15
             }
           });
-          insightsResult = JSON.parse(insightsResponse.text);
+          insightsResult = qcEngine.safeParseGeminiJSON(insightsResponse.text);
 
           const qualitySchema = qcEngine.getQualitySchema(filteredQualityChecks);
           const qualityPrompt = qcEngine.buildQualityPrompt(transcriptText, effectiveSource, filteredQualityChecks);
-          const qualityResponse = await qcEngine.ai.models.generateContent({
+          const qualityResponse = await qcEngine.generateContentWithRetry({
             model: qcEngine.GEMINI_MODEL,
             contents: qualityPrompt,
             config: {
@@ -396,7 +396,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
               temperature: 0.15
             }
           });
-          const rawResult = JSON.parse(qualityResponse.text);
+          const rawResult = qcEngine.safeParseGeminiJSON(qualityResponse.text);
           // Quality-only schema still uses sanitized keys — reverse-map them
           const reverseMap = {};
           filteredQualityChecks.forEach(check => {
@@ -418,7 +418,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions);
       const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
 
-      const insightsResponse = await qcEngine.ai.models.generateContent({
+      const insightsResponse = await qcEngine.generateContentWithRetry({
         model: qcEngine.GEMINI_MODEL,
         contents: insightsPrompt,
         config: {
@@ -427,7 +427,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           temperature: 0.15
         }
       });
-      insightsResult = JSON.parse(insightsResponse.text);
+      insightsResult = qcEngine.safeParseGeminiJSON(insightsResponse.text);
     }
 
     // 5. Compute overall quality score from merged result
@@ -832,5 +832,64 @@ router.post('/qc/evaluate_journey', requireAuth, requireRole(['admin', 'ai_worke
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+//  DASHBOARD AGGREGATE KPIS
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/dashboard_kpis', async (req, res) => {
+  try {
+    // 1. Active associates count
+    const { count: associatesCount } = await supabase
+      .from('qc_associates')
+      .select('*', { count: 'exact', head: true });
+
+    // 2. Aggregate stats from calls
+    const { data: calls, error: callsErr } = await supabase
+      .from('calls')
+      .select('call_quality_score, talk_to_listen_ratio, created_at');
+
+    if (callsErr) throw callsErr;
+
+    const totalCalls = (calls || []).length;
+    
+    // Average QC Score
+    const scoredCalls = (calls || []).filter(c => c.call_quality_score != null && !isNaN(c.call_quality_score));
+    const avgScore = scoredCalls.length > 0
+      ? Math.round(scoredCalls.reduce((sum, c) => sum + Number(c.call_quality_score), 0) / scoredCalls.length)
+      : null;
+
+    // Average Talk:Listen
+    let totalAgentPct = 0;
+    let ratioCount = 0;
+    (calls || []).forEach(c => {
+      if (c.talk_to_listen_ratio && typeof c.talk_to_listen_ratio === 'string' && c.talk_to_listen_ratio.includes(':')) {
+        const [agent, customer] = c.talk_to_listen_ratio.split(':').map(Number);
+        if (!isNaN(agent) && !isNaN(customer) && (agent + customer) > 0) {
+          totalAgentPct += agent;
+          ratioCount++;
+        }
+      }
+    });
+    const avgTalkListen = ratioCount > 0
+      ? `${Math.round(totalAgentPct / ratioCount)}:${100 - Math.round(totalAgentPct / ratioCount)}`
+      : '50:50';
+
+    // Calls analyzed today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const callsToday = (calls || []).filter(c => c.created_at && new Date(c.created_at) >= startOfToday).length;
+
+    res.json({
+      active_associates: associatesCount || 0,
+      avg_qc_score: avgScore != null ? avgScore : 0,
+      avg_talk_listen: avgTalkListen,
+      calls_today: callsToday,
+      total_calls: totalCalls
+    });
+  } catch (err) {
+    console.error('Error fetching dashboard KPIs:', err.message);
+    res.status(500).json({ error: 'Failed to calculate dashboard KPIs' });
+  }
+});
 
 module.exports = router;

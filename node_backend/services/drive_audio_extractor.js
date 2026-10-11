@@ -1,7 +1,43 @@
 const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { spawn } = require('child_process');
+
+function runFfmpegAsync(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        const args = [
+            '-err_detect', 'ignore_err',
+            '-i', inputPath,
+            '-q:a', '0',
+            '-map', 'a',
+            '-ac', '1',
+            '-ar', '16000',
+            '-y', outputPath
+        ];
+
+        const proc = spawn('ffmpeg', args);
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout.on('data', data => { stdout += data.toString(); });
+        proc.stderr.on('data', data => { stderr += data.toString(); });
+
+        proc.on('close', code => {
+            if (code === 0) {
+                resolve();
+            } else {
+                const err = new Error(`FFmpeg failed with code ${code}: ${stderr || stdout}`);
+                err.stdout = stdout;
+                err.stderr = stderr;
+                reject(err);
+            }
+        });
+
+        proc.on('error', err => {
+            reject(new Error(`Failed to start FFmpeg: ${err.message}`));
+        });
+    });
+}
 
 const GOOGLE_KEY_FILE = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.join(__dirname, '..', 'config', 'credentials.json');
 
@@ -61,10 +97,10 @@ async function extractAudioFromDrive(driveLink, queueId) {
 
         // Extract Audio using ffmpeg
         try {
-            execSync(`ffmpeg -err_detect ignore_err -i "${tempVideoPath}" -q:a 0 -map a -ac 1 -ar 16000 -y "${audioPath}"`);
+            await runFfmpegAsync(tempVideoPath, audioPath);
         } catch (ffmpegErr) {
-            console.error("[Drive] FFmpeg failed. Output:", ffmpegErr.stdout?.toString(), "Stderr:", ffmpegErr.stderr?.toString());
-            throw new Error(`FFmpeg extraction failed: ${ffmpegErr.message}`);
+            console.error("[Drive] FFmpeg failed:", ffmpegErr.message);
+            throw ffmpegErr;
         }
         
         console.log(`[Drive] Audio extraction complete: ${audioPath}`);

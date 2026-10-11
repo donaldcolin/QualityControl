@@ -56,11 +56,21 @@ const database = require('./database');
 const schemas = require('./schemas');
 const prompts = require('./prompts');
 const workflows = require('./workflows');
+const safeParse = require('./safe_parse');
+const { callGeminiWithRetry } = require('./call_gemini');
+
+// Helper pre-bound to the active ai instance
+function generateContentWithRetry(params, options) {
+  return callGeminiWithRetry(ai, params, options);
+}
 
 // Export everything to match the old qc_engine.js
 Object.assign(module.exports, {
   ...database,
   ...schemas,
   ...prompts,
-  ...workflows
+  ...workflows,
+  ...safeParse,
+  callGeminiWithRetry,
+  generateContentWithRetry
 });

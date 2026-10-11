@@ -3,7 +3,7 @@ import LeadSidebar from './LeadSidebar';
 import OverviewTab from './tabs/OverviewTab';
 import QualityCheckTab from './tabs/QualityCheckTab';
 import CoachingTab from './tabs/CoachingTab';
-import { getQCLead, getCoachingTemplates, evaluateCall } from '../../api';
+import { getQCLead, evaluateCall } from '../../api';
 import { ArrowLeft, Play, Pause, Phone, Loader2, RefreshCw, } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '@/components/ui/button';
@@ -137,7 +137,6 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isEvaluating, setIsEvaluating] = useState(false);
-  const [templates, setTemplates] = useState([]);
   const [selectedCallIdx, setSelectedCallIdx] = useState('all');
   const [mediaType, setMediaType] = useState('audio'); // 'audio' or 'demo'
 

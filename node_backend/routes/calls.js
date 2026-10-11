@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
 const supabase = require('../config/supabase');
+const { requireAuth } = require('../middleware/auth');
+
+// Storage directory allowed for local audio files
+const STORAGE_ROOT = path.resolve(__dirname, '..', '..', 'storage');
+
+// Enforce authentication across all call endpoints
+router.use(requireAuth);
 
 router.get('/', async (req, res) => {
   const { data, error } = await supabase.from('calls').select('id, filename, language, duration_sec, rating, notes');
@@ -22,15 +31,32 @@ router.get('/:call_id/audio', async (req, res) => {
   const { data, error } = await supabase.from('calls').select('audio_url').eq('id', req.params.call_id).single();
   if (error || !data || !data.audio_url) return res.status(404).json({ error: "Audio URL not found" });
   
-  if (data.audio_url.startsWith('http')) {
-    res.redirect(data.audio_url);
-  } else {
-    res.sendFile(data.audio_url, (err) => {
-      if (err && !res.headersSent) {
-        res.status(404).json({ error: "Local audio file not found" });
-      }
-    });
+  if (data.audio_url.startsWith('http://') || data.audio_url.startsWith('https://')) {
+    return res.redirect(data.audio_url);
   }
+
+  // Path containment & traversal prevention
+  const resolvedPath = path.isAbsolute(data.audio_url)
+    ? path.resolve(data.audio_url)
+    : path.resolve(STORAGE_ROOT, data.audio_url);
+
+  const relative = path.relative(STORAGE_ROOT, resolvedPath);
+  const isContained = !relative.startsWith('..') && !path.isAbsolute(relative);
+
+  if (!isContained) {
+    console.warn(`[Security Alert] Blocked directory traversal attempt for call ${req.params.call_id}: "${data.audio_url}"`);
+    return res.status(403).json({ error: "Access denied: Target file is outside authorized storage directory" });
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
+    return res.status(404).json({ error: "Local audio file not found" });
+  }
+
+  res.sendFile(resolvedPath, (err) => {
+    if (err && !res.headersSent) {
+      res.status(500).json({ error: "Failed to stream audio file" });
+    }
+  });
 });
 
 router.post('/:call_id/rating', async (req, res) => {

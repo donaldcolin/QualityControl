@@ -55,14 +55,11 @@ Admission
   replacement.
 
 University choice — SPECIFIC TO THIS CYCLE
-- The student does NOT choose a university now.
-- The student only indicates a preferred STATE or LOCATION.
-- This year's university list has not yet been officially released.
-- Once released, the student chooses from the universities available in that
-  state.
+- The student does NOT have to lock in a single university immediately.
+- The student can indicate a preferred STATE, LOCATION, or specific campus preference.
+- Associates CAN mention genuine partner university names (e.g., AMET, St. Joseph's, Kalasalingam, LPU, SRM AP, JECRC) as examples to illustrate the on-campus model and campus availability. Mentioning partner university names as examples is fully permitted and does NOT violate any policy.
+- Once the official cycle list is finalised, the student confirms their university choice from the approved partner campuses available.
 - The Kalvium learning experience is consistent across all campuses.
-- Consequence: naming any specific partner university on a call is wrong this
-  cycle, even if the university is genuinely a partner.
 
 The 1:1 session
 - Free, on Google Meet, roughly 30-45 minutes.
@@ -79,7 +76,7 @@ The 1:1 session
 ## 3. NEVER-APPROVED FACTS — treat as errors wherever they appear
 
 - Any university count other than 9.
-- The name of any specific partner university (this cycle).
+- Claiming non-partner universities or unapproved colleges that Kalvium has never tied up with. (NOTE: Mentioning approved partner universities as examples is fully permitted).
 - Any placement percentage, including "100% placement".
 - Any salary, package or stipend figure.
 - Any guaranteed scholarship amount.
@@ -94,8 +91,7 @@ The 1:1 session
 1. Never badmouth any competitor by name.
 2. Never say Kalvium provides 100% placement, or quote any placement percentage.
 3. Never guarantee a specific salary or scholarship amount.
-4. Never name a university, and never quote universities Kalvium has not tied up
-   with. This cycle the list is unreleased, so naming any campus is a breach.
+4. Never quote universities Kalvium has NOT partnered with. Mentioning genuine partner universities (such as AMET, St. Joseph's, Kalasalingam, LPU, SRM AP, JECRC, etc.) as examples to explain the university model is completely permissible and does NOT constitute a violation.
 5. Never use manufactured scarcity — claiming one slot is left when other slots
    exist. Fake scarcity is detectable and poisons the session.
 6. Never apply gap-year fear — "you'll waste a year", "universities fill up in a
@@ -346,18 +342,10 @@ attend:
 Goal: remove commitment anxiety. Location is their choice, curriculum is the
 constant, nothing is binding yet.
 
-- "The university structure is slightly different this year. You won't be
-  choosing a specific university immediately. First you just indicate your
-  preferred state or location."
-- "Once this year's university list is officially released, you'll see the
-  universities available in that state and make your choice then."
-- "What matters right now is understanding the Kalvium learning model and your
-  preferred location. The university provides the campus and awards the degree,
-  while the Kalvium learning experience stays consistent."
-- The phrase that does the heavy lifting: "It doesn't mean you have to go
-  there." Removes the commitment anxiety that stalls applications.
-- Never name a campus or city list this cycle. If asked where campuses are, the
-  correct answer is the preferred-state framing above.
+- "The university structure allows flexible choice across our approved partner campuses. You indicate your preferred state or location, and you can explore campuses available in that region."
+- "What matters right now is understanding the Kalvium learning model and your preferred location. The university provides the campus and awards the degree, while the Kalvium learning experience stays consistent."
+- The phrase that does the heavy lifting: "It doesn't mean you have to go there." Removes the commitment anxiety that stalls applications.
+- Giving examples of partner universities (e.g. AMET, St. Joseph's, Kalasalingam, LPU, SRM AP) to explain where students study is completely fine and helpful as context. Just clarify that final campus allocation is confirmed through the 1:1 session and counselling process.
 
 
 ### STAGE 8 — BOOK THE COUNSELLING
@@ -777,7 +765,7 @@ Early / session / university
 - Blunt negative about location or availability with no alternative framing
   offered.
 - Improvised a fee figure instead of routing it to the session.
-- Implied the family must commit to a specific university now, or named campuses.
+- Implied the family must commit to a specific university now (Note: giving partner university names as examples is allowed; forcing immediate lock-in is the mistake).
 
 Booking
 - Ended without a specific day AND clock time. "I'll let you know" and "sometime

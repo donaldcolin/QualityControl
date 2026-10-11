@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getQCLead, getCoachingTemplates, evaluateCall } from '../api';
+import { getQCLead, evaluateCall } from '../api';
 import { ArrowLeft, Play, Pause, FileAudio, CheckCircle2, XCircle, BrainCircuit, Phone, Video, ChevronDown, ChevronUp, Lightbulb, TrendingUp, TrendingDown, Minus, MessageSquare, Loader2, RefreshCw, Star, PlayCircle, PauseCircle, Target, DollarSign, UserCheck, CalendarClock, Database, AlertTriangle, Share2, Trash2, Edit2, PlaySquare, SkipForward, FastForward, Info, Clock, Sparkles, User, Smile, MessageSquareShare, ShieldAlert, Crosshair, Map } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -134,7 +134,6 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isEvaluating, setIsEvaluating] = useState(false);
-  const [templates, setTemplates] = useState([]);
   const [selectedCallIdx, setSelectedCallIdx] = useState('all');
   const [mediaType, setMediaType] = useState('audio'); // 'audio' or 'demo'
 

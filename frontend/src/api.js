@@ -1,12 +1,91 @@
 const API_BASE = '/api';
+const QC_API_BASE = '/api';
+
+const DEFAULT_AUTH_SECRET = 'internal_qc_worker_secret_2026';
+
+/**
+ * Retrieves the active authorization token.
+ * Checks localStorage for user session token first, falling back to internal worker secret.
+ */
+export function getAuthToken() {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('qc_auth_token') || localStorage.getItem('supabase_auth_token');
+    if (stored) return stored;
+  }
+  return DEFAULT_AUTH_SECRET;
+}
+
+/**
+ * Sets a custom auth token in localStorage.
+ */
+export function setAuthToken(token) {
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem('qc_auth_token', token);
+    } else {
+      localStorage.removeItem('qc_auth_token');
+    }
+  }
+}
+
+/**
+ * Centralized, authenticated fetch client with robust error verification.
+ */
+async function apiRequest(endpoint, options = {}) {
+  const url = endpoint.startsWith('http')
+    ? endpoint
+    : `${API_BASE}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+
+  const headers = {
+    'Authorization': `Bearer ${getAuthToken()}`,
+    ...(options.headers || {})
+  };
+
+  // Do not set Content-Type if payload is FormData (browser needs to set multipart boundary)
+  if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const res = await fetch(url, {
+    ...options,
+    headers
+  });
+
+  if (!res.ok) {
+    let errorMessage = `Request failed (HTTP ${res.status}: ${res.statusText})`;
+    try {
+      const errJson = await res.json();
+      if (errJson && errJson.error) {
+        errorMessage = errJson.error;
+      }
+    } catch (_) {
+      try {
+        const text = await res.text();
+        if (text) errorMessage = text;
+      } catch (__) {}
+    }
+    throw new Error(errorMessage);
+  }
+
+  // Handle empty bodies (204 No Content)
+  if (res.status === 204) {
+    return true;
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return res.json();
+  }
+  return res.text();
+}
+
+// ── Run & Upload Endpoints ──────────────────────────────────────────────────
 
 export const startRun = async (folder_path, language) => {
-  const res = await fetch(`${API_BASE}/run`, {
+  return apiRequest('/run', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ folder_path, language })
   });
-  return res.json();
 };
 
 export const startUploadRun = async (files, language) => {
@@ -16,285 +95,236 @@ export const startUploadRun = async (files, language) => {
   }
   formData.append('language', language);
 
-  const res = await fetch(`${API_BASE}/upload_run`, {
+  return apiRequest('/upload_run', {
     method: 'POST',
     body: formData
   });
-  return res.json();
 };
 
 export const getRunStatus = async (batchId) => {
-  const res = await fetch(`${API_BASE}/runs/${batchId}/status`);
-  return res.json();
+  return apiRequest(`/runs/${batchId}/status`);
 };
 
+// ── Calls & Audio ──────────────────────────────────────────────────────────
+
 export const getCalls = async () => {
-  const res = await fetch(`${API_BASE}/calls`);
-  return res.json();
+  return apiRequest('/calls');
 };
 
 export const getCall = async (callId) => {
-  const res = await fetch(`${API_BASE}/calls/${callId}`);
-  return res.json();
+  return apiRequest(`/calls/${callId}`);
 };
 
 export const rateCall = async (callId, rating, notes) => {
-  const res = await fetch(`${API_BASE}/calls/${callId}/rating`, {
+  return apiRequest(`/calls/${callId}/rating`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rating, notes })
   });
-  return res.json();
 };
 
+export const resendCallToASR = async (callId) => {
+  return apiRequest(`/calls/${callId}/send_to_asr`, { method: 'POST' });
+};
+
+// ── Associates ─────────────────────────────────────────────────────────────
+
 export const getAssociates = async () => {
-  const res = await fetch(`${API_BASE}/associates`);
-  return res.json();
+  return apiRequest('/associates');
 };
 
 export const syncAssociates = async () => {
-  const res = await fetch(`${API_BASE}/associates/sync`);
-  return res.json();
+  return apiRequest('/associates/sync');
 };
 
 export const addAssociate = async (emp_number, emp_name, emp_tags, language) => {
-  const res = await fetch(`${API_BASE}/associates`, {
+  return apiRequest('/associates', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ emp_number, emp_name, emp_tags, language })
   });
-  return res.json();
 };
 
 export const removeAssociate = async (emp_number) => {
-  const res = await fetch(`${API_BASE}/associates/${emp_number}`, {
+  return apiRequest(`/associates/${emp_number}`, {
     method: 'DELETE'
   });
-  return res.json();
 };
 
 export const getAssociateCalls = async (emp_number) => {
-  const res = await fetch(`${API_BASE}/associates/${emp_number}/calls`);
-  return res.json();
+  return apiRequest(`/associates/${emp_number}/calls`);
 };
-
-export const sendToQC = async (queueId) => {
-  const res = await fetch(`${API_BASE}/queue/${queueId}/send_to_qc`, {
-    method: 'POST'
-  });
-  return res.json();
-};
-
-// --- NEW: LeadSquared 3-level drill-down ---
 
 export const getLeadsForAssociate = async (userId) => {
-  const res = await fetch(`${API_BASE}/associates/${userId}/leads`);
-  return res.json();
+  return apiRequest(`/associates/${userId}/leads`);
 };
+
+// ── Leads & Activities ─────────────────────────────────────────────────────
 
 export const getActivitiesForLead = async (prospectId) => {
-  const res = await fetch(`${API_BASE}/leads/${prospectId}/activities`);
-  return res.json();
-};
-
-export const getQueue = async () => {
-  const res = await fetch(`${API_BASE}/queue`);
-  return res.json();
-};
-
-export const pushActivityToQC = async (activityData) => {
-  const res = await fetch(`${API_BASE}/activities/push_to_qc`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(activityData)
-  });
-  return res.json();
-};
-
-export const pushDemoToQC = async (data) => {
-  const res = await fetch(`${API_BASE}/activities/push_demo_to_qc`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  return res.json();
-};
-
-export const getQueueItemStatus = async (queueId) => {
-  const res = await fetch(`${API_BASE}/queue/${queueId}`);
-  return res.json();
-};
-
-export async function deleteQueueItem(id) {
-  const res = await fetch(`${API_BASE}/queue/${id}`, { method: 'DELETE' });
-  return res.json();
-}
-
-export async function bumpQueueItem(id) {
-  const res = await fetch(`${API_BASE}/queue/${id}/bump`, { method: 'POST' });
-  return res.json();
-}
-
-// --- NEW: Quality Control (QC) Microservice ---
-const QC_API_BASE = '/api';
-
-export const triggerMeetSync = async () => {
-  const res = await fetch(`${API_BASE}/meet_sync/trigger`, { method: 'POST' });
-  return res.json();
+  return apiRequest(`/leads/${prospectId}/activities`);
 };
 
 export const getQCLeads = async () => {
-  const res = await fetch(`${QC_API_BASE}/leads`);
-  return res.json();
+  return apiRequest('/leads');
 };
 
 export const getQCLead = async (id) => {
-  const res = await fetch(`${QC_API_BASE}/leads/${id}`);
-  return res.json();
+  return apiRequest(`/leads/${id}`);
 };
 
-export const evaluateCall = async (call_id, transcript = null, prospect_id = null) => {
-  const res = await fetch(`${API_BASE}/qc/evaluate_call`, {
+export const getDashboardKPIs = async () => {
+  return apiRequest('/dashboard_kpis');
+};
+
+export const searchLeadsByPhone = async (phone) => {
+  return apiRequest(`/search/${encodeURIComponent(phone)}`);
+};
+
+// ── Queue Management ───────────────────────────────────────────────────────
+
+export const getQueue = async () => {
+  return apiRequest('/queue');
+};
+
+export const sendToQC = async (queueId) => {
+  return apiRequest(`/queue/${queueId}/send_to_qc`, { method: 'POST' });
+};
+
+export const pushActivityToQC = async (activityData) => {
+  return apiRequest('/activities/push_to_qc', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer internal_ai_worker_token' },
+    body: JSON.stringify(activityData)
+  });
+};
+
+export const pushDemoToQC = async (data) => {
+  return apiRequest('/activities/push_demo_to_qc', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+};
+
+export const getQueueItemStatus = async (queueId) => {
+  return apiRequest(`/queue/${queueId}`);
+};
+
+export async function deleteQueueItem(id) {
+  return apiRequest(`/queue/${id}`, { method: 'DELETE' });
+}
+
+export async function bumpQueueItem(id) {
+  return apiRequest(`/queue/${id}/bump`, { method: 'POST' });
+}
+
+// ── QC Engine & Evaluation ─────────────────────────────────────────────────
+
+export const evaluateCall = async (call_id, transcript = null, prospect_id = null) => {
+  return apiRequest('/qc/evaluate_call', {
+    method: 'POST',
     body: JSON.stringify({ call_id, transcript, prospect_id })
   });
-  return res.json();
 };
 
 export const evaluateLeadIntelligence = async (lead_id) => {
-  const res = await fetch(`${QC_API_BASE}/intelligence/evaluate_lead`, {
+  return apiRequest('/intelligence/evaluate_lead', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ lead_id })
   });
-  return res.json();
+};
+
+export const evaluateJourney = async (prospectId) => {
+  return apiRequest('/qc/evaluate_journey', {
+    method: 'POST',
+    body: JSON.stringify({ prospect_id: prospectId })
+  });
 };
 
 export const seedQCDemo = async () => {
-  const res = await fetch(`${QC_API_BASE}/demo/seed`, { method: 'POST' });
-  return res.json();
+  return apiRequest('/demo/seed', { method: 'POST' });
 };
 
-// --- Orchestrator ---
+// ── Orchestrator & Integrations ────────────────────────────────────────────
 
-export const resendCallToASR = async (callId) => {
-  const res = await fetch(`${API_BASE}/calls/${callId}/send_to_asr`, { method: 'POST' });
-  return res.json();
+export const triggerMeetSync = async () => {
+  return apiRequest('/meet_sync/trigger', { method: 'POST' });
 };
 
 export const scanAll = async () => {
-  const res = await fetch(`${API_BASE}/orchestrate/scan_all`, { method: 'POST' });
-  return res.json();
+  return apiRequest('/orchestrate/scan_all', { method: 'POST' });
 };
 
-// --- Coaching LSQ Push ---
 export const pushCoachingToLSQ = async (prospect_id, coaching_report, source) => {
-  const res = await fetch(`${API_BASE}/coaching/push_to_lsq`, {
+  return apiRequest('/coaching/push_to_lsq', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prospect_id, coaching_report, source })
   });
-  return res.json();
 };
 
-// --- Dynamic Parameters (Lead-Centric Architecture) ---
+// ── Quality Parameters CRUD ────────────────────────────────────────────────
 
 export const getQCParameters = async (source = 'phone_call') => {
-  const res = await fetch(`${QC_API_BASE}/quality_checks?source=${source}`);
-  return res.json();
+  return apiRequest(`/quality_checks?source=${encodeURIComponent(source)}`);
 };
 
 export const createQCParameter = async (data) => {
-  const res = await fetch(`${QC_API_BASE}/quality_checks`, {
+  return apiRequest('/quality_checks', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
-  return res.json();
 };
 
 export const updateQCParameter = async (id, data) => {
-  const res = await fetch(`${QC_API_BASE}/quality_checks/${id}`, {
+  return apiRequest(`/quality_checks/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
-  return res.json();
 };
 
 export const deleteQCParameter = async (id) => {
-  const res = await fetch(`${QC_API_BASE}/quality_checks/${id}`, { method: 'DELETE' });
-  return res.ok;
+  await apiRequest(`/quality_checks/${id}`, { method: 'DELETE' });
+  return true;
 };
 
+// ── Data Capture Questions CRUD ────────────────────────────────────────────
+
 export const getDataCaptureQuestions = async (source = 'phone_call') => {
-  const res = await fetch(`${QC_API_BASE}/data_capture_questions?source=${source}`);
-  return res.json();
+  return apiRequest(`/data_capture_questions?source=${encodeURIComponent(source)}`);
 };
 
 export const createDataCaptureQuestion = async (data) => {
-  const res = await fetch(`${QC_API_BASE}/data_capture_questions`, {
+  return apiRequest('/data_capture_questions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
-  return res.json();
 };
 
 export const updateDataCaptureQuestion = async (id, data) => {
-  const res = await fetch(`${QC_API_BASE}/data_capture_questions/${id}`, {
+  return apiRequest(`/data_capture_questions/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
-  return res.json();
 };
 
 export const deleteDataCaptureQuestion = async (id) => {
-  const res = await fetch(`${QC_API_BASE}/data_capture_questions/${id}`, { method: 'DELETE' });
-  return res.ok;
+  await apiRequest(`/data_capture_questions/${id}`, { method: 'DELETE' });
+  return true;
 };
-export const getCoachingTemplates = async () => { const res = await fetch(`${API_BASE}/coaching_templates`); return res.json(); };
 
-export const searchLeadsByPhone = async (phone) => {
-  const res = await fetch(`${API_BASE}/search/${encodeURIComponent(phone)}`);
-  return res.json();
-};
+// ── Google Drive & Playbook ────────────────────────────────────────────────
 
 export const getDriveTranscript = async (phone, name) => {
-  const url = new URL(`${API_BASE}/drive/transcript`, window.location.origin);
-  if (phone) url.searchParams.append('phone', phone);
-  if (name) url.searchParams.append('name', name);
-  const response = await fetch(url);
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to fetch transcript from Google Drive');
-  }
-  return response.json();
+  const params = new URLSearchParams();
+  if (phone) params.append('phone', phone);
+  if (name) params.append('name', name);
+  return apiRequest(`/drive/transcript?${params.toString()}`);
 };
 
 export const getPlaybook = async () => {
-  const res = await fetch(`${API_BASE}/playbook`);
-  return res.json();
+  return apiRequest('/playbook');
 };
 
 export const updatePlaybook = async (content) => {
-  const res = await fetch(`${API_BASE}/playbook`, {
+  return apiRequest('/playbook', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content })
   });
-  if (!res.ok) throw new Error('Failed to update playbook');
-  return res.json();
-};
-
-
-export const evaluateJourney = async (prospectId) => {
-  const res = await fetch(`${API_BASE}/qc/evaluate_journey`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer internal_ai_worker_token' },
-    body: JSON.stringify({ prospect_id: prospectId })
-  });
-  return res.json();
 };

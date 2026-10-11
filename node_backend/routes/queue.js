@@ -7,6 +7,10 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const { extractAudioFromDrive } = require('../services/drive_audio_extractor');
+const { requireAuth } = require('../middleware/auth');
+
+// Enforce authentication on all queue endpoints
+router.use(requireAuth);
 
 const uploadDir = path.join(__dirname, '..', '..', 'storage', 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -241,6 +245,20 @@ router.post('/upload_drive_demo', async (req, res) => {
             console.log(`[Drive] Successfully queued Video Demo ${queue_id}`);
         } catch (err) {
             console.error(`[Drive] Failed to process ${queue_id}:`, err);
+            try {
+              const errorEntry = {
+                stage: 'drive_download_and_extraction',
+                error: err.message,
+                timestamp: new Date().toISOString()
+              };
+              await supabase.from('callizer_queue').update({
+                status: 'failed',
+                errors: JSON.stringify([errorEntry])
+              }).eq('id', queue_id);
+              console.log(`[Drive] Marked queue item ${queue_id} as 'failed' in Supabase.`);
+            } catch (dbErr) {
+              console.error(`[Drive] Failed to mark queue ${queue_id} as failed:`, dbErr.message);
+            }
         }
     })();
 

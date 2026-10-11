@@ -17,6 +17,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("speechbrain").setLevel(logging.ERROR)
 logger = logging.getLogger("worker")
 
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 load_dotenv()
 
 supabase_url = os.environ.get("SUPABASE_URL", "")
@@ -169,7 +171,7 @@ def process_queue_item(queue_id: str):
 
                 if temp_mp4_path.exists():
                     # Process slides and analyze video
-                    WORKSPACE = "/Users/donaldcolin/Developer/Quality Control"
+                    WORKSPACE = os.environ.get("WORKSPACE_DIR", str(Path(__file__).resolve().parent.parent.parent))
                     PDF_PATH = os.path.join(WORKSPACE, "storage", "reference_slides", "Kalvium_ B.Tech CSE to excel in career & life AY27.pdf")
                     SLIDES_DIR = os.path.join(WORKSPACE, "storage", "reference_slides", "images")
                     
@@ -185,7 +187,7 @@ def process_queue_item(queue_id: str):
                     }
                     
                     # Save timeline to storage directory using internal_call_id so qc_evaluations.js can pick it up
-                    storage_dir = Path("../storage")
+                    storage_dir = Path(WORKSPACE) / "storage"
                     json_report_path = storage_dir / f"{internal_call_id}_timeline.json"
                     
                     video_analyzer.generate_report(
@@ -240,9 +242,10 @@ def process_queue_item(queue_id: str):
         
         try:
             logger.info(f"[{queue_id}] Triggering QC Evaluation on Port 3000...")
+            worker_token = os.environ.get("INTERNAL_WORKER_SECRET", "internal_qc_worker_secret_2026")
             qc_resp = requests.post(
                 "http://localhost:3000/api/qc/evaluate_call",
-                headers={"Authorization": "Bearer internal_ai_worker_token"},
+                headers={"Authorization": f"Bearer {worker_token}"},
                 json={
                     "call_id": internal_call_id,
                     "prospect_id": prospect_id if prospect_id else None,

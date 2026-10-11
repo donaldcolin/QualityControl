@@ -1,5 +1,7 @@
 const supabase = require('../../config/supabase');
 const { GEMINI_MODEL, ai } = require('./index');
+const { safeParseGeminiJSON } = require('./safe_parse');
+const { callGeminiWithRetry } = require('./call_gemini');
 
 function triageCall(callData) {
   const { duration_sec, talk_to_listen_ratio, segments } = callData;
@@ -113,7 +115,7 @@ Generate the updated journey insights and journey coaching.
 Focus specifically on CROSS-CALL continuity (e.g., "The pricing objection from Call 1 was resolved in Call 2").`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithRetry(ai, {
       model: GEMINI_MODEL,
       contents: prompt,
       config: {
@@ -123,7 +125,7 @@ Focus specifically on CROSS-CALL continuity (e.g., "The pricing objection from C
       }
     });
   
-    const result = JSON.parse(response.text);
+    const result = safeParseGeminiJSON(response.text);
     
     // 4. Update the lead with the synthesized JSONB
     await supabase.from('leads').update({
