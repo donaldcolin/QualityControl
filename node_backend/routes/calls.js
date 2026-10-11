@@ -52,11 +52,80 @@ router.get('/:call_id/audio', async (req, res) => {
     return res.status(404).json({ error: "Local audio file not found" });
   }
 
-  res.sendFile(resolvedPath, (err) => {
-    if (err && !res.headersSent) {
-      res.status(500).json({ error: "Failed to stream audio file" });
+  // HTTP 206 Partial Content / Range Streaming for smooth browser playback & seeking
+  const ext = path.extname(resolvedPath).toLowerCase();
+  const mimeTypes = {
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg',
+    '.m4a': 'audio/mp4',
+    '.mp4': 'video/mp4',
+    '.webm': 'audio/webm',
+    '.ogg': 'audio/ogg'
+  };
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+  try {
+    const stat = fs.statSync(resolvedPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize) {
+        res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+        return;
+      }
+
+      const chunkSize = (end - start) + 1;
+      const fileStream = fs.createReadStream(resolvedPath, { start, end });
+
+      res.status(206).set({
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': contentType
+      });
+
+      fileStream.on('error', () => {
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Failed to stream audio file range" });
+        }
+      });
+
+      // Abort stream cleanly when user scrubs timeline and client closes connection
+      req.on('close', () => {
+        fileStream.destroy();
+      });
+
+      fileStream.pipe(res);
+    } else {
+      res.set({
+        'Content-Length': fileSize,
+        'Accept-Ranges': 'bytes',
+        'Content-Type': contentType
+      });
+
+      const fileStream = fs.createReadStream(resolvedPath);
+      fileStream.on('error', () => {
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Failed to stream audio file" });
+        }
+      });
+
+      req.on('close', () => {
+        fileStream.destroy();
+      });
+
+      fileStream.pipe(res);
     }
-  });
+  } catch (fsErr) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to access audio file: " + fsErr.message });
+    }
+  }
 });
 
 router.post('/:call_id/rating', async (req, res) => {

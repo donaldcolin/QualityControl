@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-function runFfmpegAsync(inputPath, outputPath) {
+function runFfmpegAsync(inputPath, outputPath, timeoutMs = 10 * 60 * 1000) {
     return new Promise((resolve, reject) => {
         const args = [
             '-err_detect', 'ignore_err',
@@ -18,11 +18,22 @@ function runFfmpegAsync(inputPath, outputPath) {
         const proc = spawn('ffmpeg', args);
         let stdout = '';
         let stderr = '';
+        let isTimedOut = false;
+
+        const timer = setTimeout(() => {
+            isTimedOut = true;
+            console.error(`⚠️ [FFmpeg] Process exceeded ${Math.round(timeoutMs / 60000)}m limit. Killing process.`);
+            try { proc.kill('SIGKILL'); } catch (_) {}
+            reject(new Error(`FFmpeg conversion timed out after ${Math.round(timeoutMs / 60000)} minutes`));
+        }, timeoutMs);
+        if (timer.unref) timer.unref();
 
         proc.stdout.on('data', data => { stdout += data.toString(); });
         proc.stderr.on('data', data => { stderr += data.toString(); });
 
         proc.on('close', code => {
+            clearTimeout(timer);
+            if (isTimedOut) return;
             if (code === 0) {
                 resolve();
             } else {
@@ -34,6 +45,8 @@ function runFfmpegAsync(inputPath, outputPath) {
         });
 
         proc.on('error', err => {
+            clearTimeout(timer);
+            if (isTimedOut) return;
             reject(new Error(`Failed to start FFmpeg: ${err.message}`));
         });
     });

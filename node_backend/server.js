@@ -1,8 +1,12 @@
 require('dotenv').config();
+const { validateEnvironment } = require('./config/env_validator');
 const express = require('express');
 const cors = require('cors');
 const { startDiskSweeperDaemon, stopDiskSweeperDaemon } = require('./services/disk_sweeper');
 const { startQueueWatchdogDaemon, stopQueueWatchdogDaemon } = require('./services/queue_watchdog');
+
+// ── PRE-FLIGHT BOOT ENVIRONMENT VALIDATION ──────────────────────────────────
+validateEnvironment();
 
 // ── PROCESS RESILIENCE & UNHANDLED ERROR INTERCEPTORS ──────────────────────
 process.on('unhandledRejection', (reason, promise) => {
@@ -34,6 +38,7 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Import routes
+const healthRoutes = require('./routes/health');
 const associatesRoutes = require('./routes/associates');
 const leadsRoutes = require('./routes/leads');
 const callsRoutes = require('./routes/calls');
@@ -42,6 +47,10 @@ const qcRoutes = require('./routes/qc_split');
 const orchestratorRoutes = require('./routes/orchestrator');
 const driveRoutes = require('./routes/drive');
 const playbookRoutes = require('./routes/playbook');
+
+// Observability and diagnostic probes (unauthenticated for uptime monitors)
+app.use('/api/health', healthRoutes);
+app.use('/health', healthRoutes);
 
 // Mount prefixed routes
 app.use('/api/associates', associatesRoutes);

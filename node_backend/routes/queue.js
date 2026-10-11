@@ -14,7 +14,18 @@ router.use(requireAuth);
 
 const uploadDir = path.join(__dirname, '..', '..', 'storage', 'uploads');
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+/**
+ * Notifies the Python worker with a 5s timeout.
+ * Non-fatal: if worker is restarting, pending job will be processed by background polling.
+ */
+function notifyPythonWorker(queueId) {
+  axios.post(`http://localhost:8000/api/process_audio`, { queue_id: queueId }, { timeout: 5000 })
+    .catch(err => {
+      console.warn(`⚠️ [Queue] Non-fatal worker notification notice for ${queueId}: ${err.message}`);
+    });
 }
 
 const storage = multer.diskStorage({
@@ -115,9 +126,7 @@ router.post('/queue/:queue_id/bump', async (req, res) => {
       
     if (error) throw error;
 
-    axios.post(`http://localhost:8000/api/process_audio`, { queue_id: req.params.queue_id }).catch(err => {
-      console.error("Failed to notify python worker:", err.message);
-    });
+    notifyPythonWorker(req.params.queue_id);
 
     res.json({ success: true });
   } catch (err) {
@@ -136,9 +145,7 @@ router.post('/queue/:queue_id/send_to_qc', async (req, res) => {
     const { error: updateErr } = await supabase.from('callizer_queue').update({ status: 'pending' }).eq('id', queue_id);
     if (updateErr) throw updateErr;
 
-    axios.post(`http://localhost:8000/api/process_audio`, { queue_id }).catch(err => {
-      console.error("Failed to notify python worker:", err.message);
-    });
+    notifyPythonWorker(queue_id);
 
     res.json({ status: "queued" });
   } catch (err) {
@@ -179,9 +186,7 @@ router.post('/upload_run', upload.array('files'), async (req, res) => {
       if (insertErr) throw insertErr;
       queueIds.push(queue_id);
 
-      axios.post(`http://localhost:8000/api/process_audio`, { queue_id }).catch(err => {
-        console.error("Failed to notify python worker:", err.message);
-      });
+      notifyPythonWorker(queue_id);
     }
 
     saveBatch(batchId, queueIds);
@@ -236,10 +241,8 @@ router.post('/upload_drive_demo', async (req, res) => {
                 status: 'pending' // Python worker will pick it up now
             }).eq('id', queue_id);
 
-            // 4. Notify Python Worker
-            axios.post(`http://localhost:8000/api/process_audio`, { queue_id }).catch(err => {
-              console.error("Failed to notify python worker:", err.message);
-            });
+            // 4. Notify Python Worker with timeout
+            notifyPythonWorker(queue_id);
             
             console.log(`[Drive] Successfully queued Video Demo ${queue_id}`);
         } catch (err) {
@@ -311,9 +314,7 @@ router.post('/run', async (req, res) => {
       if (insertErr) throw insertErr;
       queueIds.push(queue_id);
 
-      axios.post(`http://localhost:8000/api/process_audio`, { queue_id }).catch(err => {
-        console.error("Failed to notify python worker:", err.message);
-      });
+      notifyPythonWorker(queue_id);
     }
 
     saveBatch(batchId, queueIds);

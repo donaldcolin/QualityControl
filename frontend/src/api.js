@@ -29,9 +29,10 @@ export function setAuthToken(token) {
 }
 
 /**
- * Centralized, authenticated fetch client with robust error verification.
+ * Centralized, authenticated fetch client with robust error verification,
+ * auth expiration broadcasting, and transient network retry logic.
  */
-async function apiRequest(endpoint, options = {}) {
+async function apiRequest(endpoint, options = {}, isRetry = false) {
   const url = endpoint.startsWith('http')
     ? endpoint
     : `${API_BASE}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
@@ -46,12 +47,28 @@ async function apiRequest(endpoint, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(url, {
-    ...options,
-    headers
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers
+    });
+  } catch (netErr) {
+    // Retry once for idempotent GET requests on transient network drops
+    const isGet = !options.method || options.method.toUpperCase() === 'GET';
+    if (isGet && !isRetry) {
+      await new Promise(r => setTimeout(r, 1000));
+      return apiRequest(endpoint, options, true);
+    }
+    throw netErr;
+  }
 
   if (!res.ok) {
+    // Notify application of auth expiration for seamless session renewal or login redirect
+    if (res.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:expired', { detail: { endpoint, status: 401 } }));
+    }
+
     let errorMessage = `Request failed (HTTP ${res.status}: ${res.statusText})`;
     try {
       const errJson = await res.json();
@@ -78,6 +95,13 @@ async function apiRequest(endpoint, options = {}) {
   }
   return res.text();
 }
+
+/**
+ * Diagnostic healthcheck endpoint for 24/7 observability.
+ */
+export const getSystemHealth = async () => {
+  return apiRequest('/health');
+};
 
 // ── Run & Upload Endpoints ──────────────────────────────────────────────────
 
