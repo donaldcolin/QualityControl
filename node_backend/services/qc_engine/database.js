@@ -169,6 +169,14 @@ async function getParametersForSource(source, rubric) {
   };
 }
 
+const FATAL_COMPLIANCE_PARAMETERS = new Set([
+  'Investment Shown to Become Partly Self-Funding',
+  'Total Fee Improvised or Payment Terms Invented',
+  'Non-Price Advantages Stacked Onto the Discounted Fee',
+  'Advisor Collecting Money Directly',
+  'Sensitive Credentials Spoken Aloud or Left On Screen'
+]);
+
 async function getQualityChecks(source) {
   const rubric = await getActiveRubricVersion(source);
   if (!rubric) return [];
@@ -179,7 +187,7 @@ async function getQualityChecks(source) {
     description: p.Description,
     param_id: p.ParamId,
     max_score: p.Scale?.max || 2,
-    mark_fatal: p.EmbeddedBreachFlag
+    mark_fatal: FATAL_COMPLIANCE_PARAMETERS.has(p.Parameter)
   }));
 }
 

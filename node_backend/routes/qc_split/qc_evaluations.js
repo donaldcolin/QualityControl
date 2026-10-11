@@ -10,6 +10,14 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
+const FATAL_COMPLIANCE_PARAMETERS = [
+  'Investment Shown to Become Partly Self-Funding',
+  'Total Fee Improvised or Payment Terms Invented',
+  'Non-Price Advantages Stacked Onto the Discounted Fee',
+  'Advisor Collecting Money Directly',
+  'Sensitive Credentials Spoken Aloud or Left On Screen'
+];
+
 // ═══════════════════════════════════════════════════════════════
 //  EVALUATE CALL — Main endpoint (Summary + Insights + Quality)
 // ═══════════════════════════════════════════════════════════════
@@ -222,7 +230,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
               status: 'Needs Improvement',
               coaching_status: 'Fail',
               reason: 'Not evaluated — no evidence found in transcript',
-              mark_fatal: check.mark_fatal || false
+              mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(check.parameter)
             };
           });
 
@@ -235,7 +243,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
                 status: item.status,
                 coaching_status: isNA ? 'Not Applicable' : item.coaching_status,
                 reason: item.reason,
-                mark_fatal: qualityObj[item.parameter] ? qualityObj[item.parameter].mark_fatal : false
+                mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(item.parameter)
               };
             });
           }
@@ -457,7 +465,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         totalScore += evaluation.score || 0;
         totalMaxScore += evaluation.max_score || 0;
 
-        if (evaluation.mark_fatal && evaluation.score === 0) {
+        if (evaluation.mark_fatal && evaluation.score === 0 && FATAL_COMPLIANCE_PARAMETERS.includes(paramName)) {
           hasFatalBreach = true;
           fatalBreaches.push({
             parameter: paramName,
