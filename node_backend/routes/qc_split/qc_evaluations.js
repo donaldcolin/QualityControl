@@ -721,24 +721,6 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       qcEngine.evaluateLeadJourney(finalProspectId);
     }
 
-    // 9. Push to LeadSquared via CRM Outbox Pattern
-    if (finalProspectId && prospect_id) { // Only push if it was an actual LSQ prospect
-      try {
-        await supabase.from('crm_outbox').insert({
-          prospect_id: finalProspectId,
-          payload: {
-            prospect_id: finalProspectId,
-            coaching_report: coachingReport,
-            source: effectiveSource
-          },
-          status: 'pending'
-        });
-        console.log(`📦 Inserted LSQ push into crm_outbox for ${finalProspectId}`);
-      } catch (outboxErr) {
-        console.error("Failed to insert into CRM outbox:", outboxErr.message);
-      }
-    }
-
     console.log(`✅ Background evaluation complete for call: ${callIdToUpdate}`);
   } catch (err) {
     console.error(`❌ ASYNC EVALUATION ERROR for call ${activeCallId}:`, err.message);
