@@ -252,6 +252,10 @@ export const scanAll = async () => {
   return apiRequest('/orchestrate/scan_all', { method: 'POST' });
 };
 
+export const getScanStatus = async () => {
+  return apiRequest('/orchestrate/scan_status');
+};
+
 export const pushCoachingToLSQ = async (prospect_id, coaching_report, source) => {
   return apiRequest('/coaching/push_to_lsq', {
     method: 'POST',

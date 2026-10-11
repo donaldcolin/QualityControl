@@ -1,18 +1,36 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const { startDiskSweeperDaemon, stopDiskSweeperDaemon } = require('./services/disk_sweeper');
+
+// ── PROCESS RESILIENCE & UNHANDLED ERROR INTERCEPTORS ──────────────────────
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 [CRITICAL] Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 [CRITICAL] Uncaught Process Exception:', err.stack || err);
+});
 
 const app = express();
+
+// Trust reverse proxy (Nginx) for correct client IP & protocol resolution
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: true, // allow all origins (needed for tunnel URLs + LSQ iframe)
   credentials: true
 }));
+
 // Remove X-Frame-Options so LeadSquared can embed via iframe
 app.use((req, res, next) => {
   res.removeHeader('X-Frame-Options');
   next();
 });
-app.use(express.json());
+
+// Configure robust body limits to prevent 413 Payload Too Large on long transcripts
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Import routes
 const associatesRoutes = require('./routes/associates');
@@ -37,20 +55,40 @@ app.use('/api', queueRoutes);
 app.use('/api', qcRoutes);
 app.use('/api/playbook', playbookRoutes);
 
-
+// ── GLOBAL EXPRESS ERROR HANDLER ──────────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('🚨 [Express Error Middleware]:', err.message || err);
+  if (res.headersSent) return next(err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({
+    error: err.message || 'Internal Server Error'
+  });
+});
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  
-  // Automate Google Meet Transcript Sync (Run every 15 minutes)
-  // const meetSync = require('./services/meet_sync');
-  // setInterval(async () => {
-  //   try {
-  //     console.log(`[Auto-Sync] Running background Google Meet transcript sync...`);
-  //     await meetSync.triggerManualSync();
-  //   } catch (err) {
-  //     console.error(`[Auto-Sync] Meet sync failed:`, err.message);
-  //   }
-  // }, 15 * 60 * 1000); // 15 minutes
+
+  // Start 24/7 automated disk sweeper daemon
+  startDiskSweeperDaemon();
 });
+
+// ── GRACEFUL SHUTDOWN HANDLERS ────────────────────────────────────────────
+function gracefulShutdown(signal) {
+  console.log(`\n🛑 [Shutdown] Received ${signal}. Closing server gracefully...`);
+  stopDiskSweeperDaemon();
+
+  server.close(() => {
+    console.log('✅ [Shutdown] HTTP connections closed cleanly. Exiting process.');
+    process.exit(0);
+  });
+
+  // Force shutdown if connections do not drain within 10 seconds
+  setTimeout(() => {
+    console.error('⚠️ [Shutdown] Forced shutdown timed out after 10s. Exiting now.');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

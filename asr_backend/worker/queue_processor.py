@@ -269,14 +269,6 @@ def process_queue_item(queue_id: str):
         supabase.table("callizer_queue").update({"status": "completed"}).eq("id", queue_id).execute()
         logger.info(f"Queue item {queue_id} completed successfully.")
         
-        # 5. AUTO-DELETE AUDIO FILE (Optimization)
-        try:
-            if is_downloaded_temp_file and local_audio_path.exists():
-                os.remove(local_audio_path)
-                logger.info(f"Deleted temp audio file {local_audio_path} to save space.")
-        except Exception as cleanup_err:
-            logger.warning(f"Failed to delete {local_audio_path}: {cleanup_err}")
-            
     except Exception as e:
         logger.error(f"Error processing queue_id {queue_id}: {e}", exc_info=True)
         if supabase:
@@ -285,7 +277,30 @@ def process_queue_item(queue_id: str):
                 "errors": json.dumps([str(e)])
             }).eq("id", queue_id).execute()
     finally:
-        # Free up memory
+        # 1. GUARANTEED DISK CLEANUP OF TEMPORARY MEDIA
+        try:
+            # Check for temp video created for this queue item
+            temp_mp4 = downloads_dir / f"{queue_id}_temp.mp4"
+            if temp_mp4.exists():
+                temp_mp4.unlink()
+                logger.info(f"[{queue_id}] Guaranteed Cleanup: Deleted temp video {temp_mp4.name}")
+        except Exception as cleanup_v_err:
+            logger.warning(f"[{queue_id}] Failed to delete temp video: {cleanup_v_err}")
+
+        try:
+            if 'local_audio_path' in locals() and local_audio_path and local_audio_path.exists():
+                # Delete if downloaded from HTTP or generated into storage/temp_audio for this queue item
+                is_temp_artifact = (
+                    is_downloaded_temp_file or 
+                    ("temp_audio" in str(local_audio_path) and (queue_id in str(local_audio_path) or (call_id and call_id in str(local_audio_path))))
+                )
+                if is_temp_artifact:
+                    os.remove(local_audio_path)
+                    logger.info(f"[{queue_id}] Guaranteed Cleanup: Deleted temp audio {local_audio_path.name}")
+        except Exception as cleanup_a_err:
+            logger.warning(f"[{queue_id}] Failed to delete temp audio: {cleanup_a_err}")
+
+        # 2. Free up GPU/MPS and RAM memory
         import gc
         gc.collect()
         import torch

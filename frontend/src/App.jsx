@@ -13,6 +13,7 @@ import { PlaySquare, X } from 'lucide-react';
 import { cn } from './lib/utils';
 import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/sonner';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState('teamqc');
@@ -69,7 +70,8 @@ function AppContent() {
 
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-thin">
-          <div className="max-w-7xl mx-auto pb-12 animate-in fade-in duration-500">
+          <ErrorBoundary>
+            <div className="max-w-7xl mx-auto pb-12 animate-in fade-in duration-500">
             {currentView === 'teamqc' && (
               <TeamQC
                 onPushToQueue={(queueId) => {
@@ -104,7 +106,8 @@ function AppContent() {
             {currentView === 'parameters' && <ParametersManager />}
             {currentView === 'meet_sync' && <MeetSyncView />}
           </div>
-        </main>
+        </ErrorBoundary>
+      </main>
       </div>
 
       {/* RIGHT SIDEBAR (Run Panel) */}
@@ -140,9 +143,9 @@ function AppContent() {
 
 export default function App() {
   return (
-    <>
+    <ErrorBoundary>
       <AppContent />
       <Toaster position="bottom-right" richColors />
-    </>
+    </ErrorBoundary>
   );
 }

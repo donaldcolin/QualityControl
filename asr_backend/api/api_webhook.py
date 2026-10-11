@@ -16,6 +16,7 @@ app.add_middleware(
 import threading
 import time
 import logging
+from datetime import datetime, timezone, timedelta
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -66,10 +67,11 @@ def queue_worker():
                             break
                             
                         # Renew lease
+                        expiry_iso = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
                         worker.supabase.table("callizer_queue").update({
-                            "lease_expires_at": "NOW() + INTERVAL '15 minutes'"
+                            "lease_expires_at": expiry_iso
                         }).eq("id", item_id).execute()
-                        logger.info(f"Renewed lease for {item_id}")
+                        logger.info(f"Renewed lease for {item_id} until {expiry_iso}")
 
                 hb_thread = threading.Thread(target=heartbeat, daemon=True)
                 hb_thread.start()

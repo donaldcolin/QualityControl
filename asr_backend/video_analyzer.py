@@ -49,83 +49,84 @@ def analyze_video(video_path, slide_data, interval_seconds=10):
         print(f"Error opening video file {video_path}")
         return {}
         
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0:
-        fps = 30 # fallback
-        
-    # [NOTE] OpenCV 5.0 removed Haar Cascades. We will use Google MediaPipe for Face Detection instead later!
-    # For now, bypassing the crash to let Pillar 1 finish.
-        
-    frame_interval = int(fps * interval_seconds)
-    frame_count = 0
-    timeline = {}
-    
-    # Face tracking metrics
-    total_samples = 0
-    associate_face_detected_count = 0
-    face_timeline = {}
-    
-    # Initialize MediaPipe Face Detection
-    mp_face_detection = mp.solutions.face_detection
-    with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps == 0:
+            fps = 30 # fallback
             
-            if frame_count % frame_interval == 0:
-                timestamp_sec = frame_count // fps
-                total_samples += 1
+        # [NOTE] OpenCV 5.0 removed Haar Cascades. We will use Google MediaPipe for Face Detection instead later!
+        # For now, bypassing the crash to let Pillar 1 finish.
+            
+        frame_interval = int(fps * interval_seconds)
+        frame_count = 0
+        timeline = {}
+        
+        # Face tracking metrics
+        total_samples = 0
+        associate_face_detected_count = 0
+        face_timeline = {}
+        
+        # Initialize MediaPipe Face Detection
+        mp_face_detection = mp.solutions.face_detection
+        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
                 
-                # --- GOOGLE MEET CROPPING ---
-                h, w, _ = frame.shape
-                
-                # Presentation Crop (Left ~75%)
-                crop_y1, crop_y2 = int(h * 0.1), int(h * 0.9)
-                crop_x1, crop_x2 = int(w * 0.05), int(w * 0.75) 
-                cropped_frame = frame[crop_y1:crop_y2, crop_x1:crop_x2]
-                
-                # Webcam Crop (Right ~25% for Face Detection)
-                webcam_x1 = int(w * 0.75)
-                webcam_frame = frame[0:h, webcam_x1:w]
-                
-                # --- PILLAR 1: SLIDE HASHING ---
-                # Convert CV2 frame (BGR) to PIL Image (RGB) for ImageHash
-                cropped_frame_rgb = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
-                pil_img = Image.fromarray(cropped_frame_rgb)
-                frame_hash = imagehash.phash(pil_img)
-                
-                best_match = None
-                lowest_diff = float('inf')
-                
-                for slide_num, data in slide_data.items():
-                    s_hash = data["hash"]
-                    diff = frame_hash - s_hash
-                    if diff < lowest_diff:
-                        lowest_diff = diff
-                        best_match = slide_num
+                if frame_count % frame_interval == 0:
+                    timestamp_sec = frame_count // fps
+                    total_samples += 1
+                    
+                    # --- GOOGLE MEET CROPPING ---
+                    h, w, _ = frame.shape
+                    
+                    # Presentation Crop (Left ~75%)
+                    crop_y1, crop_y2 = int(h * 0.1), int(h * 0.9)
+                    crop_x1, crop_x2 = int(w * 0.05), int(w * 0.75) 
+                    cropped_frame = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                    
+                    # Webcam Crop (Right ~25% for Face Detection)
+                    webcam_x1 = int(w * 0.75)
+                    webcam_frame = frame[0:h, webcam_x1:w]
+                    
+                    # --- PILLAR 1: SLIDE HASHING ---
+                    # Convert CV2 frame (BGR) to PIL Image (RGB) for ImageHash
+                    cropped_frame_rgb = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
+                    pil_img = Image.fromarray(cropped_frame_rgb)
+                    frame_hash = imagehash.phash(pil_img)
+                    
+                    best_match = None
+                    lowest_diff = float('inf')
+                    
+                    for slide_num, data in slide_data.items():
+                        s_hash = data["hash"]
+                        diff = frame_hash - s_hash
+                        if diff < lowest_diff:
+                            lowest_diff = diff
+                            best_match = slide_num
+                            
+                    is_slide_active = (lowest_diff <= 15)
+                    if is_slide_active:
+                        timeline[int(timestamp_sec)] = best_match
                         
-                is_slide_active = (lowest_diff <= 15)
-                if is_slide_active:
-                    timeline[int(timestamp_sec)] = best_match
+                    # --- PILLAR 2: FACIAL ANALYTICS (MediaPipe) ---
+                    # If a slide is active, only scan the right 25% (webcam) to avoid detecting faces inside the presentation slides.
+                    # If no slide is active, scan the full frame because the webcam takes up the whole screen.
+                    target_frame = webcam_frame if is_slide_active else frame
+                    target_rgb = cv2.cvtColor(target_frame, cv2.COLOR_BGR2RGB)
+                    results = face_detection.process(target_rgb)
                     
-                # --- PILLAR 2: FACIAL ANALYTICS (MediaPipe) ---
-                # If a slide is active, only scan the right 25% (webcam) to avoid detecting faces inside the presentation slides.
-                # If no slide is active, scan the full frame because the webcam takes up the whole screen.
-                target_frame = webcam_frame if is_slide_active else frame
-                target_rgb = cv2.cvtColor(target_frame, cv2.COLOR_BGR2RGB)
-                results = face_detection.process(target_rgb)
-                
-                num_faces = 0
-                if results.detections:
-                    num_faces = len(results.detections)
-                    associate_face_detected_count += 1 # At least one face (assume associate is one of them)
-                    
-                face_timeline[int(timestamp_sec)] = num_faces
-                    
-            frame_count += 1
-            
-    cap.release()
+                    num_faces = 0
+                    if results.detections:
+                        num_faces = len(results.detections)
+                        associate_face_detected_count += 1 # At least one face (assume associate is one of them)
+                        
+                    face_timeline[int(timestamp_sec)] = num_faces
+                        
+                frame_count += 1
+    finally:
+        cap.release()
     
     # Calculate Trust Metric
     camera_active_pct = 0
