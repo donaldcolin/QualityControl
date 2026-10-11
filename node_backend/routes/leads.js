@@ -5,6 +5,7 @@ const supabase = require('../config/supabase');
 const { lsqUrl } = require('../config/lsq');
 const { getActivitiesForLead } = require('../services/lead_service');
 const { requireAuth } = require('../middleware/auth');
+const { fetchInChunks } = require('../utils/db_utils');
 
 // Enforce authentication on all leads routes
 router.use(requireAuth);
@@ -34,19 +35,25 @@ router.get('/', async (req, res) => {
 
   const leadIds = leads.map(l => l.id);
 
-  // 1. Fetch calls ONLY for these paginated leads
-  const { data: calls, error: callsError } = await supabase
-    .from('calls')
-    .select('id, prospect_id, qc_status, duration_sec, call_quality_score, talk_to_listen_ratio, insights_data, quality_data')
-    .in('prospect_id', leadIds);
+  // 1. Fetch calls ONLY for these paginated leads (chunked to prevent HTTP 414)
+  const calls = await fetchInChunks(leadIds, 50, async (chunk) => {
+    const { data, error } = await supabase
+      .from('calls')
+      .select('id, prospect_id, qc_status, duration_sec, call_quality_score, talk_to_listen_ratio, insights_data, quality_data')
+      .in('prospect_id', chunk);
+    if (error) console.error("Error fetching calls chunk:", error.message);
+    return data || [];
+  });
 
-  if (callsError) console.error("Error fetching calls:", callsError);
-
-  // 2. Fetch queues to find emp_number ONLY for these leads
-  const { data: queues } = await supabase
-    .from('callizer_queue')
-    .select('prospect_id, emp_number')
-    .in('prospect_id', leadIds);
+  // 2. Fetch queues to find emp_number ONLY for these leads (chunked)
+  const queues = await fetchInChunks(leadIds, 50, async (chunk) => {
+    const { data, error } = await supabase
+      .from('callizer_queue')
+      .select('prospect_id, emp_number')
+      .in('prospect_id', chunk);
+    if (error) console.error("Error fetching queues chunk:", error.message);
+    return data || [];
+  });
   
   // 3. Fetch associates to map emp_number to emp_name
   const { data: associates } = await supabase.from('qc_associates').select('emp_number, emp_name');
@@ -68,7 +75,7 @@ router.get('/', async (req, res) => {
   }
 
   const callsByProspect = {};
-  if (!callsError && calls) {
+  if (calls) {
     for (const c of calls) {
       if (!callsByProspect[c.prospect_id]) callsByProspect[c.prospect_id] = [];
       callsByProspect[c.prospect_id].push(c);
@@ -116,15 +123,19 @@ router.get('/:id', async (req, res) => {
 
   if (callsError) return res.status(500).json({ error: callsError.message });
 
-  // Fetch latest evaluation_run per call to attach insights + coaching data
+  // Fetch latest evaluation_run per call to attach insights + coaching data (chunked)
   const callIds = (calls || []).map(c => c.id);
   let evalMap = {};
   if (callIds.length > 0) {
-    const { data: evals } = await supabase
-      .from('evaluation_runs')
-      .select('call_id, results')
-      .in('call_id', callIds)
-      .order('created_at', { ascending: false });
+    const evals = await fetchInChunks(callIds, 50, async (chunk) => {
+      const { data, error } = await supabase
+        .from('evaluation_runs')
+        .select('call_id, results, created_at')
+        .in('call_id', chunk)
+        .order('created_at', { ascending: false });
+      if (error) console.error("Error fetching evals chunk:", error.message);
+      return data || [];
+    });
 
     if (evals) {
       evals.forEach(e => {

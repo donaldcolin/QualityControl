@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { startDiskSweeperDaemon, stopDiskSweeperDaemon } = require('./services/disk_sweeper');
+const { startQueueWatchdogDaemon, stopQueueWatchdogDaemon } = require('./services/queue_watchdog');
 
 // ── PROCESS RESILIENCE & UNHANDLED ERROR INTERCEPTORS ──────────────────────
 process.on('unhandledRejection', (reason, promise) => {
@@ -69,14 +70,16 @@ const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 
-  // Start 24/7 automated disk sweeper daemon
+  // Start 24/7 background daemons
   startDiskSweeperDaemon();
+  startQueueWatchdogDaemon();
 });
 
 // ── GRACEFUL SHUTDOWN HANDLERS ────────────────────────────────────────────
 function gracefulShutdown(signal) {
   console.log(`\n🛑 [Shutdown] Received ${signal}. Closing server gracefully...`);
   stopDiskSweeperDaemon();
+  stopQueueWatchdogDaemon();
 
   server.close(() => {
     console.log('✅ [Shutdown] HTTP connections closed cleanly. Exiting process.');

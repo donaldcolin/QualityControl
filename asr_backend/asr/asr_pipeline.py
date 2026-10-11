@@ -15,6 +15,7 @@ import subprocess
 import os
 import logging
 import warnings
+import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -162,15 +163,20 @@ _LANG_MAP = {
 }
 
 
+# Mutex lock to serialize model forward passes and device transfers across worker threads
+_model_inference_lock = threading.Lock()
+
+
 def transcribe(model, device: str, wav, sr: int, lang: str,
                start: float = None, end: float = None) -> str:
     """
     Transcribe a pre-loaded wav tensor (or a time-slice of it) using CTC decoding.
+    Thread-safe: serializes model execution to prevent concurrent in-place device mutations.
     """
     import torch
     lang_code = _LANG_MAP.get(lang, lang)
 
-    # Slice to segment boundaries if provided
+    # Slice to segment boundaries if provided (slicing is thread-safe on cpu tensor)
     if start is not None and end is not None:
         start_sample = int(start * sr)
         end_sample = int(end * sr)
@@ -180,18 +186,19 @@ def transcribe(model, device: str, wav, sr: int, lang: str,
     if wav.shape[-1] < sr * 0.1:  # less than 100ms
         return ""
 
-    wav = wav.to(device)
+    with _model_inference_lock:
+        wav = wav.to(device)
 
-    try:
-        with torch.inference_mode():
-            return model(wav, lang_code, "ctc")
-    except NotImplementedError:
-        # Some ops aren't implemented for MPS yet — fall back to CPU
-        model_cpu = model.to("cpu")
-        with torch.inference_mode():
-            result = model_cpu(wav.to("cpu"), lang_code, "ctc")
-        model.to(device)
-        return result
+        try:
+            with torch.inference_mode():
+                return model(wav, lang_code, "ctc")
+        except NotImplementedError:
+            # Some ops aren't implemented for MPS yet — fall back to CPU
+            model_cpu = model.to("cpu")
+            with torch.inference_mode():
+                result = model_cpu(wav.to("cpu"), lang_code, "ctc")
+            model.to(device)
+            return result
 
 
 def _transcribe_segment(model, device, wav, sr, lang, idx, turn):

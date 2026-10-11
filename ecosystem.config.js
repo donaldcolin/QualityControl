@@ -3,11 +3,13 @@ module.exports = {
     {
       name: 'qc-node-api',
       script: './node_backend/server.js',
-      cwd: './',
-      instances: 1, // Node is single-threaded, but 1 is fine for now
+      cwd: __dirname,
+      instances: 1,
       autorestart: true,
       watch: false,
       max_memory_restart: '2G',
+      kill_timeout: 10000,
+      listen_timeout: 10000,
       env: {
         NODE_ENV: 'production',
         PORT: 3000
@@ -23,18 +25,22 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: '8G', // ASR + Gemini loads can be heavy on memory
+      kill_timeout: 15000,
       env: {
         ENVIRONMENT: 'production'
       }
     },
     {
-      name: 'qc-frontend-dev',
-      script: 'npm',
-      args: 'run dev',
+      name: 'qc-frontend-serve',
+      script: 'npx',
+      args: 'serve -s dist -l 5173',
       cwd: './frontend',
       instances: 1,
       autorestart: true,
-      watch: false
+      watch: false,
+      env: {
+        NODE_ENV: 'production'
+      }
     },
     {
       name: 'qc-db-backup',

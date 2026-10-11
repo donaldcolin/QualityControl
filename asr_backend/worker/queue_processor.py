@@ -3,6 +3,7 @@ import uuid
 import json
 import logging
 import requests
+import threading
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -29,10 +30,20 @@ else:
     logger.warning("SUPABASE_URL and SUPABASE_KEY not set in environment.")
     supabase = None
 
-def process_queue_item(queue_id: str):
+
+class LeaseLostException(Exception):
+    """Raised when worker lease is preempted or lost during processing."""
+    pass
+
+
+def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
     if not supabase:
         logger.error("Supabase client not initialized.")
         return
+
+    def check_cancel(stage: str):
+        if cancel_event and cancel_event.is_set():
+            raise LeaseLostException(f"Worker lease lost before/during {stage}")
         
     try:
         # Fetch queue item
@@ -93,9 +104,11 @@ def process_queue_item(queue_id: str):
         supabase.table("callizer_queue").update({"status": "Starting ASR pipeline..."}).eq("id", queue_id).execute()
         out_dir = Path("../storage/json_transcripts")
         out_dir.mkdir(parents=True, exist_ok=True)
+        check_cancel("ASR pipeline launch")
         hf_token = os.environ.get("HF_TOKEN")
         
         def _status_cb(msg):
+            check_cancel(f"ASR stage: {msg}")
             import sys
             if msg.startswith("Transcribing segment"):
                 sys.stdout.write(f"\rINFO:worker:[{queue_id}] {msg}")
@@ -266,9 +279,12 @@ def process_queue_item(queue_id: str):
             # Graceful degradation — continue without QC results
             
         # Mark queue as complete
+        check_cancel("completion finalization")
         supabase.table("callizer_queue").update({"status": "completed"}).eq("id", queue_id).execute()
         logger.info(f"Queue item {queue_id} completed successfully.")
         
+    except LeaseLostException as lle:
+        logger.warning(f"🛡️ [{queue_id}] Cooperative cancellation triggered: {lle}. Aborting gracefully without overwriting queue state.")
     except Exception as e:
         logger.error(f"Error processing queue_id {queue_id}: {e}", exc_info=True)
         if supabase:

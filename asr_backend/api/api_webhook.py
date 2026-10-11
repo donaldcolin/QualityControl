@@ -50,9 +50,10 @@ def queue_worker():
                 item_id = resp.data[0]["id"]
                 logger.info(f"Successfully claimed queue item: {item_id}")
                 
-                # Fencing token & Heartbeat mechanism
+                # Fencing token & Heartbeat mechanism with Cooperative Cancellation
                 stop_heartbeat = threading.Event()
-                
+                cancel_event = threading.Event()
+
                 def heartbeat():
                     while not stop_heartbeat.is_set():
                         # Renew lease every 5 minutes
@@ -62,8 +63,8 @@ def queue_worker():
                         # Verify we still own the lease (fencing token)
                         check = worker.supabase.table("callizer_queue").select("worker_id").eq("id", item_id).execute()
                         if not check.data or check.data[0].get("worker_id") != WORKER_ID:
-                            logger.error(f"Lost lease for {item_id}! Another worker claimed it.")
-                            # In a real app we'd forcefully terminate processing here (sys.exit thread or cancel task)
+                            logger.error(f"Lost lease for {item_id}! Another worker claimed it. Signaling cooperative cancellation.")
+                            cancel_event.set()
                             break
                             
                         # Renew lease
@@ -77,7 +78,7 @@ def queue_worker():
                 hb_thread.start()
 
                 try:
-                    worker.process_queue_item(item_id)
+                    worker.process_queue_item(item_id, cancel_event=cancel_event)
                 finally:
                     stop_heartbeat.set()
             else:

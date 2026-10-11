@@ -27,8 +27,7 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage: storage });
-
-const localBatches = new Map();
+const { saveBatch, getBatch } = require('../services/batch_store');
 
 router.get('/queue', async (req, res) => {
   try {
@@ -185,7 +184,7 @@ router.post('/upload_run', upload.array('files'), async (req, res) => {
       });
     }
 
-    localBatches.set(batchId, queueIds);
+    saveBatch(batchId, queueIds);
     res.json({ batch_id: batchId });
   } catch (err) {
     console.error("Upload run error:", err);
@@ -317,7 +316,7 @@ router.post('/run', async (req, res) => {
       });
     }
 
-    localBatches.set(batchId, queueIds);
+    saveBatch(batchId, queueIds);
     res.json({ batch_id: batchId });
   } catch (err) {
     console.error("Folder run error:", err);
@@ -328,7 +327,7 @@ router.post('/run', async (req, res) => {
 router.get('/runs/:batchId/status', async (req, res) => {
   try {
     const batchId = req.params.batchId;
-    const queueIds = localBatches.get(batchId);
+    const queueIds = getBatch(batchId);
     
     if (!queueIds || queueIds.length === 0) {
       return res.status(404).json({ error: "Batch not found or empty" });

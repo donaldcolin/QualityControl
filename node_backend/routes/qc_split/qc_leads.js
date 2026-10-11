@@ -9,6 +9,7 @@ const { lsqParams } = require('../../config/lsq');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { fetchInChunks } = require('../../utils/db_utils');
 
 // ═══════════════════════════════════════════════════════════════
 //  LEADS CRUD & DEMO SEEDING
@@ -65,27 +66,30 @@ router.get('/leads', async (req, res) => {
 
     const leadIds = leads.map(l => l.id);
     
-    // Fetch ONLY calls for these paginated leads, NOT the entire calls table!
-    const { data: callsData, error: callsError } = await supabase
-      .from('calls')
-      .select('*')
-      .in('prospect_id', leadIds);
-
-    if (callsError) console.error("Error fetching calls:", callsError);
+    // Fetch ONLY calls for these paginated leads (chunked to prevent HTTP 414)
+    const callsData = await fetchInChunks(leadIds, 50, async (chunk) => {
+      const { data, error } = await supabase
+        .from('calls')
+        .select('*')
+        .in('prospect_id', chunk);
+      if (error) console.error("Error fetching calls chunk:", error.message);
+      return data || [];
+    });
 
     const callIds = (callsData || []).map(c => c.id);
 
-    // Fetch ONLY latest evaluation runs for these calls, NOT the entire evaluation_runs table!
+    // Fetch ONLY latest evaluation runs for these calls (chunked)
     let evalsData = [];
     if (callIds.length > 0) {
-      const { data: evals, error: evalsError } = await supabase
-        .from('evaluation_runs')
-        .select('*')
-        .in('call_id', callIds)
-        .order('created_at', { ascending: false });
-
-      if (evalsError) console.error("Error fetching evaluation_runs:", evalsError);
-      evalsData = evals || [];
+      evalsData = await fetchInChunks(callIds, 50, async (chunk) => {
+        const { data, error } = await supabase
+          .from('evaluation_runs')
+          .select('*')
+          .in('call_id', chunk)
+          .order('created_at', { ascending: false });
+        if (error) console.error("Error fetching evaluation_runs chunk:", error.message);
+        return data || [];
+      });
     }
 
     // Map latest evaluation to calls
@@ -150,15 +154,19 @@ router.get('/leads/:id', async (req, res) => {
       
     if (callsError) throw callsError;
 
-    // Fetch evaluation_runs and enrich calls (matching GET /leads logic)
+    // Fetch evaluation_runs and enrich calls (chunked to prevent HTTP 414)
     const callIds = (calls || []).map(c => c.id);
     let evalMap = {};
     if (callIds.length > 0) {
-      const { data: evalsData } = await supabase
-        .from('evaluation_runs')
-        .select('*')
-        .in('call_id', callIds)
-        .order('created_at', { ascending: false });
+      const evalsData = await fetchInChunks(callIds, 50, async (chunk) => {
+        const { data, error } = await supabase
+          .from('evaluation_runs')
+          .select('*')
+          .in('call_id', chunk)
+          .order('created_at', { ascending: false });
+        if (error) console.error("Error fetching evaluation_runs chunk:", error.message);
+        return data || [];
+      });
 
       if (evalsData) {
         evalsData.forEach(e => {

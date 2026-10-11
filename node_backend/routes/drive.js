@@ -22,6 +22,14 @@ if (fs.existsSync(CREDENTIALS_PATH)) {
 
 const ROOT_FOLDER_ID = '1OgKj_unhEVQ_OhYGSu5rysW2_sfPyTsn';
 
+/**
+ * Escapes backslashes and single quotes to prevent Google Drive API query syntax breaks.
+ */
+function sanitizeDriveParam(str) {
+  if (!str) return '';
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 router.get('/transcript', async (req, res) => {
   if (!drive) {
     return res.status(503).json({ error: 'Google Drive credentials not configured on backend.' });
@@ -39,11 +47,11 @@ router.get('/transcript', async (req, res) => {
         const digits = phone.replace(/\D/g, '');
         const last10 = digits.slice(-10);
         if (last10 && last10.length > 5) {
-            conditions.push(`name contains '${last10.replace(/'/g, "\\'")}'`);
+            conditions.push(`name contains '${sanitizeDriveParam(last10)}'`);
         }
     }
     if (name) {
-        const firstName = name.split(' ')[0].toLowerCase().replace(/'/g, "\\'");
+        const firstName = sanitizeDriveParam(name.split(' ')[0].toLowerCase());
         if (firstName.length > 2) {
             conditions.push(`name contains '${firstName}'`);
         }
@@ -112,11 +120,11 @@ router.get('/recording', async (req, res) => {
         const digits = phone.replace(/\D/g, '');
         const last10 = digits.slice(-10);
         if (last10 && last10.length > 5) {
-            conditions.push(`name contains '${last10}'`);
+            conditions.push(`name contains '${sanitizeDriveParam(last10)}'`);
         }
     }
     if (name) {
-        const firstName = name.split(' ')[0].toLowerCase();
+        const firstName = sanitizeDriveParam(name.split(' ')[0].toLowerCase());
         if (firstName.length > 2) {
             conditions.push(`name contains '${firstName}'`);
         }
