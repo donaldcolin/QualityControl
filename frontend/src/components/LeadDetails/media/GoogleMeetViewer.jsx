@@ -1,164 +1,43 @@
-import { useState, useEffect, useRef } from 'react';
-import { Video, Presentation, AlertTriangle, Clock, CheckCircle2, Camera } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { 
+  Video, 
+  Copy, 
+  Check, 
+  ArrowUpRight
+} from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDuration } from '../utils';
-
-function formatHumanDuration(seconds) {
-  if (!seconds || seconds <= 0) return '0s';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  if (m > 0 && s > 0) return `${m}m ${s}s`;
-  if (m > 0) return `${m}m`;
-  return `${s}s`;
-}
-
-const KALVIUM_SLIDE_MAPPING = {
-  1: "Title: India's #1 Work Integrated B.TECH",
-  2: "Counselor Introduction",
-  3: "Truth vs Reality vs Hope vs Choice",
-  4: "The Headlines Are REAL (Layoffs)",
-  5: "As a software engineer you will...",
-  6: "The AI - REALITY",
-  7: "The Reality of Traditional B.Tech",
-  8: "B.Tech CSE vs B.Tech in AI",
-  9: "You're already outdated from DAY 1",
-  10: "Placement Stats reflect this already",
-  11: "In the AI Era, College Brand Matters Less",
-  12: "We reached out to top tech leaders",
-  13: "What Matter & Doesn't Matter Anymore",
-  14: "What do companies actually want?",
-  15: "Google Now Hires 'Tons' Without Degree",
-  16: "Work-Integrated Learning Introduction",
-  17: "4 Years | Residential | On campus",
-  18: "Curriculum Designed with Tech Leaders",
-  19: "Placement & Internships Stats",
-  20: "Internships (Student Profiles 1)",
-  21: "Internships (Student Profiles 2)",
-  22: "Internships (Student Profiles 3)",
-  23: "Recruitment Partners",
-  24: "How we Engineer Differently",
-  25: "Work-Integrated Learning: Builds Skills",
-  26: "Foundations-to-Excellence Curriculum",
-  27: "Learning Like a Professional Looks Like",
-  28: "Textbooks are not enough anymore",
-  29: "Learn Coding the Right Way",
-  30: "Kalvium Platform Dashboard",
-  31: "Higher Education Real-Time Operating System",
-  32: "Student Passion Projects",
-  33: "Intensity that builds character",
-  34: "Kalvium: 4 Pillars of Excellence",
-  35: "Admissions Closing Soon",
-  36: "Admissions Closing Soon (Dates)",
-  37: "Why does Kalvium have an Entrance exam?",
-  38: "Why Write Another Entrance Exam?",
-  39: "Fair Selection Cartoon",
-  40: "What is KNET?",
-  41: "What is KNET (3 Steps)",
-  42: "Important: Laptop/Camera requirement",
-  43: "KNET tests how you think",
-  44: "What KNET Evaluates?",
-  45: "Multiple Pathways to Selection",
-  46: "Psychometric Test",
-  47: "What is this test?",
-  48: "Portal: Psychometric Test Step",
-  49: "Portal: Setup Test Environment",
-  50: "Portal: Test Completed",
-  51: "Sample Psychometric Report",
-  52: "KNET: More than one way to show ability",
-  53: "PART A: 4 Challenges",
-  54: "PART B: The Questions",
-  55: "KNET Test Pattern",
-  56: "Portal: KNET Registration",
-  57: "Portal: KNET Scheduled",
-  58: "Portal: Launch KNET",
-  59: "Portal: Test Live",
-  60: "Portal: KNET Environment Check",
-  61: "Portal: Part A Complete",
-  62: "Portal: KNET Complete",
-  63: "Let's take the next steps",
-  64: "University Partners Overview",
-  65: "Lovely Professional University (LPU)",
-  66: "LPU: Infrastructure 1",
-  67: "LPU: Infrastructure 2",
-  68: "LPU: Library",
-  69: "LPU: Sports",
-  70: "LPU: Campus Life 1",
-  71: "LPU: Campus Life 2",
-  72: "LPU: Campus Life 3",
-  73: "LPU: Campus Life 4",
-  74: "LPU: Hostel Life",
-  75: "LPU: Hostel Fee Details (Apartments)",
-  76: "LPU: Hostel Fee Details (Standard)",
-  77: "LPU: Proven Excellence (Rankings)",
-  78: "LPU: B.Tech CSE Fees",
-  79: "LPU: Scholarship Benefits",
-  80: "JECRC University (Jaipur)",
-  81: "JECRC: Infrastructure",
-  82: "JECRC: Campus Life",
-  83: "JECRC: Hostel Life 1",
-  84: "JECRC: Hostel Life 2",
-  85: "JECRC: Hostel Fee Details",
-  86: "JECRC: Proven Excellence (Rankings)",
-  87: "JECRC: B.Tech CSE Fees",
-  88: "SRM University (Amaravati)",
-  89: "SRM: Infrastructure",
-  90: "SRM: Campus Life",
-  91: "SRM: Hostel Life",
-  92: "SRM: Hostel Fee Details",
-  93: "SRM: Proven Excellence (Rankings)",
-  94: "SRM: B.Tech CSE Fees",
-  95: "Yenepoya University (Mangalore)",
-  96: "Yenepoya Mangalore: Infrastructure",
-  97: "Yenepoya Mangalore: Campus Life",
-  98: "Yenepoya Mangalore: Rankings",
-  99: "Yenepoya Mangalore: B.Tech CSE Fees",
-  100: "Yenepoya University (Bangalore)",
-  101: "Yenepoya Bangalore: Infrastructure",
-  102: "Yenepoya Bangalore: Campus Life",
-  103: "Yenepoya Bangalore: Rankings",
-  104: "Yenepoya Bangalore: B.Tech CSE Fees",
-  105: "AMET University (Chennai)",
-  106: "AMET: Infrastructure",
-  107: "AMET: Campus Life",
-  108: "AMET: Rankings",
-  109: "AMET: B.Tech CSE Fees",
-  110: "AMET: Boys Hostel Fees",
-  111: "AMET: Girls Hostel Fees",
-  112: "St Joseph University (Chennai)",
-  113: "St Joseph: Infrastructure",
-  114: "St Joseph: Campus Life",
-  115: "St Joseph: Hostel Life",
-  116: "St Joseph: Hostel Fee Details",
-  117: "St Joseph: Rankings",
-  118: "St Joseph: Rankings 2",
-  119: "St Joseph: B.Tech CSE Fees",
-  120: "SGT University (Gurugram)",
-  121: "SGT: Infrastructure",
-  122: "SGT: Campus Life",
-  123: "SGT: Hostel Life",
-  124: "SGT: Hostel Fee Details",
-  125: "SGT: B.Tech CSE Fees",
-  126: "Kalasalingam (Srivilliputhur)",
-  127: "Kalasalingam: Infrastructure",
-  128: "Kalasalingam: Campus Life",
-  129: "Kalasalingam: Rankings",
-  130: "Kalasalingam: B.Tech CSE Fees",
-  131: "Kalvium Direct Online",
-  132: "Kalvium Direct Online: Fees",
-  133: "Refer a Student",
-  134: "Kalvium Curriculum (Sem 1-4)",
-  135: "Kalvium Curriculum (Sem 5-8)",
-};
+import { 
+  KALVIUM_SLIDE_MAPPING, 
+  formatHumanDuration 
+} from './slideMapping';
 
 export default function GoogleMeetViewer({ call, embedded = false }) {
-  const segments = typeof call?.segments === 'string' ? JSON.parse(call.segments) : (call?.segments || []);
-  const uniqueSpeakers = [...new Set(segments.map(s => s.speaker))].sort();
+  const segments = useMemo(() => {
+    if (typeof call?.segments === 'string') {
+      try {
+        return JSON.parse(call.segments);
+      } catch {
+        return [];
+      }
+    }
+    return call?.segments || [];
+  }, [call?.segments]);
+
+  const uniqueSpeakers = useMemo(() => {
+    return [...new Set(segments.map(s => s.speaker))].filter(Boolean).sort();
+  }, [segments]);
+
   const p1Id = uniqueSpeakers[0] || 'SPEAKER_00';
 
+  // Toggle active view: 'dialogue' | 'slides'
+  const [activeTab, setActiveTab] = useState('dialogue');
   const [activeSlideNumber, setActiveSlideNumber] = useState(null);
   const [filterMode, setFilterMode] = useState('presented'); // 'presented' | 'rushed' | 'all'
   const [highlightedSegmentIdx, setHighlightedSegmentIdx] = useState(null);
+  const [speakerFilter, setSpeakerFilter] = useState('all'); // 'all' | 'advisor' | 'student'
+  const [copiedTurnIdx, setCopiedTurnIdx] = useState(null);
 
   const segmentRefs = useRef({});
   const scrollAreaRef = useRef(null);
@@ -166,22 +45,21 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
   // Extract visual timeline data
   const timeline = call?.visual_timeline;
   const facialAnalytics = timeline?.facial_analytics;
-  const rawSlides = Array.isArray(timeline?.slides) ? timeline.slides : [];
-  const shownSlides = rawSlides.filter(s => s.is_shown);
-  const rushedSlides = shownSlides.filter(s => s.rushed_warning || (s.total_duration_seconds > 0 && s.total_duration_seconds < 20));
+  const rawSlides = useMemo(() => Array.isArray(timeline?.slides) ? timeline.slides : [], [timeline?.slides]);
+  const shownSlides = useMemo(() => rawSlides.filter(s => s.is_shown), [rawSlides]);
+  const rushedSlides = useMemo(() => {
+    return shownSlides.filter(s => s.rushed_warning || (s.total_duration_seconds > 0 && s.total_duration_seconds < 20));
+  }, [shownSlides]);
 
-  // Determine which slides to display based on filter
-  let displaySlides = shownSlides;
-  if (filterMode === 'rushed') {
-    displaySlides = rushedSlides;
-  } else if (filterMode === 'all') {
-    displaySlides = rawSlides;
-  } else if (shownSlides.length === 0 && rawSlides.length > 0) {
-    displaySlides = rawSlides;
-  }
+  // Determine filtered slides
+  const displaySlides = useMemo(() => {
+    if (filterMode === 'rushed') return rushedSlides;
+    if (filterMode === 'all') return rawSlides;
+    return shownSlides.length > 0 ? shownSlides : rawSlides;
+  }, [filterMode, shownSlides, rushedSlides, rawSlides]);
 
   // Jump to specific time in the transcript
-  const scrollToTime = (targetSec) => {
+  const scrollToTime = useCallback((targetSec) => {
     if (segments.length === 0) return;
 
     let closestIdx = -1;
@@ -209,9 +87,9 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
         setHighlightedSegmentIdx(null);
       }, 3000);
     }
-  };
+  }, [segments]);
 
-  // Listen for jump-to-time events (e.g. from Quality parameters tab)
+  // Listen for jump-to-time events
   useEffect(() => {
     const handleJump = (e) => {
       if (e.detail?.callId === call?.id && e.detail?.start !== undefined) {
@@ -220,7 +98,7 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
     };
     window.addEventListener('jump-to-time', handleJump);
     return () => window.removeEventListener('jump-to-time', handleJump);
-  }, [call?.id, segments]);
+  }, [call?.id, scrollToTime]);
 
   const handleSlideClick = (slide) => {
     setActiveSlideNumber(slide.slide_number);
@@ -230,237 +108,284 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
       window.dispatchEvent(new CustomEvent('jump-to-time', {
         detail: { callId: call?.id, start: startSec }
       }));
+      // Switch to dialogue so user can see dialogue for that slide
+      setActiveTab('dialogue');
     }
   };
 
+  // Filtered transcript turns by speaker
+  const filteredSegments = useMemo(() => {
+    return segments.map((seg, originalIdx) => ({ seg, originalIdx })).filter(({ seg }) => {
+      const isAdvisor = seg.speaker === p1Id || seg.speaker === 'Advisor' || seg.speaker?.includes('Advisor');
+      if (speakerFilter === 'advisor' && !isAdvisor) return false;
+      if (speakerFilter === 'student' && isAdvisor) return false;
+      return true;
+    });
+  }, [segments, p1Id, speakerFilter]);
+
+  const handleCopyText = (text, idx) => {
+    navigator.clipboard.writeText(text);
+    setCopiedTurnIdx(idx);
+    setTimeout(() => setCopiedTurnIdx(null), 1500);
+  };
+
   return (
-    <div className={cn("flex flex-col overflow-hidden bg-white rounded-lg shadow-sm", embedded ? "shrink-0 w-full border" : "h-full border")}>
-      {/* Meet Header */}
-      <div className={cn("flex items-center justify-between gap-4 w-full border-b", embedded ? "p-4 bg-white" : "p-4 bg-indigo-50/60 border-indigo-100")}>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center h-10 w-10 rounded-full bg-indigo-100 text-indigo-600 shadow-sm shrink-0">
-            <Video className="h-5 w-5" />
+    <div className={cn("flex flex-col overflow-hidden bg-white rounded-lg border border-slate-200", embedded ? "shrink-0 w-full" : "h-full")}>
+      
+      {/* ── Top Header ── */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-white shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center text-slate-700 shrink-0">
+            <Video className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-slate-900">Google Meet 1:1 Session</h3>
-            <p className="text-xs text-slate-500">Duration: {call?.duration_sec ? formatDuration(call.duration_sec) : 'Unknown'}</p>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-xs text-slate-900">Google Meet 1:1</span>
+            <span className="font-mono text-xs text-slate-400">
+              {call?.duration_sec ? formatDuration(call.duration_sec) : '90:04'}
+            </span>
           </div>
         </div>
 
-        {/* Camera / Trust Metric Pill in header */}
+        {/* Camera Status */}
         {facialAnalytics && (
-          <div className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border shadow-xs",
-            facialAnalytics.trust_metric_passed
-              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : "bg-amber-50 text-amber-800 border-amber-200"
-          )}>
-            <Camera className="w-3.5 h-3.5" />
-            <span>Camera: {Math.round(facialAnalytics.associate_camera_active_pct)}% Active</span>
-            <span className="opacity-40">•</span>
-            <span>{facialAnalytics.trust_metric_passed ? 'Trust Metric Passed ✓' : 'Camera Low ⚠️'}</span>
+          <div className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+            <span>Camera {Math.round(facialAnalytics.associate_camera_active_pct)}%</span>
           </div>
         )}
       </div>
 
-      {/* Visual Slide Strip / Timeline */}
-      {rawSlides.length > 0 && (
-        <div className="border-b border-slate-200/80 bg-slate-50/70 p-3 space-y-2.5">
-          {/* Header row */}
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-6 h-6 rounded-md bg-indigo-100 text-indigo-700">
-                <Presentation className="w-3.5 h-3.5" />
-              </div>
-              <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">Slide Strip</span>
-              <span className="text-[11px] font-medium text-slate-500">
-                ({shownSlides.length} presented of {rawSlides.length})
-              </span>
-            </div>
+      {/* ── Heading Toggles on Top (Click to Show) ── */}
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 bg-white shrink-0">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setActiveTab('dialogue')}
+            className={cn(
+              "py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors cursor-pointer",
+              activeTab === 'dialogue'
+                ? "border-slate-900 text-slate-900"
+                : "border-transparent text-slate-400 hover:text-slate-700"
+            )}
+          >
+            Dialogue ({segments.length})
+          </button>
 
-            {/* Badges & Filters */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {rushedSlides.length > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                  {rushedSlides.length} {rushedSlides.length === 1 ? 'Slide' : 'Slides'} Rushed (&lt;20s)
-                </span>
+          {rawSlides.length > 0 && (
+            <button
+              onClick={() => setActiveTab('slides')}
+              className={cn(
+                "py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors cursor-pointer",
+                activeTab === 'slides'
+                  ? "border-slate-900 text-slate-900"
+                  : "border-transparent text-slate-400 hover:text-slate-700"
               )}
+            >
+              Slides ({shownSlides.length})
+            </button>
+          )}
+        </div>
 
-              {/* View filters */}
-              {rawSlides.length > shownSlides.length && (
-                <div className="flex items-center bg-slate-200/70 p-0.5 rounded-lg text-[10px] font-semibold">
-                  <button
-                    onClick={() => setFilterMode('presented')}
-                    className={cn(
-                      "px-2 py-0.5 rounded-md transition-all cursor-pointer",
-                      filterMode === 'presented' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
-                    )}
-                  >
-                    Presented ({shownSlides.length})
-                  </button>
-                  {rushedSlides.length > 0 && (
-                    <button
-                      onClick={() => setFilterMode('rushed')}
+        {/* View-specific sub-controls */}
+        {activeTab === 'dialogue' && (
+          <div className="inline-flex bg-slate-100 p-0.5 rounded text-[11px]">
+            <button
+              onClick={() => setSpeakerFilter('all')}
+              className={cn(
+                "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                speakerFilter === 'all' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-600"
+              )}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setSpeakerFilter('advisor')}
+              className={cn(
+                "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                speakerFilter === 'advisor' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-600"
+              )}
+            >
+              Advisor
+            </button>
+            <button
+              onClick={() => setSpeakerFilter('student')}
+              className={cn(
+                "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                speakerFilter === 'student' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-600"
+              )}
+            >
+              Student
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'slides' && rawSlides.length > 0 && (
+          <div className="inline-flex bg-slate-100 p-0.5 rounded text-[10px]">
+            <button
+              onClick={() => setFilterMode('presented')}
+              className={cn(
+                "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                filterMode === 'presented' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+              )}
+            >
+              Shown ({shownSlides.length})
+            </button>
+            {rushedSlides.length > 0 && (
+              <button
+                onClick={() => setFilterMode('rushed')}
+                className={cn(
+                  "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                  filterMode === 'rushed' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                )}
+              >
+                Rushed ({rushedSlides.length})
+              </button>
+            )}
+            <button
+              onClick={() => setFilterMode('all')}
+              className={cn(
+                "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                filterMode === 'all' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+              )}
+            >
+              All ({rawSlides.length})
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Active View Body ── */}
+      <div className="flex-1 min-h-0 overflow-hidden bg-white">
+        
+        {/* VIEW 1: DIALOGUE */}
+        {activeTab === 'dialogue' && (
+          <ScrollArea className="h-full" ref={scrollAreaRef}>
+            <div className="p-4 space-y-2.5">
+              {filteredSegments.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs">
+                  No dialogue matches.
+                </div>
+              ) : (
+                filteredSegments.map(({ seg, originalIdx }) => {
+                  const isP1 = seg.speaker === p1Id || seg.speaker === 'Advisor' || seg.speaker?.includes('Advisor');
+                  const speakerName = isP1 ? 'Advisor' : 'Student';
+                  const isHighlighted = highlightedSegmentIdx === originalIdx;
+
+                  return (
+                    <div
+                      key={originalIdx}
+                      ref={(el) => (segmentRefs.current[originalIdx] = el)}
                       className={cn(
-                        "px-2 py-0.5 rounded-md transition-all cursor-pointer",
-                        filterMode === 'rushed' ? "bg-rose-600 text-white shadow-xs" : "text-rose-700 hover:text-rose-900"
+                        "rounded-md p-2.5 transition-colors text-xs leading-relaxed group border",
+                        isP1 ? "bg-white border-slate-200/90 text-slate-800" : "bg-slate-50/70 border-slate-200/60 text-slate-800",
+                        isHighlighted && "ring-1 ring-slate-900 bg-slate-100"
                       )}
                     >
-                      Rushed ({rushedSlides.length})
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setFilterMode('all')}
-                    className={cn(
-                      "px-2 py-0.5 rounded-md transition-all cursor-pointer",
-                      filterMode === 'all' ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
-                    )}
-                  >
-                    All Deck ({rawSlides.length})
-                  </button>
-                </div>
+                      <div className="flex items-center justify-between text-[11px] mb-1">
+                        <span className="font-semibold text-slate-700">
+                          {speakerName}
+                        </span>
+                        
+                        <div className="flex items-center gap-1.5">
+                          {seg.start !== undefined && (
+                            <button
+                              onClick={() => scrollToTime(seg.start)}
+                              className="font-mono text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer"
+                            >
+                              {formatDuration(seg.start)}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleCopyText(seg.text, originalIdx)}
+                            className="text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            title="Copy text"
+                          >
+                            {copiedTurnIdx === originalIdx ? (
+                              <Check className="w-3 h-3 text-slate-700" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="text-[13px] text-slate-800">
+                        {seg.text}
+                      </div>
+
+                      {seg.text_en && seg.text_en !== seg.text && (
+                        <div className="mt-1 text-slate-500 italic text-xs">
+                          "{seg.text_en}"
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
-          </div>
+          </ScrollArea>
+        )}
 
-          {/* Horizontal Slide Carousel */}
-          <div className="flex gap-2.5 overflow-x-auto pb-1 pt-0.5 scrollbar-thin">
-            {displaySlides.map((slide) => {
-              const isRushed = slide.rushed_warning || (slide.total_duration_seconds > 0 && slide.total_duration_seconds < 20);
-              const isSelected = activeSlideNumber === slide.slide_number;
-
-              return (
-                <button
-                  key={slide.slide_number}
-                  onClick={() => handleSlideClick(slide)}
-                  title={isRushed ? `Rushed: Shown for only ${formatHumanDuration(slide.total_duration_seconds)} (< 20s)` : `Presented for ${formatHumanDuration(slide.total_duration_seconds)}`}
-                  className={cn(
-                    "group text-left shrink-0 w-[195px] p-2.5 rounded-xl border transition-all cursor-pointer relative flex flex-col justify-between",
-                    !slide.is_shown
-                      ? "bg-slate-100/50 border-dashed border-slate-200 opacity-60 hover:opacity-100 hover:bg-slate-100"
-                      : isRushed
-                        ? "bg-rose-50/70 border-rose-300 hover:border-rose-500 hover:bg-rose-50 shadow-xs"
-                        : "bg-white border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 hover:shadow-xs",
-                    isSelected && (isRushed ? "ring-2 ring-rose-500 border-transparent shadow-xs" : "ring-2 ring-indigo-500 border-transparent shadow-xs")
-                  )}
-                >
-                  {/* Top row: Slide number + duration / rushed badge */}
-                  <div className="flex items-center justify-between gap-1 w-full mb-1">
-                    <span className={cn(
-                      "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
-                      !slide.is_shown
-                        ? "text-slate-500 bg-slate-200/60"
-                        : isRushed
-                          ? "text-rose-700 bg-rose-200/80"
-                          : "text-indigo-700 bg-indigo-100/80"
-                    )}>
-                      Slide {slide.slide_number}
-                    </span>
-
-                    {slide.is_shown ? (
-                      isRushed ? (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full border border-rose-200">
-                          <AlertTriangle className="w-2.5 h-2.5" />
-                          {formatHumanDuration(slide.total_duration_seconds)}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200">
-                          <Clock className="w-2.5 h-2.5" />
-                          {formatHumanDuration(slide.total_duration_seconds)}
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-[10px] text-slate-400 font-medium">Not shown</span>
-                    )}
-                  </div>
-
-                  {/* Slide Title */}
-                  <div className="font-semibold text-xs text-slate-800 line-clamp-2 leading-tight group-hover:text-indigo-600 transition-colors my-1">
-                    {KALVIUM_SLIDE_MAPPING[slide.slide_number] || slide.title || `Slide ${slide.slide_number}`}
-                  </div>
-
-                  {/* Bottom Row */}
-                  {slide.is_shown && (
-                    <div className="mt-1 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-                      <span className="font-mono text-[10px] text-slate-600">
-                        ⏱️ {slide.intervals_formatted?.[0] || `${formatDuration(slide.intervals_raw?.[0]?.start_sec || 0)}`}
-                      </span>
-                      <span className="text-indigo-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                        Jump →
-                      </span>
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Transcript */}
-      {!embedded && (
-        <div className="flex-1 overflow-hidden bg-white flex flex-col">
-          <div className="px-4 py-2.5 border-b border-slate-100 bg-white/70 flex items-center justify-between shrink-0">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">Meeting Transcript</h3>
-            <span className="text-[11px] text-slate-500">{segments.length} dialogue turns</span>
-          </div>
-          <ScrollArea className="flex-1 h-full" ref={scrollAreaRef}>
-            <div className="p-4 flex flex-col space-y-3.5">
-              {segments.map((seg, idx) => {
-                const isP1 = seg.speaker === p1Id || seg.speaker === 'Advisor' || seg.speaker?.includes('Advisor');
-                const participantName = seg.speaker || (isP1 ? 'Advisor' : 'Family');
-                const isHighlighted = highlightedSegmentIdx === idx;
+        {/* VIEW 2: SLIDES */}
+        {activeTab === 'slides' && (
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-1.5">
+              {displaySlides.map((slide) => {
+                const isRushed = slide.rushed_warning || (slide.total_duration_seconds > 0 && slide.total_duration_seconds < 20);
+                const isSelected = activeSlideNumber === slide.slide_number;
+                const title = KALVIUM_SLIDE_MAPPING[slide.slide_number] || slide.title || `Slide ${slide.slide_number}`;
 
                 return (
                   <div
-                    key={idx}
-                    ref={(el) => (segmentRefs.current[idx] = el)}
+                    key={slide.slide_number}
+                    onClick={() => handleSlideClick(slide)}
                     className={cn(
-                      "flex w-full group transition-all duration-300",
-                      isP1 ? "justify-start" : "justify-end"
+                      "w-full text-left p-3 rounded-md transition-all cursor-pointer border flex items-center justify-between gap-3 text-xs",
+                      !slide.is_shown 
+                        ? "bg-white border-dashed border-slate-200 opacity-50" 
+                        : "bg-white border-slate-200 hover:border-slate-400 hover:bg-slate-50/50",
+                      isSelected && "bg-slate-100 border-slate-900 ring-1 ring-slate-900"
                     )}
                   >
-                    <div className={cn(
-                      "max-w-[85%] rounded-2xl px-4 py-2.5 transition-all",
-                      isP1 ? "bg-slate-100 rounded-tl-xs text-slate-900" : "bg-indigo-50/90 text-slate-900 rounded-tr-xs",
-                      isHighlighted && "ring-2 ring-indigo-500 shadow-md scale-[1.01]"
-                    )}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={cn(
-                          "font-bold text-[11px] uppercase tracking-wide",
-                          isP1 ? "text-slate-600" : "text-indigo-700"
-                        )}>
-                          {participantName}
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className="font-mono text-[11px] font-semibold text-slate-400 w-7 text-right shrink-0">
+                        #{slide.slide_number}
+                      </span>
+                      <span className={cn(
+                        "truncate",
+                        !slide.is_shown ? "text-slate-400" : "text-slate-800 font-medium"
+                      )}>
+                        {title}
+                      </span>
+                      {isRushed && (
+                        <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 shrink-0 font-mono">
+                          rushed (&lt;20s)
                         </span>
-                        {seg.start !== undefined && (
-                          <span className="text-[10px] font-mono opacity-50">
-                            {formatDuration(seg.start)}-{formatDuration(seg.end)}
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      {slide.is_shown ? (
+                        <>
+                          <span className="font-mono text-[11px] text-slate-500">
+                            {formatHumanDuration(slide.total_duration_seconds)}
                           </span>
-                        )}
-                      </div>
-                      <div className="text-sm leading-relaxed">
-                        {seg.text}
-                        {seg.text_en && seg.text_en !== seg.text && (
-                          <div className={cn(
-                            "mt-1.5 italic text-xs pt-1.5 border-t",
-                            isP1 ? "text-slate-500 border-slate-200" : "text-indigo-700/70 border-indigo-200/50"
-                          )}>
-                            "{seg.text_en}"
-                          </div>
-                        )}
-                      </div>
+                          <span className="font-mono text-[10px] text-slate-400 flex items-center gap-0.5">
+                            {slide.intervals_formatted?.[0] || '00:00'}
+                            <ArrowUpRight className="w-3 h-3 opacity-60" />
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">Skipped</span>
+                      )}
                     </div>
                   </div>
                 );
               })}
-              {segments.length === 0 && (
-                <div className="text-center text-muted-foreground p-8">No transcript available.</div>
-              )}
             </div>
           </ScrollArea>
-        </div>
-      )}
+        )}
+
+      </div>
     </div>
   );
 }

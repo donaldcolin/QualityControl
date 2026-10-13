@@ -1,5 +1,8 @@
+const cacheManager = require('./cache_manager');
+
 /**
- * Invokes Gemini API generateContent with exponential backoff on transient errors (429, 503, RESOURCE_EXHAUSTED).
+ * Invokes Gemini API generateContent with exponential backoff on transient errors (429, 503, RESOURCE_EXHAUSTED)
+ * and transparent auto-healing on cache eviction (404 / CachedContent not found).
  * @param {object} ai - The GoogleGenAI client instance
  * @param {object} params - Parameters passed to ai.models.generateContent({ model, contents, config })
  * @param {object} [options] - Retry options
@@ -42,6 +45,28 @@ async function callGeminiWithRetry(ai, params, options = {}) {
       attempt++;
       const errorMessage = String(err.message || '');
       const statusCode = err.status || err.statusCode || err.code;
+
+      // Check for cache eviction (404 NOT_FOUND on cachedContent)
+      const isCacheEviction = 
+        Boolean(params?.config?.cachedContent) &&
+        (statusCode === 404 || 
+         errorMessage.includes('not found') || 
+         errorMessage.includes('cachedContents') ||
+         errorMessage.includes('CachedContent'));
+
+      if (isCacheEviction && attempt <= maxRetries) {
+        console.warn(`⚠️ [Gemini Cache Eviction] Cache ${params.config.cachedContent} expired or missing. Auto-healing...`);
+        await cacheManager.invalidateCache(params.config.cachedContent);
+        const newCacheName = await cacheManager.getActiveCache(ai, params.model);
+        if (newCacheName) {
+          params.config.cachedContent = newCacheName;
+          console.log(`🔄 [Gemini Cache Auto-Heal] Refreshed cache pointer to ${newCacheName}. Retrying...`);
+        } else {
+          delete params.config.cachedContent;
+          console.warn(`⚠️ [Gemini Cache Fallback] Context caching unavailable. Retrying without cache...`);
+        }
+        continue;
+      }
       
       const isRateLimitOrTransient = 
         err.isTimeout ||

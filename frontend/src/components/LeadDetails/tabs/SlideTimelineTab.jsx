@@ -1,303 +1,299 @@
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Clock, Eye, AlertTriangle, Monitor, Presentation } from "lucide-react";
+import React, { useState, useMemo, useCallback } from 'react';
+import { 
+  X, 
+  ArrowUpRight,
+  AlertCircle
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TabsContent } from "@/components/ui/tabs";
-
-const KALVIUM_SLIDE_MAPPING = {
-  1: "Title: India's #1 Work Integrated B.TECH",
-  2: "Counselor Introduction",
-  3: "Truth vs Reality vs Hope vs Choice",
-  4: "The Headlines Are REAL (Layoffs)",
-  5: "As a software engineer you will...",
-  6: "The AI - REALITY",
-  7: "The Reality of Traditional B.Tech",
-  8: "B.Tech CSE vs B.Tech in AI",
-  9: "You're already outdated from DAY 1",
-  10: "Placement Stats reflect this already",
-  11: "In the AI Era, College Brand Matters Less",
-  12: "We reached out to top tech leaders",
-  13: "What Matter & Doesn't Matter Anymore",
-  14: "What do companies actually want?",
-  15: "Google Now Hires 'Tons' Without Degree",
-  16: "Work-Integrated Learning Introduction",
-  17: "4 Years | Residential | On campus",
-  18: "Curriculum Designed with Tech Leaders",
-  19: "Placement & Internships Stats",
-  20: "Internships (Student Profiles 1)",
-  21: "Internships (Student Profiles 2)",
-  22: "Internships (Student Profiles 3)",
-  23: "Recruitment Partners",
-  24: "How we Engineer Differently",
-  25: "Work-Integrated Learning: Builds Skills",
-  26: "Foundations-to-Excellence Curriculum",
-  27: "Learning Like a Professional Looks Like",
-  28: "Textbooks are not enough anymore",
-  29: "Learn Coding the Right Way",
-  30: "Kalvium Platform Dashboard",
-  31: "Higher Education Real-Time Operating System",
-  32: "Student Passion Projects",
-  33: "Intensity that builds character",
-  34: "Kalvium: 4 Pillars of Excellence",
-  35: "Admissions Closing Soon",
-  36: "Admissions Closing Soon (Dates)",
-  37: "Why does Kalvium have an Entrance exam?",
-  38: "Why Write Another Entrance Exam?",
-  39: "Fair Selection Cartoon",
-  40: "What is KNET?",
-  41: "What is KNET (3 Steps)",
-  42: "Important: Laptop/Camera requirement",
-  43: "KNET tests how you think",
-  44: "What KNET Evaluates?",
-  45: "Multiple Pathways to Selection",
-  46: "Psychometric Test",
-  47: "What is this test?",
-  48: "Portal: Psychometric Test Step",
-  49: "Portal: Setup Test Environment",
-  50: "Portal: Test Completed",
-  51: "Sample Psychometric Report",
-  52: "KNET: More than one way to show ability",
-  53: "PART A: 4 Challenges",
-  54: "PART B: The Questions",
-  55: "KNET Test Pattern",
-  56: "Portal: KNET Registration",
-  57: "Portal: KNET Scheduled",
-  58: "Portal: Launch KNET",
-  59: "Portal: Test Live",
-  60: "Portal: KNET Environment Check",
-  61: "Portal: Part A Complete",
-  62: "Portal: KNET Complete",
-  63: "Let's take the next steps",
-  64: "University Partners Overview",
-  65: "Lovely Professional University (LPU)",
-  66: "LPU: Infrastructure 1",
-  67: "LPU: Infrastructure 2",
-  68: "LPU: Library",
-  69: "LPU: Sports",
-  70: "LPU: Campus Life 1",
-  71: "LPU: Campus Life 2",
-  72: "LPU: Campus Life 3",
-  73: "LPU: Campus Life 4",
-  74: "LPU: Hostel Life",
-  75: "LPU: Hostel Fee Details (Apartments)",
-  76: "LPU: Hostel Fee Details (Standard)",
-  77: "LPU: Proven Excellence (Rankings)",
-  78: "LPU: B.Tech CSE Fees",
-  79: "LPU: Scholarship Benefits",
-  80: "JECRC University (Jaipur)",
-  81: "JECRC: Infrastructure",
-  82: "JECRC: Campus Life",
-  83: "JECRC: Hostel Life 1",
-  84: "JECRC: Hostel Life 2",
-  85: "JECRC: Hostel Fee Details",
-  86: "JECRC: Proven Excellence (Rankings)",
-  87: "JECRC: B.Tech CSE Fees",
-  88: "SRM University (Amaravati)",
-  89: "SRM: Infrastructure",
-  90: "SRM: Campus Life",
-  91: "SRM: Hostel Life",
-  92: "SRM: Hostel Fee Details",
-  93: "SRM: Proven Excellence (Rankings)",
-  94: "SRM: B.Tech CSE Fees",
-  95: "Yenepoya University (Mangalore)",
-  96: "Yenepoya Mangalore: Infrastructure",
-  97: "Yenepoya Mangalore: Campus Life",
-  98: "Yenepoya Mangalore: Rankings",
-  99: "Yenepoya Mangalore: B.Tech CSE Fees",
-  100: "Yenepoya University (Bangalore)",
-  101: "Yenepoya Bangalore: Infrastructure",
-  102: "Yenepoya Bangalore: Campus Life",
-  103: "Yenepoya Bangalore: Rankings",
-  104: "Yenepoya Bangalore: B.Tech CSE Fees",
-  105: "AMET University (Chennai)",
-  106: "AMET: Infrastructure",
-  107: "AMET: Campus Life",
-  108: "AMET: Rankings",
-  109: "AMET: B.Tech CSE Fees",
-  110: "AMET: Boys Hostel Fees",
-  111: "AMET: Girls Hostel Fees",
-  112: "St Joseph University (Chennai)",
-  113: "St Joseph: Infrastructure",
-  114: "St Joseph: Campus Life",
-  115: "St Joseph: Hostel Life",
-  116: "St Joseph: Hostel Fee Details",
-  117: "St Joseph: Rankings",
-  118: "St Joseph: Rankings 2",
-  119: "St Joseph: B.Tech CSE Fees",
-  120: "SGT University (Gurugram)",
-  121: "SGT: Infrastructure",
-  122: "SGT: Campus Life",
-  123: "SGT: Hostel Life",
-  124: "SGT: Hostel Fee Details",
-  125: "SGT: B.Tech CSE Fees",
-  126: "Kalasalingam (Srivilliputhur)",
-  127: "Kalasalingam: Infrastructure",
-  128: "Kalasalingam: Campus Life",
-  129: "Kalasalingam: Rankings",
-  130: "Kalasalingam: B.Tech CSE Fees",
-  131: "Kalvium Direct Online",
-  132: "Kalvium Direct Online: Fees",
-  133: "Refer a Student",
-  134: "Kalvium Curriculum (Sem 1-4)",
-  135: "Kalvium Curriculum (Sem 5-8)",
-};
+import { 
+  KALVIUM_SLIDE_MAPPING, 
+  formatHumanDuration 
+} from '../media/slideMapping';
 
 const SlideTimelineTab = ({ activeCall }) => {
+  const [filterMode, setFilterMode] = useState('presented'); // 'presented' | 'rushed' | 'all'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSlideNumber, setSelectedSlideNumber] = useState(null);
+
   const visualTimeline = activeCall?.visual_timeline || activeCall?.insights_data?.visual_timeline;
+  const facialAnalytics = visualTimeline?.facial_analytics;
+  const slides = visualTimeline?.slides;
+
+  const rawSlides = useMemo(() => Array.isArray(slides) ? slides : [], [slides]);
+  
+  const shownSlides = useMemo(() => {
+    return rawSlides.filter(s => s.is_shown);
+  }, [rawSlides]);
+
+  const rushedSlides = useMemo(() => {
+    return shownSlides.filter(s => s.rushed_warning || (s.total_duration_seconds > 0 && s.total_duration_seconds < 20));
+  }, [shownSlides]);
+
+  // Overall statistics
+  const totalDeckCount = rawSlides.length || 135;
+  const presentedCount = shownSlides.length;
+
+  // Extract fatal breaches
+  const fatalBreaches = useMemo(() => {
+    return Object.entries(activeCall?.quality_data || {}).filter(
+      ([, data]) => data.mark_fatal && data.score === 0
+    );
+  }, [activeCall?.quality_data]);
+
+  // Jump to specific time in call
+  const handleJumpToTime = useCallback((seconds, slideNum = null) => {
+    if (slideNum) setSelectedSlideNumber(slideNum);
+    window.dispatchEvent(new CustomEvent('jump-to-time', { 
+      detail: { callId: activeCall?.id, start: seconds } 
+    }));
+  }, [activeCall?.id]);
+
+  // Filter slides
+  const filteredSlides = useMemo(() => {
+    let list = shownSlides;
+    if (filterMode === 'rushed') {
+      list = rushedSlides;
+    } else if (filterMode === 'all') {
+      list = rawSlides;
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      return list.filter(slide => {
+        const title = (KALVIUM_SLIDE_MAPPING[slide.slide_number] || slide.title || '').toLowerCase();
+        const numStr = String(slide.slide_number);
+        return title.includes(q) || numStr.includes(q);
+      });
+    }
+
+    return list;
+  }, [filterMode, shownSlides, rushedSlides, rawSlides, searchQuery]);
 
   if (!visualTimeline) {
     return (
       <TabsContent value="timeline" className="h-full mt-0">
-        <div className="flex flex-col items-center justify-center p-12 text-slate-500">
-          <Monitor className="w-12 h-12 mb-4 text-slate-300" />
-          <h3 className="text-lg font-bold">No Visual Timeline Available</h3>
-          <p className="mt-2 text-sm text-center max-w-sm">
-            This call does not have visual timeline data. This might be an audio-only call or the video analysis was not completed.
-          </p>
+        <div className="flex flex-col items-center justify-center p-12 text-slate-400 h-full">
+          <p className="text-sm font-medium text-slate-600">No visual timeline available</p>
+          <p className="text-xs text-slate-400 mt-1">This call does not contain video or slide tracking data.</p>
         </div>
       </TabsContent>
     );
   }
 
-  const { facial_analytics, slides } = visualTimeline;
-  const shownSlides = (slides || []).filter(s => s.is_shown);
-
-  // Extract fatal breaches specifically to show alongside the timeline
-  const fatalBreaches = Object.entries(activeCall?.quality_data || {}).filter(
-    ([param, data]) => data.mark_fatal && data.score === 0
-  );
-
   return (
     <TabsContent value="timeline" className="h-full mt-0">
-      <div className="p-6 overflow-y-auto h-full space-y-6">
-      
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="p-6 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-slate-500">Associate Camera Active</p>
-              <p className="text-2xl font-bold">{facial_analytics?.associate_camera_active_pct?.toFixed(1) || 0}%</p>
-            </div>
-            <div className={cn(
-              "w-12 h-12 rounded-full flex items-center justify-center",
-              facial_analytics?.trust_metric_passed ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
-            )}>
-              <Monitor className="w-6 h-6" />
-            </div>
-          </CardContent>
-        </Card>
+      <div className="p-5 overflow-y-auto h-full space-y-4">
         
-        <Card>
-          <CardContent className="p-6 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-slate-500">Slides Presented</p>
-              <p className="text-2xl font-bold">{shownSlides.length} <span className="text-sm font-normal text-slate-400">/ {slides?.length || 0}</span></p>
+        {/* ── Minimalist Monochrome Metric Cards ── */}
+        <div className="grid grid-cols-3 gap-3">
+          
+          {/* Card 1: Camera */}
+          <div className="bg-white rounded-lg p-3.5 border border-slate-200">
+            <div className="text-xs font-medium text-slate-500">Camera Active</div>
+            <div className="mt-1 text-2xl font-bold text-slate-900 tracking-tight">
+              {Math.round(facialAnalytics?.associate_camera_active_pct || 0)}%
             </div>
-            <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
-              <Presentation className="w-6 h-6" />
+            <div className="mt-1 text-[11px] text-slate-500">
+              {facialAnalytics?.trust_metric_passed ? 'Verified (≥50%)' : 'Low camera (<50%)'}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
 
-      {fatalBreaches.length > 0 && (
-        <Card className="border-red-200 bg-red-50">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-red-700 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5" />
-              Fake Pitch Detected
-            </CardTitle>
-            <CardDescription className="text-red-600/80">
-              The AI auditor caught the following compliance or mis-selling violations during this presentation:
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {fatalBreaches.map(([param, data], idx) => (
-                <div key={idx} className="bg-white p-3 rounded-md border border-red-100 shadow-sm flex flex-col gap-2">
-                  <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-sm text-red-900">{param}</h4>
-                    {data.reason && data.reason.match(/\b\d+:\d{2}\b/) && (
-                      <button 
-                        onClick={() => {
-                          const timeStr = data.reason.match(/\b\d+:\d{2}\b/)[0];
-                          const [mins, secs] = timeStr.split(':').map(Number);
-                          const timeInSeconds = mins * 60 + secs;
-                          window.dispatchEvent(new CustomEvent('jump-to-time', { detail: { callId: activeCall.id, start: timeInSeconds } }));
-                        }}
-                        className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 hover:bg-red-200 transition-colors rounded text-xs font-mono font-bold shrink-0"
-                      >
-                        <Clock className="w-3 h-3" />
-                        {data.reason.match(/\b\d+:\d{2}\b/)[0]}
-                      </button>
-                    )}
+          {/* Card 2: Slides Covered */}
+          <div className="bg-white rounded-lg p-3.5 border border-slate-200">
+            <div className="text-xs font-medium text-slate-500">Slides Presented</div>
+            <div className="mt-1 text-2xl font-bold text-slate-900 tracking-tight">
+              {presentedCount} <span className="text-xs font-normal text-slate-400">/ {totalDeckCount}</span>
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500">
+              {totalDeckCount - presentedCount} slides skipped
+            </div>
+          </div>
+
+          {/* Card 3: Pacing */}
+          <div className="bg-white rounded-lg p-3.5 border border-slate-200">
+            <div className="text-xs font-medium text-slate-500">Rushed Slides</div>
+            <div className="mt-1 text-2xl font-bold text-slate-900 tracking-tight">
+              {rushedSlides.length} <span className="text-xs font-normal text-slate-400">(&lt;20s)</span>
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500">
+              {rushedSlides.length > 0 ? `${rushedSlides.length} under 20s threshold` : 'Normal pacing'}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Compliance Breaches (Clean Monochrome Alert) ── */}
+        {fatalBreaches.length > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5 space-y-2">
+            <div className="flex items-center gap-1.5 text-slate-800 text-xs font-semibold">
+              <AlertCircle className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+              <span>Pitch Compliance Violation</span>
+            </div>
+            {fatalBreaches.map(([param, data], idx) => {
+              const timeMatch = data.reason?.match(/\b\d+:\d{2}\b/);
+              let timeSec = null;
+              if (timeMatch) {
+                const [m, s] = timeMatch[0].split(':').map(Number);
+                timeSec = m * 60 + s;
+              }
+
+              return (
+                <div key={idx} className="bg-white p-3 rounded-md border border-slate-200 flex items-start justify-between gap-3 text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-900">{param}</span>
+                    <p className="text-slate-600 mt-0.5 leading-relaxed">
+                      {data.reason ? data.reason.replace(/\s*\b\d+:\d{2}\b\s*[-:]*\s*/, ' ').trim() : ''}
+                    </p>
                   </div>
-                  <p className="text-sm text-red-800 leading-relaxed whitespace-pre-wrap">
-                    {data.reason ? data.reason.replace(/\s*\b\d+:\d{2}\b\s*[-\:]*\s*/, ' ').trim() : ''}
-                  </p>
+                  {timeMatch && (
+                    <button
+                      onClick={() => handleJumpToTime(timeSec)}
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded font-mono text-[11px] font-medium shrink-0 cursor-pointer transition-colors"
+                    >
+                      {timeMatch[0]} ↗
+                    </button>
+                  )}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              );
+            })}
+          </div>
+        )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Slide Presentation Timeline</CardTitle>
-          <CardDescription>Chronological breakdown of slides presented during the demo.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {shownSlides.length === 0 ? (
-            <p className="text-sm text-slate-500 italic">No slides were detected during this call.</p>
-          ) : (
-            <div className="relative border-l border-slate-200 ml-4 space-y-8 pb-4">
-              {shownSlides.map((slide, idx) => (
-                <div key={idx} className="relative pl-6">
-                  {/* Timeline Node */}
-                  <span className={cn(
-                    "absolute -left-2.5 top-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center",
-                    slide.rushed_warning ? "bg-amber-400" : "bg-blue-500"
-                  )}>
-                    {slide.rushed_warning ? <AlertTriangle className="w-3 h-3 text-white" /> : <span className="w-2 h-2 bg-white rounded-full"></span>}
-                  </span>
-                  
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                        {KALVIUM_SLIDE_MAPPING[slide.slide_number] || slide.title || `Slide ${slide.slide_number}`}
-                        <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                          Slide {slide.slide_number}
+        {/* ── Slide Breakdown (Clean Minimalist Table) ── */}
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          
+          {/* Header & Filter Controls */}
+          <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs font-semibold text-slate-900">
+              Slides ({shownSlides.length})
+            </span>
+
+            <div className="flex items-center gap-2">
+              {/* Search */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter slides..."
+                  className="pl-2.5 pr-6 py-1 text-xs w-28 rounded bg-slate-50 border border-slate-200 focus:bg-white focus:outline-hidden focus:border-slate-400"
+                />
+                {searchQuery && (
+                  <button 
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* View Filters */}
+              <div className="inline-flex bg-slate-100 p-0.5 rounded text-[11px]">
+                <button
+                  onClick={() => setFilterMode('presented')}
+                  className={cn(
+                    "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                    filterMode === 'presented' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  Presented ({shownSlides.length})
+                </button>
+                {rushedSlides.length > 0 && (
+                  <button
+                    onClick={() => setFilterMode('rushed')}
+                    className={cn(
+                      "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                      filterMode === 'rushed' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                    )}
+                  >
+                    Rushed ({rushedSlides.length})
+                  </button>
+                )}
+                <button
+                  onClick={() => setFilterMode('all')}
+                  className={cn(
+                    "px-2 py-0.5 rounded transition-colors cursor-pointer",
+                    filterMode === 'all' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  All ({rawSlides.length})
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Minimalist Slide Rows */}
+          <div className="divide-y divide-slate-100">
+            {filteredSlides.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400">
+                No slides match your search.
+              </div>
+            ) : (
+              filteredSlides.map((slide) => {
+                const isRushed = slide.rushed_warning || (slide.total_duration_seconds > 0 && slide.total_duration_seconds < 20);
+                const title = KALVIUM_SLIDE_MAPPING[slide.slide_number] || slide.title || `Slide ${slide.slide_number}`;
+                const isSelected = selectedSlideNumber === slide.slide_number;
+                const firstInterval = slide.intervals_raw?.[0];
+
+                return (
+                  <div
+                    key={slide.slide_number}
+                    className={cn(
+                      "px-4 py-2 flex items-center justify-between gap-3 text-xs transition-colors",
+                      isSelected ? "bg-slate-100/70" : "hover:bg-slate-50/70"
+                    )}
+                  >
+                    {/* Left: Number + Title */}
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className="font-mono text-[11px] font-semibold w-7 text-right shrink-0 text-slate-400">
+                        #{slide.slide_number}
+                      </span>
+
+                      <span className={cn(
+                        "truncate",
+                        !slide.is_shown ? "text-slate-400" : "text-slate-800 font-medium"
+                      )}>
+                        {title}
+                      </span>
+
+                      {isRushed && (
+                        <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 shrink-0">
+                          rushed ({formatHumanDuration(slide.total_duration_seconds)})
                         </span>
-                      </h4>
-                      {slide.rushed_warning && (
-                        <p className="text-xs font-medium text-amber-600 flex items-center mt-1">
-                          <AlertTriangle className="w-3 h-3 mr-1" />
-                          Rushed / Skipped Quickly
-                        </p>
                       )}
                     </div>
-                    
-                    <div className="flex items-center gap-4 text-sm text-slate-500 shrink-0">
-                      <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-100">
-                        <Clock className="w-4 h-4 text-slate-400" />
-                        <span className="font-medium">{slide.total_duration_seconds}s</span>
-                      </div>
-                      
-                      <div className="flex items-center gap-1.5 text-xs font-medium">
-                        <Eye className="w-4 h-4 text-slate-400" />
-                        <span>{(slide.intervals_formatted || []).join(', ')}</span>
-                      </div>
+
+                    {/* Right: Duration & Jump Timestamp */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {slide.is_shown ? (
+                        <>
+                          <span className="text-[11px] font-mono text-slate-500">
+                            {formatHumanDuration(slide.total_duration_seconds)}
+                          </span>
+
+                          {firstInterval && (
+                            <button
+                              onClick={() => handleJumpToTime(firstInterval.start_sec, slide.slide_number)}
+                              title="Jump to this slide in transcript"
+                              className="px-2 py-0.5 rounded text-[11px] font-mono text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span>{slide.intervals_formatted?.[0] || '00:00'}</span>
+                              <ArrowUpRight className="w-2.5 h-2.5 opacity-60" />
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">Skipped</span>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      
+                );
+              })
+            )}
+          </div>
+        </div>
+
       </div>
     </TabsContent>
   );

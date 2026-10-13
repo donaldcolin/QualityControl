@@ -1,0 +1,48 @@
+{
+  "batch": "2026",
+  "source": "Kalvium Placement Highlights 2026 Batch",
+  "metrics": {
+    "total_placed_pct": 81.8,
+    "interned_so_far_pct": 90.4,
+    "international_placed_pct": 28.0,
+    "highest_salary_lpa": 36.0,
+    "median_salary_lpa": 20.0
+  },
+  "sectors": {
+    "AI / Data / Analytics": 19.4,
+    "IT Services / Consulting": 17.7,
+    "SaaS / Enterprise Software": 16.1,
+    "HealthTech / BioTech / Pharma": 12.9,
+    "FinTech / Banking / Payments": 11.3,
+    "Media / Gaming / Entertainment": 8.1,
+    "EdTech / Learning": 6.5,
+    "FoodTech / AgriTech": 6.5,
+    "EVs": 1.6
+  },
+  "flagging_rules": [
+    {
+      "id": "RULE_1_GUARANTEE_BREACH",
+      "severity": "FATAL",
+      "trigger": "Claiming 100% placement, guaranteed job, or unearned placement promises",
+      "canonical_truth": "Actual total placed is 81.8%"
+    },
+    {
+      "id": "RULE_2_OUTLIER_AS_AVERAGE",
+      "severity": "CRITICAL",
+      "trigger": "Presenting 36 LPA as average/minimum, or quoting any salary > 36 LPA",
+      "canonical_truth": "Highest salary is 36 LPA (outlier), median salary is 20 LPA"
+    },
+    {
+      "id": "RULE_3_INTERNSHIP_PLACEMENT_CONFLATION",
+      "severity": "COMPLIANCE_BREACH",
+      "trigger": "Quoting 90%+ as placement rate",
+      "canonical_truth": "90.4% is the internship rate, placed is 81.8%"
+    },
+    {
+      "id": "RULE_4_INTERNATIONAL_EXAGGERATION",
+      "severity": "COMPLIANCE_BREACH",
+      "trigger": "Claiming > 28% international placement",
+      "canonical_truth": "28% of the batch secured international placements"
+    }
+  ]
+}

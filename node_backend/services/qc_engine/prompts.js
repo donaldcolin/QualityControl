@@ -1,5 +1,5 @@
 const { getInsightsSchema, getQualitySchema, getCombinedQualityCoachingSchema } = require('./schemas');
-const { universityFeeKB, bdPlaybook } = require('./index');
+const { universityFeeKB, bdPlaybook, placementData } = require('./index');
 const _staticPromptCache = new Map();
 
 function getKalviumContext(source, leadState = null) {
@@ -45,6 +45,10 @@ Evaluate the associate's adherence to this 10-stage flow.`;
 
   if (universityFeeKB) {
     ctx += `\n\n--- GROUND TRUTH KNOWLEDGE BASE: UNIVERSITY FEE STRUCTURE ---\nWhen verifying Fee, Pricing, or Scholarship claims (e.g. FP-10 Total Fee Improvised or FP-08 Scholarship Limits), YOU MUST cross-reference the numbers quoted by the counselor against the following official data. If the counselor's numbers match this official CSV, DO NOT flag it as an improvised fee or mis-selling. Only flag if it contradicts this data.\n\n${universityFeeKB}\n-----------------------------------------------------------`;
+  }
+
+  if (placementData) {
+    ctx += `\n\n--- GROUND TRUTH KNOWLEDGE BASE: 2026 PLACEMENT METRICS & COMPLIANCE RULES ---\nWhen verifying Placement, Salary, Package, or Internship claims (e.g. FP-17 Outlier Placement as Average, VP-10 Unsupported Figures, or any placement guarantees), YOU MUST cross-reference the numbers quoted by the counselor against the following official data.\n\n${placementData}\n--------------------------------------------------------------------------------`;
   }
 
   return ctx;
@@ -424,6 +428,174 @@ function buildOmniPrompt(transcriptText, source, dataCaptureQuestions, pastCalls
   return insightsP + "\n\n=== QUALITY & COACHING INSTRUCTIONS ===\n" + qualP;
 }
 
+/**
+ * Lean dynamic prompt generator when Gemini Context Caching is active.
+ * Excludes static knowledge base (BD Playbook, University Fees, Placement Highlights)
+ * which is already embedded in the cached content.
+ */
+function buildDynamicOmniPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline = null) {
+  const role = source === 'google_meet' ? 'Expert Video Demo Analyst & Coach' : 'Expert Sales Call Analyst & Coach';
+  const callNumber = (pastCalls?.length || 0) + 1;
+
+  let prompt = `You are an ${role}. You are auditing and coaching a ${source === 'google_meet' ? 'Google Meet product demonstration meeting' : 'university admissions sales counselling phone call'} for Kalvium.\n`;
+  prompt += `The Master Ground Truth Knowledge Base (BD Coaching Playbook, University Fee Structure, 2026 Batch Placement & Salary Highlights, 10-Stage Call Rules, and Fatal Pitch Compliance Boundaries) is provided in your cached context. Evaluate strictly against those official standards.\n\n`;
+
+  // 1. Current Lead State & Journey History
+  if (leadState) {
+    prompt += `=== CURRENT LEAD STATUS & HISTORY ===\n`;
+    if (leadState.kalvium_funnel_stage) prompt += `- Funnel Stage: ${leadState.kalvium_funnel_stage}\n`;
+    if (leadState.next_process_step) prompt += `- Next Scheduled Activity: ${leadState.next_process_step}\n`;
+    if (leadState.journey_summary) prompt += `- CRM Journey Summary (Past Calls): ${leadState.journey_summary}\n`;
+    if (leadState.intent_score != null) prompt += `- Current Lead Intent Score: ${leadState.intent_score}/100\n`;
+    prompt += '\n';
+  }
+
+  // 2. Multi-call awareness & past call summaries
+  if (callNumber > 1) {
+    prompt += `⚠️ CRITICAL: This is CALL #${callNumber} for this prospect. Analyze this call IN CONTEXT of the full journey.\n`;
+    if (pastCalls && pastCalls.length > 0) {
+      prompt += `=== PREVIOUS CALLS SUMMARY (${pastCalls.length} calls) ===\n`;
+      pastCalls.forEach((pc, i) => {
+        const summary = pc.summary_data ? (typeof pc.summary_data === 'string' ? JSON.parse(pc.summary_data) : pc.summary_data) : null;
+        prompt += `- Call ${i + 1} (${pc.source || 'phone_call'}): ${summary?.call_summary ? (Array.isArray(summary.call_summary) ? summary.call_summary.join('; ') : summary.call_summary) : 'Completed'}\n`;
+      });
+      prompt += '\n';
+    }
+  }
+
+  // 3. Visual Presentation & Timeline (for Video Calls)
+  if (source === 'google_meet' && videoTimeline) {
+    prompt += `=== VISUAL PRESENTATION & TIMELINE (COMPUTER VISION SENSOR FUSION) ===\n`;
+    prompt += formatVisualTimeline(videoTimeline) + '\n\n';
+  }
+
+  // 4. Data Capture Instruction (Referencing cached questions)
+  prompt += `=== DATA CAPTURE INSTRUCTION ===\n`;
+  prompt += `Extract only NEW facts for the 10 canonical fields defined in your cached Master Knowledge Base (Competitors Mentioned, Customer Location, JEE/Other Exams, Decision Maker, Course/College Interested In, Email ID, JEE Coaching, Stream, Grade, Laptop Access). Do not re-extract fields already listed in ALREADY CAPTURED DATA above.\n\n`;
+
+  // 5. Quality Parameters Rubric (Definitions & guides are in cached context)
+  prompt += `=== QUALITY PARAMETERS TO EVALUATE ===\n`;
+  prompt += `Evaluate against the canonical quality rubric cached in your context for ${source === 'google_meet' ? 'Google Meet Video Demonstrations' : '1:1 Phone Counselling Calls'}.\n`;
+  prompt += `For each parameter: assign a score (0 to max_score), status (Done / Partially Done / Needs Improvement / Not Applicable), coaching_status (Pass / Fail / Not Applicable), and reason citing transcript evidence.\n`;
+  prompt += `Hostile Auditor Rule: Assume every parameter FAILED unless explicit transcript evidence proves compliance. Mark fatal breaches if detected.\n\n`;
+
+  const qualityGroups = {};
+  filteredQualityChecks.forEach(check => {
+    const group = check.category || 'Other';
+    if (!qualityGroups[group]) qualityGroups[group] = [];
+    qualityGroups[group].push(check);
+  });
+  for (const [group, checks] of Object.entries(qualityGroups)) {
+    prompt += `== ${group} ==\n`;
+    checks.forEach(check => {
+      prompt += `- [${check.param_id || 'N/A'}] ${check.parameter} (Max: ${check.max_score || 2})\n`;
+    });
+    prompt += '\n';
+  }
+
+  // 6. Call Transcript
+  prompt += `=== CURRENT CALL TRANSCRIPT (Call #${callNumber}) ===\n${transcriptText}\n\n`;
+
+  // 7. Output Tasks & Language rules
+  prompt += `=== OUTPUT INSTRUCTIONS ===\n`;
+  prompt += `1. Provide insights (intent score, high/low intent factors, objections, BANT, data capture answers).\n`;
+  prompt += `2. Provide quality evaluations for all listed parameters.\n`;
+  prompt += `3. Provide coaching report (5 specific golden rewrites in standard English or transliterated Latin script, strengths, areas for improvement, next focus).\n`;
+  prompt += `4. CRITICAL: Translate all regional speech (Tamil/Hindi) into standard English for output. NEVER output Devanagari or Tamil script.\n`;
+
+  return prompt;
+}
+
+function buildLeanDynamicOmniPrompt(transcriptText, source, triageResult, pastCalls, leadState, filteredQualityChecks, params) {
+  const callNumber = (pastCalls?.length || 0) + 1;
+  const subTier = triageResult?.sub_tier || 'T1_ROUTINE';
+
+  let prompt = `You are an Expert Quality & Sales Analyst auditing a 1:1 phone interaction for Kalvium.\n`;
+  prompt += `The Master Ground Truth Knowledge Base (BD Coaching Playbook, University Fee Structure, 2026 Batch Placement & Salary Highlights, 10-Stage Call Rules, and Fatal Pitch Compliance Boundaries) is provided in your cached context. Evaluate strictly against those official standards.\n\n`;
+
+  // 1. Operational Context based on sub-tier
+  if (subTier === 'T1_CONTINUATION') {
+    prompt += `=== OPERATIONAL CONTEXT: PITCH CONTINUATION / RE-DIAL (< 3 MINUTES) ===\n`;
+    prompt += `This call is a short continuation of an interrupted counseling pitch where the earlier call got disconnected.\n`;
+    prompt += `- DO NOT penalize the associate for skipping Discovery (DP-01 to DP-06) or initial pitch framing, because discovery occurred on the prior call.\n`;
+    prompt += `- Mark already-covered discovery parameters with status 'Done' or 'Not Applicable' and reason 'Previously completed on prior pitch call'.\n`;
+    prompt += `- EVALUATE STRICTLY ON:\n`;
+    prompt += `  1. Reconnection & steering back smoothly (CC-05)\n`;
+    prompt += `  2. Slot offering & locking specific day/time (CC-06, CC-07)\n`;
+    prompt += `  3. Parent attendance secured (IP-02)\n`;
+    prompt += `  4. Preparation & WhatsApp logistics (CC-09, CC-10)\n`;
+    prompt += `  5. Zero compliance red lines (VP-10, OH-04, OH-09, IP-10)\n`;
+    prompt += `- Set call_type_tag to 'Pitch Continuation'.\n\n`;
+  } else if (subTier === 'T1_REMINDER') {
+    prompt += `=== OPERATIONAL CONTEXT: MEETING / EXAM REMINDER (< 2-3 MINUTES) ===\n`;
+    prompt += `This call is a short logistical touchpoint to confirm a Google Meet counseling demo or KNET entrance exam.\n`;
+    prompt += `- DO NOT evaluate or penalize full sales pitch parameters (e.g. VP-01 market gap, VP-02 syllabus obsolescence, VP-05 normal B.Tech contrast, OH-01 to OH-07 objection handling). Mark all non-logistical pitch parameters as 'Not Applicable'.\n`;
+    prompt += `- EVALUATE STRICTLY ON LOGISTICAL EXECUTION:\n`;
+    prompt += `  1. Specific day and clock time locked/confirmed (CC-07)\n`;
+    prompt += `  2. Set up to arrive prepared on laptop / internet (CC-09)\n`;
+    prompt += `  3. Parent attendance confirmed for counseling (IP-02)\n`;
+    prompt += `  4. WhatsApp link or credentials delivery verified (CC-10)\n`;
+    prompt += `  5. Professional brevity, energy, and tonality (CC-01)\n`;
+    prompt += `  6. Compliance red lines (VP-10, IP-10)\n`;
+    prompt += `- If the associate executed the reminder clearly and confirmed logistics, award a high/perfect score.\n`;
+    prompt += `- Set call_type_tag to 'Meeting Reminder' or 'KNET Exam Reminder'.\n\n`;
+  } else {
+    prompt += `=== OPERATIONAL CONTEXT: ROUTINE CHECK-IN / RESCHEDULE ===\n`;
+    prompt += `This call is a short routine interaction or reschedule request. Evaluate core discovery and compliance concisely.\n`;
+    prompt += `- Set call_type_tag to 'Routine Follow-up'.\n\n`;
+  }
+
+  // 2. Current Lead State & Journey History
+  if (leadState) {
+    prompt += `=== CURRENT LEAD STATUS & HISTORY ===\n`;
+    if (leadState.kalvium_funnel_stage) prompt += `- Funnel Stage: ${leadState.kalvium_funnel_stage}\n`;
+    if (leadState.next_process_step) prompt += `- Next Scheduled Activity: ${leadState.next_process_step}\n`;
+    if (leadState.journey_summary) prompt += `- CRM Journey Summary (Past Calls): ${leadState.journey_summary}\n`;
+    if (leadState.intent_score != null) prompt += `- Current Lead Intent Score: ${leadState.intent_score}/100\n`;
+    prompt += '\n';
+  }
+
+  // 3. Multi-call awareness
+  if (callNumber > 1 && pastCalls && pastCalls.length > 0) {
+    prompt += `⚠️ CRITICAL: This is CALL #${callNumber} for this prospect. You have ${pastCalls.length} previous call(s) on record.\n`;
+    pastCalls.forEach((pc, i) => {
+      const summary = pc.summary_data ? (typeof pc.summary_data === 'string' ? JSON.parse(pc.summary_data) : pc.summary_data) : null;
+      prompt += `- Call ${i + 1} (${pc.duration_sec || 0}s): ${summary?.call_summary ? (Array.isArray(summary.call_summary) ? summary.call_summary.join('; ') : summary.call_summary) : 'Completed'}\n`;
+    });
+    prompt += '\n';
+  }
+
+  // 4. Data Capture Instruction (Referencing cached questions)
+  prompt += `=== DATA CAPTURE INSTRUCTION ===\n`;
+  prompt += `Extract any NEW facts for the 10 canonical fields defined in your cached Master Knowledge Base (Competitors Mentioned, Customer Location, JEE/Other Exams, Decision Maker, Course/College Interested In, Email ID, JEE Coaching, Stream, Grade, Laptop Access).\n`;
+  prompt += `CRITICAL: If NO fields were mentioned, return "extracted_fields": []. NEVER output "Not mentioned" or placeholder objects.\n\n`;
+
+  // 5. Quality Parameters Checklist (Audit by Exception)
+  prompt += `=== QUALITY PARAMETERS TO EVALUATE (AUDIT BY EXCEPTION) ===\n`;
+  prompt += `CRITICAL EFFICIENCY RULE: Output quality entries ONLY for parameters that actually apply to this interaction (typically 2-4 logistical/closing checks or any compliance failures).\n`;
+  prompt += `DO NOT output entries for non-applicable pitch parameters (e.g. VP-01 market gap, VP-02 syllabus obsolescence, etc.). All unlisted parameters will automatically default to 'Not Applicable' in the system.\n`;
+  prompt += `Hostile Auditor Rule for compliance: Always flag fatal breaches if detected.\n\n`;
+
+  filteredQualityChecks.forEach(check => {
+    prompt += `- [${check.param_id || 'N/A'}] ${check.parameter} (Max: ${check.max_score || 2})\n`;
+  });
+  prompt += '\n';
+
+  // 6. Call Transcript
+  prompt += `=== CURRENT CALL TRANSCRIPT (Call #${callNumber}) ===\n${transcriptText}\n\n`;
+
+  // 7. Lean Output Instructions
+  prompt += `=== LEAN OUTPUT INSTRUCTIONS ===\n`;
+  prompt += `1. Provide call_type_tag, insights (intent score 0-100, factors, extracted_fields []).\n`;
+  prompt += `2. Provide quality array: 2 to 4 applicable checks ONLY. Keep reason ultra-concise (under 15 words).\n`;
+  prompt += `3. Provide coaching report: overall_score, overall_grade, 1-line summary, 1 single actionable coach_tip.\n`;
+  prompt += `4. summary.call_summary: EXACTLY 1 concise bullet.\n`;
+  prompt += `5. DO NOT generate multi-paragraph rewrites or essays. Keep total response ultra-lean.\n`;
+  prompt += `6. Translate regional speech (Tamil/Hindi) into standard English for output. NEVER output Devanagari or Tamil script.\n`;
+
+  return prompt;
+}
+
 module.exports = {
   getKalviumContext,
   sanitizeKey,
@@ -434,4 +606,6 @@ module.exports = {
   _buildStaticQualityCoachingBlock,
   buildQualityCoachingPrompt,
   buildOmniPrompt,
+  buildDynamicOmniPrompt,
+  buildLeanDynamicOmniPrompt,
 };

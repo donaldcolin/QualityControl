@@ -3,161 +3,115 @@ const { GEMINI_MODEL, ai } = require('./index');
 const { safeParseGeminiJSON } = require('./safe_parse');
 const { callGeminiWithRetry } = require('./call_gemini');
 
-function triageCall(callData) {
-  const { duration_sec, talk_to_listen_ratio, segments } = callData;
-
-  // T0: Automatically fail calls that are clearly not genuine conversations
-  if (duration_sec < 30) {
-    return { tier: 'T0', valid: false, reason: 'Call duration under 30 seconds.' };
-  }
-
-  if (talk_to_listen_ratio) {
-    const [agentPct, customerPct] = talk_to_listen_ratio.split(':').map(Number);
-    if (customerPct === 0) {
-      return { tier: 'T0', valid: false, reason: 'Talk-to-listen ratio is 100:0 (Monologue).' };
-    }
-  }
-
-  // Check for high-risk keywords in the transcript to bump to T2 (Real-time)
-  const highRiskKeywords = ['guarantee', '100% placement', 'police', 'scam', 'refund', 'court'];
-  if (segments && segments.length > 0) {
-    let parsedSegments = segments;
-    if (typeof segments === 'string') {
-      try {
-        parsedSegments = JSON.parse(segments);
-      } catch (e) {
-        parsedSegments = [];
+function triageCall(callData, transcriptText = '', pastCalls = []) {
+  const duration = callData?.duration_sec || 0;
+  const source = callData?.source || 'phone_call';
+  
+  // Extract text from transcriptText, callData.transcript, or segments
+  let rawText = transcriptText || callData?.transcript || '';
+  if (!rawText && callData?.segments) {
+    try {
+      const segs = typeof callData.segments === 'string' ? JSON.parse(callData.segments) : callData.segments;
+      if (Array.isArray(segs)) {
+        rawText = segs.map(s => s.text_en || s.text || '').join(' ');
       }
-    }
-    const transcriptText = Array.isArray(parsedSegments) ? parsedSegments.map(s => s.text || s.text_en || '').join(' ').toLowerCase() : '';
-    const hasRisk = highRiskKeywords.some(kw => transcriptText.includes(kw));
-    if (hasRisk) {
-      return { tier: 'T2', valid: true, reason: 'High-risk keyword detected (Compliance Review Required).' };
+    } catch (e) {
+      rawText = '';
     }
   }
+  const text = rawText.toLowerCase();
+  const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
 
-  // Default to T2 (Real-time Evaluation) since the user wants instant results
-  return { tier: 'T2', valid: true, reason: 'Standard call profile (Instant Processing Enabled).' };
+  // 1. HIGHEST PRIORITY: High-Risk Compliance Triggers (Immediate Escalation to T2)
+  const complianceRegexes = [
+    /(?:100%|hundred\s*percent)\s*(?:placement|job|guarantee)/i,
+    /(?:guaranteed?|pakka|assured)\s*(?:placement|job|package)/i,
+    /(?:average|minimum|starting)\s*(?:package|salary)?[\s\S]{0,35}(?:36\s*lpa|36\s*lakh)/i,
+    /(?:36\s*lpa|36\s*lakh)[\s\S]{0,35}(?:average|minimum|starting)/i,
+    /(?:4[0-9]|5[0-9]|6[0-9]|7[0-9]|8[0-9]|9[0-9]|100)\s*(?:lpa|lakhs?)/i,
+    /(?:self[- ]?fund|partly\s+self[- ]funding|pays?\s+for\s+itself)/i,
+    /(?:send|transfer|gpay|phonepe|upi)[\s\S]{0,40}(?:to\s+me|my\s+(?:number|account|upi|id)|personal)/i,
+    /(?:otp|pin|aadhaar|aadhar)\b/i,
+    /(?:scam|police|court|fraud|refund|lawyer)/i
+  ];
+  const matched = complianceRegexes.find(r => r.test(text));
+  if (matched) {
+    return { tier: 'T2', valid: true, reason: 'High-risk compliance trigger detected in transcript.', compliance_trigger: true };
+  }
+
+  // 2. Immediate Drop / Non-connect Filter (< 45 seconds)
+  if (duration > 0 && duration < 45) {
+    return { tier: 'T0', valid: false, reason: `Call duration (${duration}s) under 45 seconds.` };
+  }
+
+  // 3. Google Meet Video Demos are ALWAYS T2 (Requires multi-modal computer vision & face tracking)
+  if (source === 'google_meet') {
+    return { tier: 'T2', valid: true, reason: 'Google Meet video demonstration requires multi-modal sensor fusion.' };
+  }
+
+  // 4. Phone Call Low-Interaction & Monologue Checks
+  if (wordCount < 25) {
+    return { tier: 'T0', valid: false, reason: `Transcript has only ${wordCount} words (low interaction / silence).` };
+  }
+  if (callData?.talk_to_listen_ratio) {
+    const [agentPct, custPct] = callData.talk_to_listen_ratio.split(':').map(Number);
+    if (custPct === 0) {
+      return { tier: 'T0', valid: false, reason: 'Customer talk ratio is 0% (Voicemail / Monologue).' };
+    }
+  }
+  const disposition = (callData?.disposition || callData?.call_status || '').toLowerCase();
+  if (['busy', 'no answer', 'no_answer', 'wrong number', 'wrong_number', 'voicemail', 'dropped'].includes(disposition)) {
+    return { tier: 'T0', valid: false, reason: `Disposition is ${disposition} (Non-conversation).` };
+  }
+
+  // 4. T2 Triggers: In-depth counseling calls (> 180 seconds / 3 minutes)
+  if (duration > 180) {
+    return { tier: 'T2', valid: true, reason: `In-depth counseling call (${Math.round(duration / 60)} mins) requires deep coaching.` };
+  }
+
+  // 5. T1 Sub-tier Classification (45s to 180s)
+  // Check for Pitch Continuation (Reconnected dropped call)
+  const reconnectPhrases = [
+    'call disconnected', 'call cut', 'got disconnected', 'network issue', 
+    'call disconnect', 'as i was saying', 'cut ho gaya', 'voice break', 
+    'hear me now', 'cut aayiduchu', 'line cut', 'redial'
+  ];
+  const hasReconnectPhrase = reconnectPhrases.some(phrase => text.includes(phrase));
+  const hasRecentLongCall = Array.isArray(pastCalls) && pastCalls.some(pc => (pc.duration_sec || 0) > 180);
+
+  if (hasReconnectPhrase || hasRecentLongCall) {
+    return {
+      tier: 'T1',
+      sub_tier: 'T1_CONTINUATION',
+      valid: true,
+      reason: 'Reconnected pitch continuation after call drop (Evaluates Closing & Logistics without discovery penalty).'
+    };
+  }
+
+  // Check for Meeting / Exam Reminder & Logistics
+  const reminderKeywords = ['reminder', 'meeting', 'meet', 'google meet', 'slot', 'knet', 'exam', 'laptop', 'link', 'whatsapp', 'join'];
+  if (reminderKeywords.some(kw => text.includes(kw))) {
+    return {
+      tier: 'T1',
+      sub_tier: 'T1_REMINDER',
+      valid: true,
+      reason: 'Meeting/Exam Reminder touchpoint (Logistical Audit).'
+    };
+  }
+
+  // Default T1: Routine follow-up / reschedule
+  return {
+    tier: 'T1',
+    sub_tier: 'T1_ROUTINE',
+    valid: true,
+    reason: 'Routine follow-up / check-in call (Lean Audit).'
+  };
 }
 
 async function evaluateLeadJourney(leadId) {
-  if (!ai) return;
-
-  // 1. Fetch the lead
-  const { data: lead, error: leadError } = await supabase
-    .from('leads')
-    .select('id, name, journey_insights, journey_coaching')
-    .eq('id', leadId)
-    .single();
-
-  if (leadError || !lead) {
-    console.error(`Journey Sync failed: Lead ${leadId} not found`);
-    return;
-  }
-
-  // 2. Fetch the newly evaluated calls
-  const { data: calls } = await supabase
-    .from('calls')
-    .select('id, source, duration_sec, transcript, summary_data, insights_data, filename, qc_status')
-    .eq('prospect_id', leadId)
-    .in('qc_status', ['evaluated', 'completed', 'fatal_audit_failure']);
-
-  if (!calls || calls.length === 0) return;
-
-  // 3. Construct prompt with bounded context window (prevents token explosion on long funnels)
-  const MAX_JOURNEY_CALLS = 5;
-  const recentCalls = calls.length > MAX_JOURNEY_CALLS ? calls.slice(-MAX_JOURNEY_CALLS) : calls;
-  const lastIndex = recentCalls.length - 1;
-
-  let transcriptHistory = recentCalls.map((c, idx) => {
-    const isLatestCall = idx === lastIndex;
-    let contentBlock = '';
-
-    if (isLatestCall) {
-      // Latest call gets full transcript for rich grounding
-      contentBlock = `Full Transcript:\n${c.transcript || 'No transcript available'}`;
-    } else {
-      // Prior calls are compressed to structured summaries (saving up to 90% tokens)
-      const summaryList = Array.isArray(c.summary_data?.call_summary) 
-        ? c.summary_data.call_summary.join('; ')
-        : (typeof c.summary_data === 'string' ? c.summary_data : 'Call completed');
-      const keyPoints = Array.isArray(c.summary_data?.key_points)
-        ? c.summary_data.key_points.join('; ')
-        : '';
-      contentBlock = `Prior Call Summary: ${summaryList}\nKey Takeaways: ${keyPoints || 'N/A'}`;
-    }
-
-    return `
---- Touchpoint ${calls.length - recentCalls.length + idx + 1} (${c.source || 'telephony'}) ---
-Date: ${c.created_at || 'Recent'}
-Duration: ${Math.round((c.duration_sec || 0)/60)} mins
-${contentBlock}
-`;
-  }).join('\n\n');
-
-  const journeySchema = {
-    type: 'object',
-    properties: {
-      journey_insights: {
-        type: 'object',
-        description: 'Overarching summary of BANT, intent progression, and objections across all touchpoints.',
-        properties: {
-          intent_progression: { type: 'string', description: 'Narrative of how the prospect intent evolved from Touchpoint 1 to the latest touchpoint.' },
-          objections_status: { type: 'string', description: 'Which objections were raised, and which ones were successfully resolved or remain open.' },
-          overall_bant_summary: { type: 'string', description: 'Holistic summary of their Budget, Authority, Needs, and Timeline.' }
-        }
-      },
-      journey_coaching: {
-        type: 'object',
-        description: 'High-level coaching feedback tracking associate progress from the first call to the final demo.',
-        properties: {
-          improvements_noted: { type: 'string', description: 'Positive feedback on how the associate improved or adapted across the calls.' },
-          recurring_mistakes: { type: 'string', description: 'Critical feedback on mistakes repeated across multiple touchpoints.' },
-          next_touchpoint_strategy: { type: 'string', description: 'Strategic advice for the NEXT time the associate speaks with this lead.' }
-        }
-      }
-    },
-    required: ['journey_insights', 'journey_coaching']
-  };
-
-  const prompt = `You are a Senior Sales Director doing a holistic "Journey Review" for a lead.
-Do NOT just evaluate a single call. Look at the entire sequence of touchpoints below.
-Your job is to provide a rolling, additive narrative of the lead's progression and the associate's coaching needs over time.
-
-Previous Journey State (if any):
-${JSON.stringify(lead.journey_insights || {})}
-${JSON.stringify(lead.journey_coaching || {})}
-
-ALL TOUCHPOINTS FOR THIS LEAD:
-${transcriptHistory}
-
-Generate the updated journey insights and journey coaching.
-Focus specifically on CROSS-CALL continuity (e.g., "The pricing objection from Call 1 was resolved in Call 2").`;
-
-  try {
-    const response = await callGeminiWithRetry(ai, {
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: journeySchema,
-        temperature: 0.2
-      }
-    });
-  
-    const result = safeParseGeminiJSON(response.text);
-    
-    // 4. Update the lead with the synthesized JSONB
-    await supabase.from('leads').update({
-      journey_insights: result.journey_insights,
-      journey_coaching: result.journey_coaching,
-      updated_at: new Date().toISOString()
-    }).eq('id', leadId);
-
-    console.log(`✅ Successfully generated holistic Journey Synthesis for Lead ${leadId}`);
-  } catch (e) {
-    console.error(`❌ Journey Synthesis failed for Lead ${leadId}:`, e.message);
-  }
+  // Deterministic multi-call synthesis is performed zero-cost in qc_evaluations.js (lines 681-776).
+  // This avoids burning 4,000-8,000 un-cached Gemini tokens per call.
+  console.log(`⚡ [Journey Synthesis] Lead ${leadId} updated via deterministic zero-cost synthesis.`);
 }
 
 module.exports = {

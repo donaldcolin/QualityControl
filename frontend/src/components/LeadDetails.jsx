@@ -506,9 +506,10 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                         timeLabel = ` • ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}, ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
                       } catch (e) {}
                     }
+                    const tag = c.insights_data?.call_type_tag;
                     return (
                       <SelectItem key={c.id || idx} value={idx.toString()}>
-                        Call {idx + 1}{timeLabel} <span className="text-muted-foreground ml-2 text-xs">({c.duration_sec ? formatDuration(c.duration_sec) : '00:00'})</span>
+                        Call {idx + 1}{tag ? ` • ${tag}` : ''}{timeLabel} <span className="text-muted-foreground ml-2 text-xs">({c.duration_sec ? formatDuration(c.duration_sec) : '00:00'})</span>
                       </SelectItem>
                     );
                   })}

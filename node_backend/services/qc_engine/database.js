@@ -174,7 +174,8 @@ const FATAL_COMPLIANCE_PARAMETERS = new Set([
   'Total Fee Improvised or Payment Terms Invented',
   'Non-Price Advantages Stacked Onto the Discounted Fee',
   'Advisor Collecting Money Directly',
-  'Sensitive Credentials Spoken Aloud or Left On Screen'
+  'Sensitive Credentials Spoken Aloud or Left On Screen',
+  'Outlier Placement as Average'
 ]);
 
 async function getQualityChecks(source) {

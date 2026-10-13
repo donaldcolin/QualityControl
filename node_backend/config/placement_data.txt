@@ -1,0 +1,42 @@
+=== KALVIUM OFFICIAL CANONICAL DATA: 2026 BATCH PLACEMENT & INTERNSHIP HIGHLIGHTS ===
+Official Source: AY 2026 Kalvium Placement Report (Audited)
+
+1. CORE METRICS & CEILINGS:
+- Total Placed: 81.8% of the batch (CANNOT claim 100% or "guaranteed placement")
+- Interned So Far: 90.4% of the batch (Internship rate is NOT placement rate)
+- International Placements: 28% of the batch
+- Highest Salary Package: 36 LPA (Absolute top ceiling / outlier)
+- Median Salary: 20 LPA (This is the median, NOT the minimum or starting salary)
+
+2. SECTOR-WISE BREAKDOWN:
+- AI / Data / Analytics: 19.4%
+- IT Services / Consulting: 17.7%
+- SaaS / Enterprise Software: 16.1%
+- HealthTech / BioTech / Pharma: 12.9%
+- FinTech / Banking / Payments: 11.3%
+- Media / Gaming / Entertainment: 8.1%
+- EdTech / Learning: 6.5%
+- FoodTech / AgriTech: 6.5%
+- Electric Vehicles (EVs): 1.6%
+
+=== STRICT COMPLIANCE & FLAGGING METRICS (QC AUDIT RULES) ===
+RULE 1: [FATAL MIS-SELLING] 100% Placement / Job Guarantee:
+- True Figure: 81.8% placed.
+- VIOLATION: Claiming "100% placement", "guaranteed job/placement", "har bache ko job lagti hai", "placement assurance", "100% placement assistance" framed as guarantee.
+- ACTION: Score 0 on placement integrity / FP-17 / VP-10, MARK AS FATAL COMPLIANCE BREACH.
+
+RULE 2: [CRITICAL BREACH] Outlier Salary Package As Average/Minimum (FP-17):
+- True Figures: Highest = 36 LPA (outlier), Median = 20 LPA.
+- VIOLATION: Presenting 36 LPA as "average", "minimum", "everyone gets 36LPA", or quoting any salary > 36 LPA (e.g. 40 LPA, 50 LPA, 1 Crore) without official documentation.
+- ACTION: Score 0 on FP-17 / Salary Authenticity, flag as Outlier Misrepresentation.
+
+RULE 3: [COMPLIANCE BREACH] Conflating Internship with Full-Time Placement:
+- True Figures: 90.4% interned vs 81.8% placed.
+- VIOLATION: Quoting 90%+ as the final full-time placement rate or conflating internship stipends with full-time graduate salaries.
+- ACTION: Deduct points on authenticity/accuracy under VP-10.
+
+RULE 4: [COMPLIANCE BREACH] Inflating International Placements:
+- True Figure: 28% international placements.
+- VIOLATION: Claiming "most students get international jobs" or quoting numbers higher than 28%.
+- ACTION: Flag as Unsupported Figure under VP-10.
+======================================================================================

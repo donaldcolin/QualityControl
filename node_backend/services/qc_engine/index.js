@@ -43,13 +43,26 @@ try {
   console.warn("WARNING: university_fee_structure.csv not found.");
 }
 
+// Load Placement Highlights & Flagging Metrics Knowledge Base (2026 Batch)
+let placementData = '';
+let placementDataJSON = null;
+try {
+  placementData = fs.readFileSync(path.join(configDir, 'placement_data.txt'), 'utf8');
+  placementDataJSON = JSON.parse(fs.readFileSync(path.join(configDir, 'placement_data.json'), 'utf8'));
+  console.log(`Loaded Placement Data & Flagging Metrics KB`);
+} catch (err) {
+  console.warn("WARNING: placement_data.txt/json not found.");
+}
+
 // Ensure the index itself can be imported by workflows before requiring them to avoid circular dependency issues
 module.exports = {
   ai,
   GEMINI_MODEL,
   knowledgeBase,
   bdPlaybook,
-  universityFeeKB
+  universityFeeKB,
+  placementData,
+  placementDataJSON
 };
 
 const database = require('./database');
@@ -58,6 +71,7 @@ const prompts = require('./prompts');
 const workflows = require('./workflows');
 const safeParse = require('./safe_parse');
 const { callGeminiWithRetry } = require('./call_gemini');
+const cacheManager = require('./cache_manager');
 
 // Helper pre-bound to the active ai instance
 function generateContentWithRetry(params, options) {
@@ -71,6 +85,7 @@ Object.assign(module.exports, {
   ...prompts,
   ...workflows,
   ...safeParse,
+  ...cacheManager,
   callGeminiWithRetry,
   generateContentWithRetry
 });

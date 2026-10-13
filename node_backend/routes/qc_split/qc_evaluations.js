@@ -15,7 +15,8 @@ const FATAL_COMPLIANCE_PARAMETERS = [
   'Total Fee Improvised or Payment Terms Invented',
   'Non-Price Advantages Stacked Onto the Discounted Fee',
   'Advisor Collecting Money Directly',
-  'Sensitive Credentials Spoken Aloud or Left On Screen'
+  'Sensitive Credentials Spoken Aloud or Left On Screen',
+  'Outlier Placement as Average'
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -99,41 +100,6 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         } else if (call.transcript) {
           transcriptText = call.transcript;
         }
-        
-        // -- TRIAGE PIPELINE --
-        const triage = qcEngine.triageCall(call);
-        
-        if (triage.tier === 'T0') {
-          // Auto-reject without burning any LLM tokens
-          console.log(`🛑 [Triage] Call ${call_id} rejected as T0: ${triage.reason}`);
-          await supabase.from('evaluation_runs').insert({
-            call_id: callIdToUpdate,
-            model_id: 'auto-triage',
-            input_snapshot: { source: effectiveSource },
-            results: { call_quality_score: 0, call_quality_raw: '0/0', reject_reason: triage.reason },
-            status: 'completed',
-            evaluation_tier: 'T0'
-          });
-          await supabase.from('calls').update({ qc_status: 'rejected', call_quality_score: 0 }).eq('id', callIdToUpdate);
-          return; // Abort processing
-        }
-        
-        if (triage.tier === 'T1') {
-          // Enqueue for nightly Gemini Batch API
-          console.log(`⏳ [Triage] Call ${call_id} routed to T1 Batch Queue.`);
-          await supabase.from('evaluation_runs').insert({
-            call_id: callIdToUpdate,
-            model_id: qcEngine.GEMINI_MODEL,
-            input_snapshot: { transcript_length: transcriptText.length, source: effectiveSource },
-            results: {},
-            status: 'pending',
-            evaluation_tier: 'T1_Batch'
-          });
-          return; // Abort real-time processing
-        }
-        
-        // If T2, continue down the real-time pipeline...
-        console.log(`🚨 [Triage] Call ${call_id} routed to T2 Real-Time Processing: ${triage.reason}`);
       }
     }
 
@@ -146,6 +112,35 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       qcEngine.getPastCalls(activeProspectId, callIdToUpdate),
       qcEngine.getLeadState(activeProspectId),
     ]);
+
+    // -- SMART TRIAGE ENGINE (T0 / T1 / T2) --
+    const triage = qcEngine.triageCall(activeCallData || {}, transcriptText, pastCalls);
+
+    if (triage.tier === 'T0') {
+      // Auto-reject without burning any LLM tokens (Zero AI - ₹0.00)
+      console.log(`🛑 [Triage] Call ${callIdToUpdate} rejected as T0: ${triage.reason}`);
+      const t0Run = {
+        call_id: callIdToUpdate,
+        model_id: 'rule-engine-triage',
+        input_snapshot: { source: effectiveSource, triage_reason: triage.reason, evaluation_tier: 'T0' },
+        results: { call_quality_score: null, call_quality_raw: 'N/A (< 45s Non-Pitch)', reject_reason: triage.reason, tokens_saved: 28000, evaluation_tier: 'T0' }
+      };
+      await supabase.from('evaluation_runs').insert(t0Run);
+      await supabase.from('calls').update({
+        qc_status: 'rejected',
+        call_quality_score: null,
+        call_quality_raw: 'N/A (< 45s Non-Pitch)',
+        summary_data: {
+          call_summary: [`Call rejected by triage: ${triage.reason}`],
+          key_points: ['Duration: < 45s or low interaction', 'Did not consume AI tokens'],
+          main_takeaways: ['Non-pitch interaction']
+        }
+      }).eq('id', callIdToUpdate);
+      return; // Abort processing cleanly without calling Gemini!
+    }
+
+    console.log(`⚡ [Triage] Call ${callIdToUpdate} routed to ${triage.tier} (${triage.sub_tier || 'DEEP'}): ${triage.reason}`);
+    const isT1 = triage.tier === 'T1';
 
     // If there are no past calls, this is effectively the first call.
     // Wipe any existing journey summary from the state so the AI doesn't hallucinate deleted calls.
@@ -189,61 +184,114 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     let qualityResult = { quality: {} };
     let coachingReport = null;
     let combinedResult = {};
+    let omniResponse = null;
+    let activeCacheName = null;
 
     if (filteredQualityChecks.length > 0) {
       try {
         const { params } = await qcEngine.getParametersForSource(effectiveSource);
         if (params.length > 0) {
-          // OMNI-PROMPT: One massive prompt to extract everything at once (saves 2,700+ tokens)
-          const omniSchema = qcEngine.getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params);
-          const omniPrompt = qcEngine.buildOmniPrompt(
-            transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline
-          );
+          // Check for active Gemini Context Cache (BD Playbook, Fees, Placements, Rules)
+          activeCacheName = await qcEngine.getActiveCache(qcEngine.ai, qcEngine.GEMINI_MODEL);
 
-          const omniResponse = await qcEngine.generateContentWithRetry({
+          const omniSchema = isT1
+            ? qcEngine.getLeanOmniSchema(dataCaptureQuestions, filteredQualityChecks, params, triage.sub_tier)
+            : qcEngine.getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params);
+
+          // Use lean dynamic prompt for T1; otherwise fallback to full dynamic omniPrompt
+          const omniPrompt = isT1
+            ? qcEngine.buildLeanDynamicOmniPrompt(
+                transcriptText, effectiveSource, triage, pastCalls, leadState, filteredQualityChecks, params
+              )
+            : (activeCacheName
+                ? qcEngine.buildDynamicOmniPrompt(
+                    transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline
+                  )
+                : qcEngine.buildOmniPrompt(
+                    transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline
+                  )
+              );
+
+          const requestConfig = {
+            responseMimeType: 'application/json',
+            responseSchema: omniSchema,
+            temperature: 0.15
+          };
+          if (activeCacheName) {
+            requestConfig.cachedContent = activeCacheName;
+          }
+
+          omniResponse = await qcEngine.generateContentWithRetry({
             model: qcEngine.GEMINI_MODEL,
             contents: omniPrompt,
-            config: {
-              responseMimeType: 'application/json',
-              responseSchema: omniSchema,
-              temperature: 0.15
-            }
+            config: requestConfig
           });
+
+          // Log token usage telemetry
+          const usage = omniResponse?.usageMetadata;
+          if (usage) {
+            console.log(`⚡ [Gemini Token Telemetry] Total: ${usage.totalTokenCount} | Prompt: ${usage.promptTokenCount} | Cached Hit: ${usage.cachedContentTokenCount || 0} | Output: ${usage.candidatesTokenCount}`);
+          }
 
           const omniResult = qcEngine.safeParseGeminiJSON(omniResponse.text);
           
           insightsResult = {
-            insights: omniResult.insights,
+            insights: {
+              ...(omniResult.insights || {}),
+              call_type_tag: omniResult.call_type_tag || (isT1 ? (triage.sub_tier === 'T1_CONTINUATION' ? 'Pitch Continuation' : 'Meeting Reminder') : 'Sales Call'),
+              triage_tier: triage.sub_tier || triage.tier
+            },
             summary: omniResult.summary,
             next_steps: omniResult.next_steps
           };
           combinedResult = omniResult;
           
           // Convert quality array back to object keyed by parameter name (for DB storage compatibility)
-          // DEFAULT: Assume all parameters FAILED. The AI must explicitly score each one.
-          // If the AI skips a parameter, it stays at 0 — no free passes.
+          // DEFAULT: For T1 (Audit by Exception), assume unlisted parameters are Not Applicable so associates aren't penalized for unasked discovery. For T2, assume Failed unless evidence is found.
           const qualityObj = {};
+          const paramNameLookup = new Map();
+
           filteredQualityChecks.forEach(check => {
-            qualityObj[check.parameter] = {
-              score: 0,
-              max_score: check.max_score || 2,
-              status: 'Needs Improvement',
-              coaching_status: 'Fail',
-              reason: 'Not evaluated — no evidence found in transcript',
-              mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(check.parameter)
-            };
+            if (check.parameter) paramNameLookup.set(check.parameter, check.parameter);
+            if (check.param_id) paramNameLookup.set(check.param_id, check.parameter);
+            if (check.parameter) paramNameLookup.set(check.parameter.toLowerCase(), check.parameter);
+            if (check.param_id) paramNameLookup.set(check.param_id.toLowerCase(), check.parameter);
+
+            if (isT1) {
+              qualityObj[check.parameter] = {
+                score: 0,
+                max_score: 0,
+                status: 'Not Applicable',
+                coaching_status: 'Not Applicable',
+                reason: 'Not applicable for short/focused interaction (Audit by Exception)',
+                mark_fatal: false
+              };
+            } else {
+              qualityObj[check.parameter] = {
+                score: 0,
+                max_score: check.max_score || 2,
+                status: 'Needs Improvement',
+                coaching_status: 'Fail',
+                reason: 'Not evaluated — no evidence found in transcript',
+                mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(check.parameter)
+              };
+            }
           });
 
           if (Array.isArray(combinedResult.quality)) {
             combinedResult.quality.forEach(item => {
+              const matchedParam = paramNameLookup.get(item.parameter) ||
+                paramNameLookup.get((item.parameter || '').toLowerCase()) ||
+                item.parameter;
               const isNA = item.status === 'Not Applicable';
-              qualityObj[item.parameter] = {
+              const maxScore = isNA ? 0 : (item.max_score || (qualityObj[matchedParam] && qualityObj[matchedParam].max_score > 0 ? qualityObj[matchedParam].max_score : 2) || 2);
+              qualityObj[matchedParam] = {
                 score: isNA ? 0 : item.score,
-                max_score: isNA ? 0 : (item.max_score || (qualityObj[item.parameter] ? qualityObj[item.parameter].max_score : 2)),
+                max_score: maxScore,
                 status: item.status,
                 coaching_status: isNA ? 'Not Applicable' : item.coaching_status,
                 reason: item.reason,
-                mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(item.parameter)
+                mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(matchedParam)
               };
             });
           }
@@ -287,6 +335,67 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
                 reason: '[AUTO-FLAGGED] Associate made a year-based internship timing claim (e.g. "second year"). This is a policy violation.'
               };
             }
+          }
+
+          // ── HARDCODED SAFETY NET: Placement & Salary Claims Detection (2026 Batch Ground Truth) ──
+          const lowerTranscriptText = (transcriptText || '').toLowerCase();
+          
+          // 1. 100% Placement / Job Guarantee Safety Net (Canonical = 81.8% placed)
+          const placementGuaranteePatterns = [
+            /(?:100%|hundred\s*percent)\s*(?:placement|job|guarantee)/i,
+            /(?:guaranteed?|pakka|assured)\s*(?:placement|job|package)/i,
+            /(?:placement|job)\s*(?:guarantee|ki\s*guarantee|pakka|assured|100%)/i,
+            /(?:har\s*(?:bachhe|bache|student)\s*ko\s*(?:job|placement)\s*mil(?:egi|ti|ta))/i,
+            /(?:job|placement)\s*ki\s*guarantee/i,
+            /(?:kandippa|pakka|sure[- ]?ah?)\s*(?:placement|job)/i
+          ];
+          if (placementGuaranteePatterns.some(p => p.test(lowerTranscriptText))) {
+            console.log(`🚨 [SAFETY NET] 100% Placement guarantee detected in transcript! Flagging fatal breach.`);
+            const targetParams = [
+              'No invented placement/salary statistics outside script norms',
+              'Outlier Placement as Average',
+              'Unsupported or Inconsistent Figures'
+            ];
+            targetParams.forEach(pName => {
+              if (qualityObj[pName]) {
+                qualityObj[pName] = {
+                  ...qualityObj[pName],
+                  score: 0,
+                  status: 'Needs Improvement',
+                  coaching_status: 'Fail',
+                  mark_fatal: true,
+                  reason: '[FATAL MIS-SELLING] Associate claimed 100% placement / job guarantee. Canonical 2026 data confirms 81.8% placed (90.4% interned). Guarantees are strictly prohibited.'
+                };
+              }
+            });
+          }
+
+          // 2. Outlier Salary Package as Average / Inflated Salaries (> 36 LPA or 36 LPA as average)
+          const outlierSalaryPatterns = [
+            /(?:average|minimum|starting)\s*(?:package|salary)?[\s\S]{0,35}(?:36\s*lpa|36\s*lakh)/i,
+            /(?:36\s*lpa|36\s*lakh)[\s\S]{0,35}(?:average|minimum|starting)/i,
+            /(?:4[0-9]|5[0-9]|6[0-9]|7[0-9]|8[0-9]|9[0-9]|100)\s*(?:lpa|lakhs?|lac|crore)/i,
+            /(?:forty|fifty|sixty|seventy|eighty|ninety|crore)\s*(?:lpa|lakhs?)/i
+          ];
+          if (outlierSalaryPatterns.some(p => p.test(lowerTranscriptText))) {
+            console.log(`🚨 [SAFETY NET] Outlier or unapproved salary package detected in transcript! Flagging breach.`);
+            const targetSalaryParams = [
+              'No invented placement/salary statistics outside script norms',
+              'Outlier Placement as Average',
+              'Unsupported or Inconsistent Figures'
+            ];
+            targetSalaryParams.forEach(pName => {
+              if (qualityObj[pName]) {
+                qualityObj[pName] = {
+                  ...qualityObj[pName],
+                  score: 0,
+                  status: 'Needs Improvement',
+                  coaching_status: 'Fail',
+                  mark_fatal: true,
+                  reason: '[FATAL PITCH DETECTED] Advisor quoted highest package (36 LPA) as average/minimum or cited unapproved salary > 36 LPA. Canonical 2026 median is 20 LPA.'
+                };
+              }
+            });
           }
 
           // ── HARDCODED SAFETY NET: Video QC V3 Fatal Guardrail Detection ──
@@ -366,7 +475,8 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
               'Total Fee Improvised or Payment Terms Invented',
               'Non-Price Advantages Stacked Onto the Discounted Fee',
               'Advisor Collecting Money Directly',
-              'Sensitive Credentials Spoken Aloud or Left On Screen'
+              'Sensitive Credentials Spoken Aloud or Left On Screen',
+              'Outlier Placement as Average'
             ];
             FATAL_PARAM_NAMES.forEach(fpName => {
               if (qualityObj[fpName]) {
@@ -493,8 +603,13 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       callQualityScore = categoriesCalculated > 0 ? Math.round(weightedTotal) : (totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0);
       callQualityRaw = `${totalScore}/${totalMaxScore} (${callQualityScore}% weighted)`;
     } else {
-      callQualityScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
-      callQualityRaw = `${totalScore}/${totalMaxScore}`;
+      if (isT1 && totalMaxScore === 0 && !hasFatalBreach) {
+        callQualityScore = 100;
+        callQualityRaw = 'N/A (Clean Short Call)';
+      } else {
+        callQualityScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
+        callQualityRaw = `${totalScore}/${totalMaxScore}`;
+      }
     }
 
     if (hasFatalBreach) {
@@ -539,12 +654,20 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
 
     if (callIdToUpdate) {
       // Create immutable evaluation run record
+      resultsPayload.evaluation_tier = triage?.sub_tier || triage?.tier || 'T2';
       await supabase
         .from('evaluation_runs')
         .insert({
           call_id: callIdToUpdate,
           model_id: qcEngine.GEMINI_MODEL,
-          input_snapshot: { transcript_length: transcriptText.length, source: effectiveSource },
+          input_snapshot: {
+            transcript_length: transcriptText.length,
+            source: effectiveSource,
+            token_usage: omniResponse?.usageMetadata || null,
+            cached_context: Boolean(activeCacheName),
+            triage_reason: triage?.reason || null,
+            evaluation_tier: triage?.sub_tier || triage?.tier || 'T2'
+          },
           results: resultsPayload
         });
     }
@@ -654,9 +777,10 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
 
       // Missing fields = only those still not captured after merge
       const capturedFieldNames = new Set(Array.from(fieldMap.values()).map(f => f.field));
+      const defaultFields = (dataCaptureQuestions || []).map(q => q.label || q.question || q.field).filter(Boolean);
       const allMissingFields = [
         ...(existingCapture.missing_mandatory_fields || []),
-        ...(newCapture.missing_mandatory_fields || [])
+        ...(newCapture.missing_mandatory_fields || defaultFields)
       ];
       const mergedMissing = [...new Set(allMissingFields)].filter(f => !capturedFieldNames.has(f));
 

@@ -386,11 +386,14 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                   <SelectItem value="all">
                     All Calls <span className="text-muted-foreground ml-2 text-xs">({evaluatedCalls.length})</span>
                   </SelectItem>
-                  {evaluatedCalls.map((c, idx) => (
-                    <SelectItem key={idx} value={idx.toString()}>
-                      Call {idx + 1} <span className="text-muted-foreground ml-2 text-xs">({c.duration_sec ? formatDuration(c.duration_sec) : '00:00'})</span>
-                    </SelectItem>
-                  ))}
+                  {evaluatedCalls.map((c, idx) => {
+                    const tag = c.insights_data?.call_type_tag;
+                    return (
+                      <SelectItem key={idx} value={idx.toString()}>
+                        Call {idx + 1} {tag ? `• ${tag}` : ''} <span className="text-muted-foreground ml-2 text-xs">({c.duration_sec ? formatDuration(c.duration_sec) : '00:00'})</span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             )}

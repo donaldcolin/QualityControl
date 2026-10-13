@@ -74,7 +74,9 @@ function getInsightsSchema(dataCaptureQuestions) {
                 }
               }
             },
-            description: `Answers to specific data capture questions. Expected fields and their questions:\n${dataCaptureQuestions.map(q => `- ${q.label}: ${q.question}`).join('\n')}`
+            description: (Array.isArray(dataCaptureQuestions) && dataCaptureQuestions.length > 0 && dataCaptureQuestions.some(q => q.label && !q._isCanonical))
+              ? `Answers to specific data capture questions. Expected fields and their questions:\n${dataCaptureQuestions.map(q => `- ${q.label}: ${q.question}`).join('\n')}`
+              : 'Answers to the 10 canonical data capture questions defined in the Master Cached Context (Competitors Mentioned, Customer Location, JEE/Other Exams, Decision Maker, Course/College Interested In, Email ID, JEE Coaching, Stream, Grade, Laptop Access).'
           },
           conversation_topics: {
             type: 'array',
@@ -253,6 +255,90 @@ function getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params) {
   };
 }
 
+function getLeanOmniSchema(dataCaptureQuestions, filteredQualityChecks, params, subTier) {
+  return {
+    type: 'object',
+    properties: {
+      call_type_tag: {
+        type: 'string',
+        enum: ['Meeting Reminder', 'KNET Exam Reminder', 'Pitch Continuation', 'Routine Follow-up', 'Sales Call'],
+        description: 'Operational classification'
+      },
+      insights: {
+        type: 'object',
+        properties: {
+          intent_score: { type: 'number', description: 'Buying intent score 0-100' },
+          data_capture: {
+            type: 'object',
+            properties: {
+              extracted_fields: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    field: { type: 'string', description: 'Field name' },
+                    value: { type: 'string', description: 'Captured value' },
+                    confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
+                    timestamp: { type: 'string', description: 'MM:SS' }
+                  },
+                  required: ['field', 'value', 'confidence', 'timestamp']
+                },
+                description: 'Genuinely captured fields. Return [] if none.'
+              }
+            },
+            description: 'Canonical data capture.'
+          }
+        },
+        required: ['intent_score', 'data_capture']
+      },
+      summary: {
+        type: 'object',
+        properties: {
+          call_summary: { type: 'array', items: { type: 'string' }, description: '1 concise sentence' }
+        },
+        required: ['call_summary']
+      },
+      next_steps: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Action title' }
+          },
+          required: ['title']
+        }
+      },
+      quality: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            parameter: { type: 'string', description: 'Param ID or Name' },
+            score: { type: 'number', description: 'Score' },
+            max_score: { type: 'number', description: 'Max score' },
+            status: { type: 'string', enum: ['Done', 'Partially Done', 'Needs Improvement', 'Not Applicable'] },
+            coaching_status: { type: 'string', enum: ['Pass', 'Fail', 'Not Applicable'] },
+            reason: { type: 'string', description: 'Brief quote or reason (under 10 words)' }
+          },
+          required: ['parameter', 'score', 'max_score', 'status', 'coaching_status', 'reason']
+        },
+        description: 'Audit by Exception: 2-4 evaluated checks ONLY.'
+      },
+      coaching_report: {
+        type: 'object',
+        properties: {
+          overall_score: { type: 'number', description: 'Score 0-100' },
+          overall_grade: { type: 'string', description: 'Grade A-F' },
+          summary: { type: 'string', description: '1 sentence summary' },
+          coach_tip: { type: 'string', description: '1 actionable tip' }
+        },
+        required: ['overall_score', 'overall_grade', 'summary', 'coach_tip']
+      }
+    },
+    required: ['call_type_tag', 'insights', 'summary', 'quality', 'coaching_report']
+  };
+}
+
 function getIntelligenceSchema() {
   return {
     type: 'object',
@@ -296,5 +382,6 @@ module.exports = {
   getQualitySchema,
   getCombinedQualityCoachingSchema,
   getOmniSchema,
+  getLeanOmniSchema,
   getIntelligenceSchema,
 };
