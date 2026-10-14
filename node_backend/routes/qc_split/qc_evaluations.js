@@ -196,7 +196,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
 
           const omniSchema = isT1
             ? qcEngine.getLeanOmniSchema(dataCaptureQuestions, filteredQualityChecks, params, triage.sub_tier)
-            : qcEngine.getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params);
+            : qcEngine.getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params, effectiveSource);
 
           // Use lean dynamic prompt for T1; otherwise fallback to full dynamic omniPrompt
           const omniPrompt = isT1
@@ -225,6 +225,10 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
             model: qcEngine.GEMINI_MODEL,
             contents: omniPrompt,
             config: requestConfig
+          }, {
+            reason: `QC Call Evaluation: ${activeCallId} (${triage.tier} - ${effectiveSource})`,
+            caller: activeCallId,
+            metadata: { call_id: activeCallId, tier: triage.tier, source: effectiveSource }
           });
 
           // Log token usage telemetry
@@ -234,17 +238,30 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
           }
 
           const omniResult = qcEngine.safeParseGeminiJSON(omniResponse.text);
+
+          // Expand compact BANT into canonical { status, details } format for DB and lead synthesis
+          if (omniResult.insights && omniResult.insights.bant) {
+            omniResult.insights.bant = qcEngine.expandBant(omniResult.insights.bant);
+          }
+
+          // Populate missing mandatory data capture fields in Node.js
+          if (omniResult.insights && omniResult.insights.data_capture) {
+            omniResult.insights.data_capture = qcEngine.populateMissingDataCaptureFields(omniResult.insights.data_capture);
+          }
           
           insightsResult = {
             insights: {
               ...(omniResult.insights || {}),
-              call_type_tag: omniResult.call_type_tag || (isT1 ? (triage.sub_tier === 'T1_CONTINUATION' ? 'Pitch Continuation' : 'Meeting Reminder') : 'Sales Call'),
+              call_type_tag: omniResult.call_type_tag || (isT1 ? (triage.sub_tier === 'T1_CONTINUATION' ? 'Pitch Continuation' : triage.sub_tier === 'T1_FORWARD' ? 'Call Forwarded / Callback Request' : 'Meeting Reminder') : 'Sales Call'),
               triage_tier: triage.sub_tier || triage.tier
             },
             summary: omniResult.summary,
             next_steps: omniResult.next_steps
           };
           combinedResult = omniResult;
+          if (combinedResult.coaching_report?.category_scores) {
+            combinedResult.coaching_report.category_scores = qcEngine.normalizeCategoryScores(combinedResult.coaching_report.category_scores);
+          }
           
           // Convert quality array back to object keyed by parameter name (for DB storage compatibility)
           // DEFAULT: For T1 (Audit by Exception), assume unlisted parameters are Not Applicable so associates aren't penalized for unasked discovery. For T2, assume Failed unless evidence is found.
@@ -263,34 +280,41 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
                 max_score: 0,
                 status: 'Not Applicable',
                 coaching_status: 'Not Applicable',
-                reason: 'Not applicable for short/focused interaction (Audit by Exception)',
+                reason: 'Not applicable for short/focused interaction',
+                question: qcEngine.getParameterQuestion(check.parameter) || check.parameter,
                 mark_fatal: false
               };
             } else {
+              const maxScore = check.max_score || 2;
+              const isGuardrail = check.polarity === 'guardrail_negative';
               qualityObj[check.parameter] = {
-                score: 0,
-                max_score: check.max_score || 2,
-                status: 'Needs Improvement',
-                coaching_status: 'Fail',
-                reason: 'Not evaluated — no evidence found in transcript',
+                score: isGuardrail ? maxScore : 0,
+                max_score: maxScore,
+                status: isGuardrail ? 'Done' : 'Needs Improvement',
+                coaching_status: isGuardrail ? 'Pass' : 'Fail',
+                reason: isGuardrail
+                  ? 'Compliant'
+                  : 'Not asked during call',
+                question: qcEngine.getParameterQuestion(check.parameter) || check.parameter,
                 mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(check.parameter)
               };
             }
           });
 
           if (Array.isArray(combinedResult.quality)) {
-            combinedResult.quality.forEach(item => {
-              const matchedParam = paramNameLookup.get(item.parameter) ||
-                paramNameLookup.get((item.parameter || '').toLowerCase()) ||
-                item.parameter;
+            const expandedQuality = qcEngine.expandQualityExceptions(combinedResult.quality, paramNameLookup);
+            expandedQuality.forEach(item => {
+              const matchedParam = item.parameter;
               const isNA = item.status === 'Not Applicable';
               const maxScore = isNA ? 0 : (item.max_score || (qualityObj[matchedParam] && qualityObj[matchedParam].max_score > 0 ? qualityObj[matchedParam].max_score : 2) || 2);
+
               qualityObj[matchedParam] = {
                 score: isNA ? 0 : item.score,
                 max_score: maxScore,
                 status: item.status,
                 coaching_status: isNA ? 'Not Applicable' : item.coaching_status,
-                reason: item.reason,
+                reason: item.reason || '',
+                question: item.question || qcEngine.getParameterQuestion(matchedParam) || matchedParam,
                 mark_fatal: FATAL_COMPLIANCE_PARAMETERS.includes(matchedParam)
               };
             });
@@ -354,7 +378,9 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
             const targetParams = [
               'No invented placement/salary statistics outside script norms',
               'Outlier Placement as Average',
-              'Unsupported or Inconsistent Figures'
+              'Unsupported or Inconsistent Figures',
+              'All Figures Within the Approved Fact Sheet',
+              'Placements Answered Honestly'
             ];
             targetParams.forEach(pName => {
               if (qualityObj[pName]) {
@@ -490,7 +516,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         } else {
           // No coaching params yet — fall back to quality-only pass
           // MUST run insights manually first!
-          const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions);
+          const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions, effectiveSource);
           const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
           const insightsResponse = await qcEngine.generateContentWithRetry({
             model: qcEngine.GEMINI_MODEL,
@@ -502,6 +528,12 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
             }
           });
           insightsResult = qcEngine.safeParseGeminiJSON(insightsResponse.text);
+          if (insightsResult.insights && insightsResult.insights.bant) {
+            insightsResult.insights.bant = qcEngine.expandBant(insightsResult.insights.bant);
+          }
+          if (insightsResult.insights && insightsResult.insights.data_capture) {
+            insightsResult.insights.data_capture = qcEngine.populateMissingDataCaptureFields(insightsResult.insights.data_capture);
+          }
 
           const qualitySchema = qcEngine.getQualitySchema(filteredQualityChecks);
           const qualityPrompt = qcEngine.buildQualityPrompt(transcriptText, effectiveSource, filteredQualityChecks);
@@ -533,7 +565,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       }
     } else {
       // 4b. Fallback: No quality checks for this source, so run Insights only
-      const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions);
+      const insightsSchema = qcEngine.getInsightsSchema(dataCaptureQuestions, effectiveSource);
       const insightsPrompt = qcEngine.buildInsightsPrompt(transcriptText, effectiveSource, dataCaptureQuestions, pastCalls, leadState);
 
       const insightsResponse = await qcEngine.generateContentWithRetry({
@@ -546,6 +578,12 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         }
       });
       insightsResult = qcEngine.safeParseGeminiJSON(insightsResponse.text);
+      if (insightsResult.insights && insightsResult.insights.bant) {
+        insightsResult.insights.bant = qcEngine.expandBant(insightsResult.insights.bant);
+      }
+      if (insightsResult.insights && insightsResult.insights.data_capture) {
+        insightsResult.insights.data_capture = qcEngine.populateMissingDataCaptureFields(insightsResult.insights.data_capture);
+      }
     }
 
     // 5. Compute overall quality score from merged result
@@ -563,11 +601,21 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       'Live Closing & Frictionless Registration': 0.25
     };
 
+    // Category weighting definitions for Phone QC V3 (From qc_parameters_phone_v3.csv)
+    const PHONE_V3_CATEGORY_WEIGHTS = {
+      'Discovery & Probing': 0.20,
+      'Value Pitch & Kalvium Differentiators': 0.10,
+      'Objection Handling & De-escalation': 0.15,
+      'Intent Signals & Parental Buy-in': 0.30,
+      'Call Control, Tonality & Next Steps': 0.25
+    };
+
     const categoryPoints = {};
 
     for (const [paramName, evaluation] of Object.entries(qualityResult.quality || {})) {
       if (evaluation.status !== 'Not Applicable') {
-        const cat = evaluation.category || filteredQualityChecks.find(c => c.parameter === paramName)?.category || 'Other';
+        const checkDef = filteredQualityChecks.find(c => c.parameter === paramName || c.param_id === paramName);
+        const cat = checkDef?.category || evaluation.category || 'Other';
         if (!categoryPoints[cat]) categoryPoints[cat] = { score: 0, maxScore: 0 };
         categoryPoints[cat].score += (evaluation.score || 0);
         categoryPoints[cat].maxScore += (evaluation.max_score || 0);
@@ -588,28 +636,29 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     let callQualityScore = 0;
     let callQualityRaw = '';
 
-    if (effectiveSource === 'google_meet') {
-      // Apply exact category percentage weights
-      let weightedTotal = 0;
-      let categoriesCalculated = 0;
-      for (const [catName, weight] of Object.entries(VIDEO_V3_CATEGORY_WEIGHTS)) {
-        const catData = categoryPoints[catName];
-        if (catData && catData.maxScore > 0) {
-          const catPct = (catData.score / catData.maxScore) * 100;
-          weightedTotal += (catPct * weight);
-          categoriesCalculated++;
-        }
+    const weights = effectiveSource === 'google_meet' ? VIDEO_V3_CATEGORY_WEIGHTS : PHONE_V3_CATEGORY_WEIGHTS;
+    let weightedTotal = 0;
+    let totalWeightApplied = 0;
+    let categoriesCalculated = 0;
+
+    for (const [catName, weight] of Object.entries(weights)) {
+      const catData = categoryPoints[catName];
+      if (catData && catData.maxScore > 0) {
+        const catPct = (catData.score / catData.maxScore) * 100;
+        weightedTotal += (catPct * weight);
+        totalWeightApplied += weight;
+        categoriesCalculated++;
       }
-      callQualityScore = categoriesCalculated > 0 ? Math.round(weightedTotal) : (totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0);
-      callQualityRaw = `${totalScore}/${totalMaxScore} (${callQualityScore}% weighted)`;
+    }
+
+    if (isT1 && totalMaxScore === 0 && !hasFatalBreach) {
+      callQualityScore = 100;
+      callQualityRaw = 'N/A (Clean Short Call)';
     } else {
-      if (isT1 && totalMaxScore === 0 && !hasFatalBreach) {
-        callQualityScore = 100;
-        callQualityRaw = 'N/A (Clean Short Call)';
-      } else {
-        callQualityScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
-        callQualityRaw = `${totalScore}/${totalMaxScore}`;
-      }
+      callQualityScore = totalWeightApplied > 0
+        ? Math.round(weightedTotal / totalWeightApplied)
+        : (totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0);
+      callQualityRaw = `${totalScore}/${totalMaxScore} (${callQualityScore}% weighted)`;
     }
 
     if (hasFatalBreach) {
@@ -635,6 +684,9 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       if (hasFatalBreach) {
         coachingReport.overall_score = 0;
         coachingReport.overall_grade = 'F';
+      } else {
+        coachingReport.overall_score = callQualityScore;
+        coachingReport.overall_grade = callQualityScore >= 90 ? 'A' : callQualityScore >= 75 ? 'B' : callQualityScore >= 60 ? 'C' : callQualityScore >= 40 ? 'D' : 'F';
       }
       // Extract per-parameter coaching results from unified quality entries
       const paramEvals = {};

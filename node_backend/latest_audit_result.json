@@ -1,0 +1,268 @@
+{
+  "metadata": {
+    "timestamp": "2026-10-14T14:01:42.813Z",
+    "latencySec": "11.97",
+    "usage": {
+      "promptTokenCount": 37724,
+      "candidatesTokenCount": 3469,
+      "totalTokenCount": 41193,
+      "cachedContentTokenCount": 27942,
+      "promptTokensDetails": [
+        {
+          "modality": "TEXT",
+          "tokenCount": 37724
+        }
+      ],
+      "cacheTokensDetails": [
+        {
+          "modality": "TEXT",
+          "tokenCount": 27942
+        }
+      ],
+      "serviceTier": "standard"
+    },
+    "cost": {
+      "totalCostUSD": 0.0030643500000000004,
+      "totalCostINR": 0.25587322500000004,
+      "costCachedUSD": 0.00069855,
+      "costUncachedUSD": 0.0009782,
+      "costOutputUSD": 0.0013876000000000001
+    }
+  },
+  "parsedResponse": {
+    "coaching_report": {
+      "overall_score": 45,
+      "overall_grade": "F",
+      "summary": "The associate failed to maintain control of the conversation, spending excessive time arguing about AI and EC vs CSE instead of discovery. The parent was left confused, and the associate delivered a lengthy, defensive monologue (>80% talk share) violating multiple core Kalvium playbook principles.",
+      "category_scores": [
+        {
+          "category": "Discovery & Probing",
+          "score": 40,
+          "grade": "F",
+          "what_went_well": "The associate successfully captured the student's stream and board.",
+          "what_went_wrong": "The associate failed to establish college search status or competing exams.",
+          "coach_tip": "Always probe complete college search inventory before pitching."
+        },
+        {
+          "category": "Value Pitch & Kalvium Differentiators",
+          "score": 35,
+          "grade": "F",
+          "what_went_well": "The associate mentioned the 9 partner universities and the online entrance exam.",
+          "what_went_wrong": "The associate lectured defensively about AI instead of using the Socratic method.",
+          "coach_tip": "Use the Socratic method to let the prospect conclude curriculum obsolescence."
+        },
+        {
+          "category": "Objection Handling & De-escalation",
+          "score": 40,
+          "grade": "F",
+          "what_went_well": "The associate acknowledged the parent's preference for Electronics and Communication.",
+          "what_went_wrong": "The associate argued with the parent regarding AI job security instead of aligning.",
+          "coach_tip": "Align with parent concerns first before introducing counter-perspectives."
+        },
+        {
+          "category": "Intent Signals & Parental Buy-in",
+          "score": 50,
+          "grade": "F",
+          "what_went_well": "The associate successfully secured commitment from both father and student.",
+          "what_went_wrong": "The associate omitted the information-decay justification when requesting parent attendance.",
+          "coach_tip": "Always explain parent presence using the 75-50-25 information decay argument."
+        },
+        {
+          "category": "Call Control, Tonality & Next Steps",
+          "score": 60,
+          "grade": "D",
+          "what_went_well": "The associate locked a specific day and time for the Google Meet session.",
+          "what_went_wrong": "The associate dominated over 85% of the conversation with lengthy monologues.",
+          "coach_tip": "Keep talk-share below 75% and ask frequent checkpoint questions."
+        }
+      ],
+      "top_strengths": [
+        "Successfully locked a specific slot (7:30 PM) with the parent present on the call.",
+        "Identified correct regional partner universities (AMET, St. Joseph, LPU, SRM AP, JECRC)."
+      ],
+      "critical_improvements": [
+        "Talk share exceeded 85%, turning the call into a defensive lecture.",
+        "Failed to use the information decay argument when requesting parent presence."
+      ],
+      "advanced_coaching": {
+        "context_aware_rewrites": [
+          {
+            "timestamp": "01:30 - 02:05",
+            "what_they_said": "Job sir, being taken over by AI... and semester conductor industries booming and ECE we are planning to take.",
+            "why_it_failed": "The associate immediately launched into an aggressive defensive lecture about AI creating jobs, creating friction and putting the parent on the defensive.",
+            "golden_rewrite": "Uncle, I completely understand why you and the family are looking closely at ECE for job stability. Let me ask you — when companies hire fresh engineers today, what do they test more: textbook electronics theory or practical software product building? Let's explore how Kalvium bridges both."
+          },
+          {
+            "timestamp": "05:54 - 06:14",
+            "what_they_said": "Educated them about Kalvium being an on-campus B.Tech CSE degree in partnership with 9 universities.",
+            "why_it_failed": "The associate dumped programme details prematurely before establishing the market gap or using the Socratic method.",
+            "golden_rewrite": "Before I share what Kalvium does, let me ask you: according to you, how often do traditional university engineering syllabi get updated? Exactly, and with AI evolving every month, students learning from ten-year-old books face major placement gaps. That exact gap is why Kalvium exists."
+          },
+          {
+            "timestamp": "19:37 - 20:10",
+            "what_they_said": "So that's why I'll ask your father to join... so is it possible to do that?",
+            "why_it_failed": "The associate asked for parent presence as a bare assertion without explaining the loss of information when relaying details secondhand.",
+            "golden_rewrite": "Uncle, let me suggest why I strongly recommend both of you join the 1:1 session together. Usually, students absorb about 75% of what's discussed and convey about 50% to parents, leading to miscommunication. If you both join for 30 minutes on Google Meet, you can evaluate the fees, curriculum, and university options directly."
+          }
+        ],
+        "conversational_dynamics": "Associate talk-share was extremely high at approximately 85%, characterized by lengthy, uninterrupted monologues defending AI and explaining CSE vs ECE.",
+        "tone_and_empathy": "The associate sounded argumentative during the AI debate rather than consultative and empathetic to the parent's stability concerns.",
+        "missed_opportunities": [
+          "Missed the opportunity to explore other competing exams like JEE or state CETs.",
+          "Failed to leverage the school seminar lead source effectively to build curiosity."
+        ],
+        "prospect_persona": "Cautious parent prioritizing job security and traditional core branches over modern software specializations.",
+        "competitor_deflection": "Handled traditional branch preference defensively by arguing against ECE instead of aligning and contrasting curriculum models.",
+        "micro_agreements": "Failed to collect checkpoint confirmations ('sariyaa?', 'okay-ngalaa?') during lengthy explanations."
+      }
+    },
+    "insights": {
+      "intent_score": 50,
+      "high_intent_factors": [
+        "Parent and student agreed to attend the scheduled 1:1 Google Meet session.",
+        "Father actively participated in the call and discussed career stability."
+      ],
+      "low_intent_factors": [
+        "Initial hesitation regarding AI taking over software jobs.",
+        "Preference for traditional ECE due to perceived job security."
+      ],
+      "objections": [
+        {
+          "category": "Career Safety & AI",
+          "objection": "AI is taking over tech jobs, so ECE is a safer choice.",
+          "how_handled": "Argued defensively about AI creating jobs and product-based vs service-based companies.",
+          "customer_satisfied": false
+        }
+      ],
+      "bant": {
+        "budget": {
+          "status": "Uncertain",
+          "details": "Fees were briefly mentioned as a topic for the 1:1 session, but no specific financial details or budget constraints were discussed."
+        },
+        "authority": {
+          "status": "Qualified",
+          "details": "Father and student are both involved in decision-making; father participated on the call."
+        },
+        "needs": {
+          "status": "Qualified",
+          "details": "Student is in 12th standard with Computer Science group, evaluating ECE vs CSE and career security against AI disruption."
+        },
+        "timeline": {
+          "status": "Qualified",
+          "details": "Targeting admission for the upcoming post-12th academic intake (AY 2027)."
+        }
+      },
+      "data_capture": {
+        "extracted_fields": [
+          {
+            "field": "Customer Location",
+            "value": "Kolathur, Chennai",
+            "confidence": "High",
+            "timestamp": "23:09"
+          },
+          {
+            "field": "Stream",
+            "value": "Computer Science (PCMC)",
+            "confidence": "High",
+            "timestamp": "01:09"
+          },
+          {
+            "field": "Decision Maker",
+            "value": "Father (Media Producer)",
+            "confidence": "High",
+            "timestamp": "16:06"
+          },
+          {
+            "field": "Course/College Interested In",
+            "value": "B.Tech ECE / CSE",
+            "confidence": "Medium",
+            "timestamp": "01:32"
+          },
+          {
+            "field": "Grade",
+            "value": "12th Standard",
+            "confidence": "High",
+            "timestamp": "00:28"
+          }
+        ]
+      },
+      "conversation_topics": [
+        "AI Job Market Disruption",
+        "CSE vs ECE Branch Selection",
+        "1:1 Google Meet Counselling Booking"
+      ]
+    },
+    "next_steps": [
+      {
+        "title": "Send Google Meet calendar invitation for 1:1 session at 7:30 PM",
+        "due_by": "2026-06-07"
+      },
+      {
+        "title": "Send WhatsApp confirmation message and collect email ID",
+        "due_by": "2026-06-07"
+      }
+    ],
+    "quality": [
+      "DP-01|1|[01:09] Asked stream but jumped into pitch without exploring post-12th plans.",
+      "DP-02|0|Failed to establish college search status or application progress.",
+      "DP-03|0|Did not take an inventory of competing entrance exams.",
+      "DP-04|2|[00:28] Captured school, stream, board, and location accurately.",
+      "DP-05|2|[19:16] Explicitly identified father as the primary decision-maker.",
+      "DP-06|0|Failed to elicit and rank family priorities.",
+      "DP-08|1|[05:54] Probed awareness of Kalvium superficially.",
+      "DP-09|0|Failed to elicit student's own ambition or fear in their own words.",
+      "VP-01|0|Named Kalvium without building prior curiosity about the market gap.",
+      "VP-02|0|Lectured on curriculum obsolescence instead of using Socratic method.",
+      "VP-03|0|Did not name regional entry-route constraints like KCET or EAMCET.",
+      "VP-04|1|[07:24] Described practical learning but lacked deep concrete project examples.",
+      "VP-05|0|Failed to provide a vivid contrast against a normal B.Tech.",
+      "VP-06|2|[08:12] Described internships as structured pathways starting second year.",
+      "VP-07|0|Did not anchor curriculum currency to student's cohort years.",
+      "VP-08|2|[09:01] Explained KNET filters peers without donation or management seats.",
+      "VP-09|0|Failed to deliver the marks-irrelevance inversion.",
+      "VP-10|2|All stated figures and partner university counts remained within approved sheet.",
+      "OH-01|2|Did not disparage ECE or competing paths.",
+      "OH-02|2|Positioned Kalvium as an additional option alongside regular plans.",
+      "OH-03|1|Acknowledged competitor branches without structured contrast.",
+      "OH-04|2|Routed detailed fee discussion appropriately to the 1:1 session.",
+      "OH-05|2|Respected parent timeline without aggressive pressure.",
+      "OH-06|0|Did not de-risk exam difficulty thoroughly.",
+      "OH-07|2|Answered unfamiliarity with verifiable facts about partner universities.",
+      "OH-08|2|Listened patiently when parent expressed career stability concerns.",
+      "OH-09|2|Answered placement questions honestly without quoting percentages or packages.",
+      "OH-10|1|Avoided fake scarcity but talk share was excessively high.",
+      "IP-01|0|Explained parent presence as a rule without the information-decay argument.",
+      "IP-02|2|[19:37] Successfully secured commitment from father to attend.",
+      "IP-03|2|[16:04] Handed live to the father on the call.",
+      "IP-04|1|Re-pitched value to father but focused heavily on branch debate.",
+      "IP-05|2|Accepted flexible joint parent attendance.",
+      "IP-06|-1|Not applicable as parents were available.",
+      "IP-08|1|Captured buying signals regarding placements and fees.",
+      "IP-09|1|Proposed slots without thoroughly mapping parent work shifts first.",
+      "IP-10|0|Failed to provide unprompted anti-fraud payment guidance.",
+      "CC-01|0|Associate talk-share exceeded 85% with lengthy monologues.",
+      "CC-02|2|[16:06] Shifted tone to formal and respectful when father took the phone.",
+      "CC-03|0|Failed to check understanding using confirmation tags regularly.",
+      "CC-05|1|Steered back to booking after prolonged AI debate.",
+      "CC-06|2|[22:33] Offered specific time slots (7:30 to 8:30 PM).",
+      "CC-07|2|[23:00] Locked specific day and 7:30 PM time slot confirmed by family.",
+      "CC-08|2|[23:48] Captured email ID and gave mechanical reason for Meet link generation.",
+      "CC-09|0|Omitted instructing prospect to join on a laptop for screen sharing.",
+      "CC-10|2|[23:58] Promised WhatsApp confirmation and meeting details."
+    ],
+    "summary": {
+      "call_summary": [
+        "Connected with student and father following a school seminar outreach.",
+        "Addressed family concerns regarding AI job displacement and ECE vs CSE branch selection.",
+        "Introduced Kalvium's 4-year work-integrated B.Tech CSE degree in partnership with 9 universities.",
+        "Successfully booked a 1:1 Google Meet session for student and parents at 7:30 PM."
+      ],
+      "key_points": [
+        "Student is in 12th standard (Computer Science group) in Kolathur, Chennai.",
+        "Father works as a media producer and participated actively in the call.",
+        "Family initially leaned toward ECE due to perceived safety from AI automation."
+      ],
+      "journey_summary": "Initial outreach call to an inbound school seminar lead. Family initially hesitant due to AI fears regarding CSE, but successfully engaged and booked for a 1:1 Google Meet session with parents."
+    }
+  }
+}

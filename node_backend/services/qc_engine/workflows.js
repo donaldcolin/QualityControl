@@ -50,9 +50,6 @@ function triageCall(callData, transcriptText = '', pastCalls = []) {
   }
 
   // 4. Phone Call Low-Interaction & Monologue Checks
-  if (wordCount < 25) {
-    return { tier: 'T0', valid: false, reason: `Transcript has only ${wordCount} words (low interaction / silence).` };
-  }
   if (callData?.talk_to_listen_ratio) {
     const [agentPct, custPct] = callData.talk_to_listen_ratio.split(':').map(Number);
     if (custPct === 0) {
@@ -62,6 +59,18 @@ function triageCall(callData, transcriptText = '', pastCalls = []) {
   const disposition = (callData?.disposition || callData?.call_status || '').toLowerCase();
   if (['busy', 'no answer', 'no_answer', 'wrong number', 'wrong_number', 'voicemail', 'dropped'].includes(disposition)) {
     return { tier: 'T0', valid: false, reason: `Disposition is ${disposition} (Non-conversation).` };
+  }
+
+  if (wordCount < 25) {
+    if (wordCount >= 8 && isT1ForwardCall(text)) {
+      return {
+        tier: 'T1',
+        sub_tier: 'T1_FORWARD',
+        valid: true,
+        reason: 'Prospect deferred call or forwarded to another family member/callback time.'
+      };
+    }
+    return { tier: 'T0', valid: false, reason: `Transcript has only ${wordCount} words (low interaction / silence).` };
   }
 
   // 4. T2 Triggers: In-depth counseling calls (> 180 seconds / 3 minutes)
@@ -99,6 +108,16 @@ function triageCall(callData, transcriptText = '', pastCalls = []) {
     };
   }
 
+  // Check for Call Forwarding / Deferral (e.g. unavailable, call son/father, give number/time)
+  if (isT1ForwardCall(text)) {
+    return {
+      tier: 'T1',
+      sub_tier: 'T1_FORWARD',
+      valid: true,
+      reason: 'Prospect deferred call or forwarded to another family member/callback time.'
+    };
+  }
+
   // Default T1: Routine follow-up / reschedule
   return {
     tier: 'T1',
@@ -106,6 +125,62 @@ function triageCall(callData, transcriptText = '', pastCalls = []) {
     valid: true,
     reason: 'Routine follow-up / check-in call (Lean Audit).'
   };
+}
+
+/**
+ * Detects whether an interaction is a call forward / deferral where the prospect
+ * is unavailable and asks to call a son, father, provide a number, or callback at another time.
+ */
+function isT1ForwardCall(text) {
+  if (!text) return false;
+
+  const unavailabilityPatterns = [
+    'not available', 'not free', 'busy right now', 'in a meeting', 'in meeting',
+    'driving', 'at work', 'in office', 'in class', 'cant talk', "can't talk",
+    'cannot talk', 'call me later', 'call later', 'traveling', 'travelling',
+    'call back later', 'talk later', 'not right now', 'wrong time',
+    // Hindi / Hinglish
+    'baad mein baat', 'baad me baat', 'baad mein call', 'baad me call',
+    'abhi busy', 'office mein', 'office me', 'meeting mein', 'meeting me',
+    'free nahi', 'free nai', 'shaam ko call', 'sham ko call', 'kal call',
+    'driving kar raha', 'driving kar rahi', 'baad me', 'baad mein',
+    // Tamil / Tanglish
+    'ippo pesa mudiyadhu', 'ippo mudiyadhu', 'busy-aa irukken', 'driving-la irukken', 'office-la irukken',
+    'office la irukken', 'apram call pannunga', 'aprom call pannunga',
+    'naalaiku call pannunga', 'evening call pannunga', 'pesa mudiyala'
+  ];
+
+  const forwardingPatterns = [
+    // English
+    'call my son', 'call my father', 'talk to my father', 'speak to my father',
+    'call my dad', 'call my mom', 'call my mother', 'call my husband',
+    'speak with my daughter', 'talk to my son', 'call my daughter', 'speak to my son',
+    'he is looking', 'she is looking', 'his number', 'her number',
+    "my son's number", "my father's number", 'call his number', 'call her number',
+    'take his number', 'take her number', 'give you his number', 'give you her number',
+    'speak to him', 'speak to her', 'contact my father', 'contact my son',
+    // Hindi / Hinglish
+    'papa se baat', 'father se baat', 'bete se baat', 'bete ko call',
+    'father ko call', 'papa ko call', 'unka number', 'unse baat', 'unhe call',
+    'ladke ko call', 'ladke se baat', 'husband se baat',
+    // Tamil / Tanglish
+    'en paiyan kitta', 'paiyan kitta', 'father kitta', 'appa kitta',
+    'avaru number', 'avanga kitta', 'avarkitta pesunga', 'en ponnu kitta',
+    'ponnu kitta'
+  ];
+
+  const hasPhoneRegex = /(?:\+91[\-\s]?)?[6-9]\d{9}|[6-9]\d{4}\s*\d{5}/;
+  const hasTimeRegex = /(?:(?:call\s*(?:me\s*)?(?:back\s*)?)?(?:after|around|at)\s*(?:[1-9]|1[0-2])\s*(?:pm|am|o'clock|baje))|(?:tomorrow\s*(?:at|after|around|morning|evening|shaam)?)|(?:shaam\s*ko|evening\s*call|morning\s*call|kal\s*call)/i;
+
+  const hasUnavailability = unavailabilityPatterns.some(p => text.includes(p));
+  const hasForwarding = forwardingPatterns.some(p => text.includes(p));
+  const hasPhone = hasPhoneRegex.test(text);
+  const hasTime = hasTimeRegex.test(text);
+
+  // Trigger T1_FORWARD if:
+  // 1. Explicitly forwarding to a family member (e.g. "call my father", "call my son on 9876543210")
+  // 2. Unavailability paired with callback request, phone number, or specific callback time
+  return hasForwarding || (hasUnavailability && (hasPhone || hasTime));
 }
 
 async function evaluateLeadJourney(leadId) {
@@ -116,5 +191,6 @@ async function evaluateLeadJourney(leadId) {
 
 module.exports = {
   triageCall,
+  isT1ForwardCall,
   evaluateLeadJourney,
 };

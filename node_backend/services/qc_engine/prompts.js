@@ -230,18 +230,18 @@ function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls
   prompt += `   - Describe how the salesperson handled it\n`;
   prompt += `   - Note if the customer was satisfied with the response\n`;
   prompt += `5. Extract BANT (Budget, Authority, Needs, Timeline) — update based on any NEW information from this call. If nothing new was discussed for a dimension, return the same status as before.\n`;
-  prompt += `6. Answer the following DATA CAPTURE QUESTIONS (only extract NEW information from THIS call — already captured data is listed above):\n`;
+  prompt += `6. Answer the following DATA CAPTURE QUESTIONS (extract every piece of information mentioned or verified in THIS call):\n`;
   dataCaptureQuestions.forEach(q => {
     prompt += `   - ${q.label}: ${q.question}\n`;
   });
   prompt += `7. Identify the main CONVERSATION TOPICS discussed IN THIS CALL.\n`;
-  prompt += `8. Write a comprehensive CALL SUMMARY with key points and main takeaways FOR THIS CALL.\n`;
+  prompt += `8. Write a comprehensive CALL SUMMARY with key points FOR THIS CALL.\n`;
   if (callNumber === 1) {
     prompt += `9. Write a JOURNEY SUMMARY summarizing this conversation. Treat this as the very first interaction with the prospect. Focus only on what happened in this transcript.\n`;
   } else {
     prompt += `9. Write an updated JOURNEY SUMMARY that incorporates insights from ALL ${callNumber} calls. This must be a complete, rolling narrative covering the entire prospect journey from the first call to now. Include: what was discussed, what was promised, what objections were raised and how they were handled, what commitments were made (e.g., "ES said he will join the meeting"), and whether those commitments were kept.\n`;
   }
-  prompt += `10. Suggest concrete NEXT STEPS with suggested dialogue and due dates.\n\n`;
+  prompt += `10. Suggest concrete NEXT STEPS with short action titles and due dates.\n\n`;
 
   prompt += `11. CONSTRUCT AN ATTENDEE TIMELINE (SENSOR FUSION):\n`;
   if (videoTimeline) {
@@ -318,16 +318,49 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   block += `You must complete TWO tasks in one response.\n\n`;
 
   // ── PART 1: Quality evaluation ──────────────────────────────────────────────
-  block += `=== PART 1: QUALITY SCORING ===\n`;
-  block += `For each parameter: assign a score (0 to max_score), a status, and a reason citing the transcript.\n`;
-  block += `Statuses: Done (full marks), Partially Done (partial), Needs Improvement (low), Not Applicable.\n`;
-  block += `CRITICAL GRADING INSTRUCTION: You are NOT a friendly reviewer. You are a HOSTILE AUDITOR hired to find every flaw.\n`;
-  block += `- Your DEFAULT assumption is that every parameter FAILED. The associate must PROVE they did it well through clear transcript evidence.\n`;
-  block += `- If you cannot find EXPLICIT, CLEAR evidence in the transcript that the parameter was executed, score it 0. Silence is NOT compliance.\n`;
-  block += `- 'Done' (2/2) requires FLAWLESS execution with clear evidence. Average execution = 'Partially Done' (1/2). Missing or poor = 'Needs Improvement' (0/2).\n`;
-  block += `- A score above 80% should be RARE. Most calls have significant gaps. If you're giving 90%+, you are being too lenient.\n`;
-  block += `- The transcript is often in Tamil/Hindi/regional languages. You MUST translate and understand the full context before scoring. Do NOT skip non-English content.\n`;
-  block += `- You MUST evaluate EVERY SINGLE parameter. Do not skip any. Output ALL parameters in your response.\n\n`;
+  block += `=== PART 1: QUALITY SCORING (EVALUATE ALL PARAMETERS) ===\n`;
+  block += `You are a rigorous, impartial Quality Auditor for Kalvium. Your mandate is absolute accuracy grounded in verbatim transcript evidence.\n`;
+  block += `- Evaluate each parameter strictly on its factual merits. NEVER artificially inflate OR artificially depress scores to hit a pre-set percentage.\n`;
+  block += `- If the transcript contains clear proof of execution (e.g. associate specifically offered two concrete time slots, confirmed a clock time, or de-risked KNET aptitude testing), award full credit (2/2) with timestamp evidence. If missed or violated, award 0/2 or 1/2.\n`;
+  block += `- You MUST evaluate EVERY SINGLE parameter in the rubric below. Do NOT skip any. Output ALL parameters in your response.\n`;
+  block += `- For each parameter: output compact object { "id": "<PARAM_ID>", "s": <score: 2, 1, 0, or -1 for N/A>, "r": "<third-person concise reason>" }.\n`;
+  block += `- REASON RULES ("r"):\n`;
+  block += `  • Write in THIRD PERSON ("Associate did X", "Associate missed Y"). NEVER use second person.\n`;
+  block += `  • Be ultra-concise (under 12 words): "[MM:SS] What associate did and what was missed/done."\n`;
+  block += `  • Zero corporate jargon: Ban words like "formally mapped", "nuanced dynamics", "consultative posture", "exhibited compliance". State the concrete action.\n`;
+  block += `  • For unattempted/skipped checks: output EXACTLY "Not asked during call".\n`;
+  block += `  • For negative guardrails where no breach occurred: output "No violations detected".\n`;
+  block += `- SCORING THRESHOLDS:\n`;
+  block += `  • 'Done' (2/2): ONLY if the associate fully executed the complete playbook technique with verbatim transcript proof. Casual mentions or half-measures DO NOT qualify.\n`;
+  block += `  • 'Partially Done' (1/2): ONLY if the associate actively attempted the structured playbook technique but missed a secondary detail. Casual conversation or unguided questions MUST score 0/2, NOT 1/2.\n`;
+  block += `  • 'Needs Improvement' (0/2): The associate did not execute the technique, merely chatted casually, lectured without interaction, accepted obstacles passively, monologued (>75% talk share), got argumentative, or skipped the stage entirely.\n`;
+  block += `- NON-NEGOTIABLE FAILURE TRIGGERS:\n`;
+  block += `  1. DP-01: Score 0 if associate asked subjects/stream and immediately jumped to Kalvium without exploring what the student wants to do post-12th.\n`;
+  block += `  2. DP-02: Score 0 unless associate specifically probed whether they are shortlisting, have applied, or visited colleges.\n`;
+  block += `  3. DP-03: Score 0 if associate did not proactively ask which entrance exams (JEE, CET, etc.) the student is preparing for.\n`;
+  block += `  4. DP-04: Score max 1 if only stream is asked but board or location is omitted. Score 0 if stream was not probed.\n`;
+  block += `  5. DP-05: Score 0 if associate did not ask who makes the final education decision at home.\n`;
+  block += `  6. DP-06: Score 0 if associate tells the prospect what their priorities should be instead of eliciting and ranking them.\n`;
+  block += `  7. DP-08: Score max 1 if associate asks what they know but ignores the answer and delivers a generic pitch anyway. Score 0 if not probed.\n`;
+  block += `  8. DP-09: Score 0 if student's genuine ambition, worry, or fear was not elicited in their own words.\n`;
+  block += `  9. VP-01: Score 0 if associate named and pitched Kalvium without first building curiosity about the education market gap.\n`;
+  block += `  10. VP-02: MANDATORY SOCRATIC METHOD. The associate must ask questions that lead the PROSPECT to say traditional syllabi are outdated. If the associate lectures or asserts it themselves without the prospect stating the conclusion, SCORE MUST BE 0!\n`;
+  block += `  11. VP-04: Score 0 if associate only used buzzwords ('practical', 'hands-on') without describing actual projects on laptop from day one.\n`;
+  block += `  12. VP-05: Score 0 unless associate gives a specific vivid contrast (e.g. dozens of real projects vs 1 final year project).\n`;
+  block += `  13. VP-06: Score 0 if associate specifies an internship year (e.g. 'from 2nd year') or quotes stipend amounts.\n`;
+  block += `  14. VP-08: Score 0 if KNET is described merely as an exam or fee barrier without explaining that it filters classroom peers (no donation/management seats).\n`;
+  block += `  15. VP-09: Score 0 unless associate explicitly explains that high board marks do not buy admission and low marks do not disqualify.\n`;
+  block += `  16. OH-01: Score 0 if associate mocks JEE/NEET or belittles student's chance.\n`;
+  block += `  17. OH-05: Score 0 if associate pushes aggressively, repeats the ask, or creates fake urgency.\n`;
+  block += `  18. IP-01: Associate MUST deliver the 'information-decay' argument (student retains 75%, conveys 50%, parents hear 25%). Merely saying 'bring parents' without explaining why MUST SCORE 0!\n`;
+  block += `  19. IP-02: If father's absence is accepted without attempting the information-decay argument, score MAX 1. If no parent committed, score 0.\n`;
+  block += `  20. IP-09: Score 0 if associate proposes slots without first asking when parents are home and available.\n`;
+  block += `  21. IP-10: Score 0 if associate fails to proactively state that no money should be paid to any individual outside official portals.\n`;
+  block += `  22. CC-01: If associate talk-share exceeds 75% or delivers lengthy monologues answered only in monosyllables, SCORE MUST BE 0!\n`;
+  block += `  23. CC-06: Score 0 if associate asks an open-ended 'when are you free?' or offers only a single time slot without an alternative.\n`;
+  block += `  24. CC-07: Score 0 if call ends on a vague time ('tomorrow evening', 'sometime Sunday') without a specific day and clock time.\n`;
+  block += `  25. CC-09: Score 0 if associate omits instructing them to join on a laptop for screen sharing.\n`;
+  block += `- The transcript is often in Tamil/Hindi/regional languages. You MUST translate and understand the full context before scoring. Do NOT skip non-English content.\n\n`;
 
   if (source === 'google_meet') {
     block += `=== CRITICAL MULTI-MODAL EVIDENCE INSTRUCTIONS (VIDEO DEMOS) ===\n`;
@@ -359,11 +392,10 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
     block += '\n';
   }
 
-  // ── PART 2: DEEP COACHING REPORT ──────────────────────────────────────
-  block += `=== PART 2: DEEP COACHING REPORT ===\n`;
-  block += `You are an elite BD Trainer coaching Kalvium counsellors on 1:1 Counselling Booking Calls.\n`;
-  block += `You are NOT a checklist auditor. A basic TL can check if someone said hello. Your job is to find INVISIBLE mistakes only an experienced trainer would catch.\n`;
-  block += `CRITICAL RULE: DO NOT waste your Golden Rewrites on basic corrections like missing greetings, failing to say sir/madam, or minor pleasantries. You MUST focus exclusively on niche, high-leverage corrections that explain WHY the call failed to convert (e.g., poor objection handling, skipping discovery, over-pitching, fake urgency, failing to secure the parent).\n\n`;
+  // ── PART 2: TARGETED COACHING REPORT ──────────────────────────────────────
+  block += `=== PART 2: TARGETED COACHING REPORT ===\n`;
+  block += `CRITICAL RULE: Generate EXACTLY 3 high-impact Golden Rewrites focusing exclusively on niche, high-leverage corrections that explain WHY the call failed to convert (e.g., poor objection handling, skipping discovery, over-pitching, fake urgency, failing to secure the parent).\n`;
+  block += `Keep behavioral insights focused, insightful, and grounded in transcript evidence.\n\n`;
 
   // Inject the real BD playbook if available
   if (bdPlaybook) {
@@ -381,14 +413,13 @@ function _buildStaticQualityCoachingBlock(source, qualityChecks, parameters, lea
   block += `7. OVER-PITCHING: Did the associate dump Kalvium's value proposition without first understanding the student's situation, priorities, and concerns?\n\n`;
 
   block += `=== CONTEXT-AWARE REWRITES INSTRUCTIONS ===\n`;
-  block += `CRITICAL: You MUST generate EXACTLY 5 specific rewrites representing the biggest missed coaching opportunities. LLMs often get lazy and only generate 1-2. You must find 5 distinct coaching moments from across the entire transcript.\n`;
-  block += `For EACH of the 5 rewrites:\n`;
-  block += `- Quote the EXACT words the associate said (in whatever language they used).\n`;
-  block += `- Explain WHY it failed, referencing the specific playbook section they violated.\n`;
-  block += `- Write a GOLDEN REWRITE using the Kalvium-specific response from the playbook. The rewrite must use real Kalvium facts and positioning, not generic sales advice.\n`;
-  block += `- The golden rewrite MUST be in the exact same language as the original transcript (transliterated to English/Latin script, e.g., Tanglish for Tamil calls, Kanglish for Kannada calls) OR standard English. NEVER use Hinglish if the original call was not in Hindi/Hinglish.\n`;
-  block += `- The golden rewrite should sound natural and human, like a real Kalvium top performer would say it.\n`;
-  block += `IMPORTANT: Do NOT give generic coaching like "be more empathetic" or "build rapport". Every piece of feedback must reference specific Kalvium knowledge, call flow stages, objection responses, or red lines from the playbook.\n\n`;
+  block += `CRITICAL: You MUST generate EXACTLY 3 specific, deeply contextualized rewrites representing the biggest missed coaching opportunities (e.g. objection mishandling, skipped discovery, over-pitching, policy violations, or closing failures).\n`;
+  block += `For EACH of the 3 rewrites:\n`;
+  block += `- 'what_they_said': Quote the EXACT words the associate said with exact timestamp range.\n`;
+  block += `- 'why_it_failed': Provide a DETAILED, context-rich diagnosis. Do NOT just state a brief rule check. Explain specifically what went wrong in this interaction, how the prospect reacted or perceived it, the psychological impact, and the exact Kalvium playbook principle violated.\n`;
+  block += `- 'golden_rewrite': Provide a DETAILED, natural, context-rich conversational script that a top-performing Kalvium counselor would say in this exact situation. Tailor it with the prospect's actual context (names, board, situation) and execute proven Kalvium frameworks (e.g. Aikido validation + pivot, Information Decay formula [75% retained -> 50% conveyed -> 25% heard], Socratic questioning, Two-Slot scheduling). Give a complete, authentic spoken response, not an abbreviated 1-liner.\n`;
+  block += `- The golden rewrite MUST match the original language/transliteration of the call or standard professional English. Never use Hinglish if the call was in South Indian languages or English.\n`;
+  block += `IMPORTANT: While category_scores and quality reasons remain strictly 1-line, Context-Aware Rewrites MUST be rich, detailed, and deeply contextualized masterclass coaching.\n\n`;
 
   block += `Overall grade scale — A (90-100), B (75-89), C (60-74), D (40-59), F (0-39)\n\n`;
 
@@ -417,8 +448,8 @@ ${transcript}
 IMPORTANT INSTRUCTIONS:
 1. Evaluate Quality — you MUST output a score for EVERY SINGLE parameter. Do NOT skip any. If you cannot find clear evidence of execution, score it 0.
 2. Generate the Deep Coaching Report.
-3. Be HOSTILE in your grading. Your job is to find flaws, not to praise. If the transcript is in a regional language, TRANSLATE it fully before scoring.
-4. A call scoring above 85% should be extremely rare. If you're giving high scores across the board, you are failing at your job.
+3. Be RIGOROUS and EVIDENCE-GROUNDED in your grading. Award credit when supported by verbatim transcript proof, and penalize violations strictly. If the transcript is in a regional language, TRANSLATE it fully before scoring.
+4. Ground every evaluation in facts. Do not invent false failures for clearly executed actions, and do not overlook genuine playbook violations.
 CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional languages mixed with English (e.g. Hinglish, Tanglish). You MUST write all your output fields, summaries, coaching feedback, and extracted quotes in standard English. Translate any regional language into English before outputting it. DO NOT output text in Devanagari, Tamil, Telugu, or any non-Latin scripts.`;
 }
 
@@ -471,13 +502,59 @@ function buildDynamicOmniPrompt(transcriptText, source, dataCaptureQuestions, pa
 
   // 4. Data Capture Instruction (Referencing cached questions)
   prompt += `=== DATA CAPTURE INSTRUCTION ===\n`;
-  prompt += `Extract only NEW facts for the 10 canonical fields defined in your cached Master Knowledge Base (Competitors Mentioned, Customer Location, JEE/Other Exams, Decision Maker, Course/College Interested In, Email ID, JEE Coaching, Stream, Grade, Laptop Access). Do not re-extract fields already listed in ALREADY CAPTURED DATA above.\n\n`;
+  prompt += `Thoroughly scan the transcript and extract EVERY fact mentioned, confirmed, or discussed in THIS call for the 10 canonical fields:
+1. 'Competitors Mentioned': Competitors, other colleges, or alternatives discussed.
+2. 'Customer Location': City or district (e.g. Chandigarh).
+3. 'JEE/Other Exams': Specific entrance exams mentioned (e.g. JEE, CET, etc.).
+4. 'Decision Maker': Who makes the decision (e.g. Mother, Father, Both).
+5. 'Course/College Interested In': Target degree (e.g. B.Tech Computer Science).
+6. 'Email ID': Customer's email address.
+7. 'JEE Coaching': Whether taking coaching (Yes/No).
+8. 'Stream': Student stream/subjects (e.g. Computer Science, PCM).
+9. 'Grade': Current standard/class (e.g. 12th Std).
+10. 'Laptop Access': Whether laptop/desktop is available (Yes/No).
+CRITICAL: You MUST extract every field that was stated or confirmed in this call transcript with its exact value, confidence ('High'/'Medium'/'Low'), and timestamp MM:SS. Do NOT omit fields merely because they were mentioned in a previous call summary — if the associate verified or discussed it in THIS call, extract it!\n\n`;
 
   // 5. Quality Parameters Rubric (Definitions & guides are in cached context)
-  prompt += `=== QUALITY PARAMETERS TO EVALUATE ===\n`;
+  prompt += `=== QUALITY PARAMETERS TO EVALUATE (EVALUATE ALL PARAMETERS) ===\n`;
   prompt += `Evaluate against the canonical quality rubric cached in your context for ${source === 'google_meet' ? 'Google Meet Video Demonstrations' : '1:1 Phone Counselling Calls'}.\n`;
-  prompt += `For each parameter: assign a score (0 to max_score), status (Done / Partially Done / Needs Improvement / Not Applicable), coaching_status (Pass / Fail / Not Applicable), and reason citing transcript evidence.\n`;
-  prompt += `Hostile Auditor Rule: Assume every parameter FAILED unless explicit transcript evidence proves compliance. Mark fatal breaches if detected.\n\n`;
+  prompt += `AUDIT RULES (OBJECTIVE & EVIDENCE-GROUNDED AUDITOR MANDATE):\n`;
+  prompt += `- You are a rigorous, impartial Quality Auditor for Kalvium. Your mandate is absolute accuracy grounded in verbatim transcript evidence.\n`;
+  prompt += `- Evaluate each parameter strictly on its factual merits. NEVER artificially inflate OR artificially depress scores to hit a pre-set percentage.\n`;
+  prompt += `- If the transcript contains clear proof of execution (e.g. associate specifically offered two concrete time slots like 5-6 PM or 6-7 PM, confirmed a clock time, or de-risked KNET as aptitude vs JEE PCM), you MUST award full credit (2/2) with the exact timestamp. Never claim an action was omitted if the transcript shows it was performed.\n`;
+  prompt += `- If the associate missed, skipped, or violated a playbook technique (e.g. quoted unauthorized year-based internship stipends, skipped discovery, or failed to give the 75-50-25 decay argument), strictly award 0/2 or 1/2.\n`;
+  prompt += `- If a parameter is not applicable (e.g. live handoff when the parent is already on the phone from line 1), mark compliant or N/A; do NOT penalize with an artificial failure.\n`;
+  prompt += `- You MUST evaluate EVERY SINGLE parameter listed below. Do not skip any parameter.\n`;
+  prompt += `- SCORING THRESHOLDS:\n`;
+  prompt += `  • 'Done' (2/2): ONLY if the associate fully executed the complete playbook technique with verbatim transcript proof. Casual mentions or half-measures DO NOT qualify.\n`;
+  prompt += `  • 'Partially Done' (1/2): ONLY if the associate actively attempted the structured playbook technique but missed a secondary detail. Casual conversation or unguided questions MUST score 0/2, NOT 1/2.\n`;
+  prompt += `  • 'Needs Improvement' (0/2): The associate did not execute the technique, merely chatted casually, lectured without interaction, accepted obstacles passively, monologued (>75% talk share), got argumentative, or skipped the stage entirely.\n`;
+  prompt += `- NON-NEGOTIABLE FAILURE TRIGGERS:\n`;
+  prompt += `  1. DP-01: Score 0 if associate asked subjects/stream and immediately jumped to Kalvium without exploring what the student wants to do post-12th.\n`;
+  prompt += `  2. DP-02: Score 0 unless associate specifically probed whether they are shortlisting, have applied, or visited colleges.\n`;
+  prompt += `  3. DP-03: Score 0 if associate did not proactively ask which entrance exams (JEE, CET, etc.) the student is preparing for.\n`;
+  prompt += `  4. DP-04: Score max 1 if only stream is asked but board or location is omitted. Score 0 if stream was not probed.\n`;
+  prompt += `  5. DP-05: Score 0 if associate did not ask who makes the final education decision at home.\n`;
+  prompt += `  6. DP-06: Score 0 if associate tells the prospect what their priorities should be instead of eliciting and ranking them.\n`;
+  prompt += `  7. DP-08: Score max 1 if associate asks what they know but ignores the answer and delivers a generic pitch anyway. Score 0 if not probed.\n`;
+  prompt += `  8. DP-09: Score 0 if student's genuine ambition, worry, or fear was not elicited in their own words.\n`;
+  prompt += `  9. VP-01: Score 0 if associate named and pitched Kalvium without first building curiosity about the education market gap.\n`;
+  prompt += `  10. VP-02: MANDATORY SOCRATIC METHOD. The associate must ask questions that lead the PROSPECT to say traditional syllabi are outdated. If the associate lectures or asserts it themselves without the prospect stating the conclusion, SCORE MUST BE 0!\n`;
+  prompt += `  11. VP-04: Score 0 if associate only used buzzwords ('practical', 'hands-on') without describing actual projects on laptop from day one.\n`;
+  prompt += `  12. VP-05: Score 0 unless associate gives a specific vivid contrast (e.g. dozens of real projects vs 1 final year project).\n`;
+  prompt += `  13. VP-06: Score 0 if associate specifies an internship year (e.g. 'from 2nd year') or quotes stipend amounts.\n`;
+  prompt += `  14. VP-08: Score 0 if KNET is described merely as an exam or fee barrier without explaining that it filters classroom peers (no donation/management seats).\n`;
+  prompt += `  15. VP-09: Score 0 unless associate explicitly explains that high board marks do not buy admission and low marks do not disqualify.\n`;
+  prompt += `  16. OH-01: Score 0 if associate mocks JEE/NEET or belittles student's chance.\n`;
+  prompt += `  17. OH-05: Score 0 if associate pushes aggressively, repeats the ask, or creates fake urgency.\n`;
+  prompt += `  18. IP-01: Associate MUST deliver the 'information-decay' argument (student retains 75%, conveys 50%, parents hear 25%). Merely saying 'bring parents' without explaining why MUST SCORE 0!\n`;
+  prompt += `  19. IP-02: If father's absence is accepted without attempting the information-decay argument, score MAX 1. If no parent committed, score 0.\n`;
+  prompt += `  20. IP-09: Score 0 if associate proposes slots without first asking when parents are home and available.\n`;
+  prompt += `  21. IP-10: Score 0 if associate fails to proactively state that no money should be paid to any individual outside official portals.\n`;
+  prompt += `  22. CC-01: If associate talk-share exceeds 75% or delivers lengthy monologues answered only in monosyllables, SCORE MUST BE 0!\n`;
+  prompt += `  23. CC-06: Score 0 if associate asks an open-ended 'when are you free?' or offers only a single time slot without an alternative.\n`;
+  prompt += `  24. CC-07: Score 0 if call ends on a vague time ('tomorrow evening', 'sometime Sunday') without a specific day and clock time.\n`;
+  prompt += `  25. CC-09: Score 0 if associate omits instructing them to join on a laptop for screen sharing.\n\n`;
 
   const qualityGroups = {};
   filteredQualityChecks.forEach(check => {
@@ -498,10 +575,11 @@ function buildDynamicOmniPrompt(transcriptText, source, dataCaptureQuestions, pa
 
   // 7. Output Tasks & Language rules
   prompt += `=== OUTPUT INSTRUCTIONS ===\n`;
-  prompt += `1. Provide insights (intent score, high/low intent factors, objections, BANT, data capture answers).\n`;
-  prompt += `2. Provide quality evaluations for all listed parameters.\n`;
-  prompt += `3. Provide coaching report (5 specific golden rewrites in standard English or transliterated Latin script, strengths, areas for improvement, next focus).\n`;
-  prompt += `4. CRITICAL: Translate all regional speech (Tamil/Hindi) into standard English for output. NEVER output Devanagari or Tamil script.\n`;
+  prompt += `1. Provide insights (intent score 0-100, high/low intent factors with evidence, objections with how handled, comprehensive BANT analysis with status and rich contextual details for budget, authority, needs, and timeline, and extracted_fields for data capture).\n`;
+  prompt += `2. QUALITY ARRAY: You MUST evaluate EVERY parameter listed above in the rubric (all 46 items) using compact pipe-separated format: ["PARAM_ID|SCORE|THIRD_PERSON_REASON", ...]. SCORE is 2 (Done), 1 (Partially Done), 0 (Needs Improvement), or -1 (Not Applicable). Do NOT omit parameters; evaluate all 46. Keep reason under 12 words.\n`;
+  prompt += `3. Provide coaching report: EXACTLY 3 high-impact, deeply contextualized golden rewrites (detailed situational diagnosis in 'why_it_failed' + rich, realistic conversational script in 'golden_rewrite'). In contrast, keep category_scores (5 categories) strictly 1 concise sentence each (<15 words for well, wrong, and tip). Quality reasons remain strictly 1 line (<12 words).\n`;
+  prompt += `4. SYNTAX RULE: Output compact, minified JSON without unnecessary indentation spaces or redundant linebreaks.\n`;
+  prompt += `5. CRITICAL: Translate all regional speech (Tamil/Hindi) into standard English for output. NEVER output Devanagari or Tamil script.\n`;
 
   return prompt;
 }
@@ -539,6 +617,17 @@ function buildLeanDynamicOmniPrompt(transcriptText, source, triageResult, pastCa
     prompt += `  6. Compliance red lines (VP-10, IP-10)\n`;
     prompt += `- If the associate executed the reminder clearly and confirmed logistics, award a high/perfect score.\n`;
     prompt += `- Set call_type_tag to 'Meeting Reminder' or 'KNET Exam Reminder'.\n\n`;
+  } else if (subTier === 'T1_FORWARD') {
+    prompt += `=== OPERATIONAL CONTEXT: CALL FORWARDING / DEFERRAL & CALLBACK REQUEST (< 2-3 MINUTES) ===\n`;
+    prompt += `In this call, the prospect (parent or student) is unavailable (busy, driving, in office, in class) or asks to call another family member (son, father, mother) or defer to another time or phone number.\n`;
+    prompt += `- DO NOT evaluate or penalize full sales pitch parameters (DP-01 to DP-06 discovery, VP-01 to VP-09 value pitch, KNET explanation, booking a demo). Mark all unattempted sales pitch parameters as 'Not Applicable'.\n`;
+    prompt += `- EVALUATE STRICTLY ON COURTESY, RESPECTFULNESS & CONTACT LOGISTICS:\n`;
+    prompt += `  1. Respecting Unavailability & No Pressure (OH-05, OH-08): Associate immediately respected that the prospect is busy/driving/at work without arguing or aggressively pushing a pitch.\n`;
+    prompt += `  2. Accurate Contact & Callback Capture (CC-08): Associate clearly confirmed who to call (Father/Son/Student), the alternate phone number (if given), or the preferred callback window.\n`;
+    prompt += `  3. Professional Brevity, Energy & Sign-off (CC-01): Associate remained polite, acknowledged the request, and signed off cleanly in < 60 seconds.\n`;
+    prompt += `  4. Zero Compliance Violations (VP-10, IP-10): No inappropriate promises or compliance breaches.\n`;
+    prompt += `- If the associate handled the deferral/forwarding politely and captured details cleanly, award a high score (90-100%).\n`;
+    prompt += `- Set call_type_tag to 'Call Forwarded / Callback Request'.\n\n`;
   } else {
     prompt += `=== OPERATIONAL CONTEXT: ROUTINE CHECK-IN / RESCHEDULE ===\n`;
     prompt += `This call is a short routine interaction or reschedule request. Evaluate core discovery and compliance concisely.\n`;
@@ -574,7 +663,7 @@ function buildLeanDynamicOmniPrompt(transcriptText, source, triageResult, pastCa
   prompt += `=== QUALITY PARAMETERS TO EVALUATE (AUDIT BY EXCEPTION) ===\n`;
   prompt += `CRITICAL EFFICIENCY RULE: Output quality entries ONLY for parameters that actually apply to this interaction (typically 2-4 logistical/closing checks or any compliance failures).\n`;
   prompt += `DO NOT output entries for non-applicable pitch parameters (e.g. VP-01 market gap, VP-02 syllabus obsolescence, etc.). All unlisted parameters will automatically default to 'Not Applicable' in the system.\n`;
-  prompt += `Hostile Auditor Rule for compliance: Always flag fatal breaches if detected.\n\n`;
+  prompt += `Strict Compliance Rule: Always flag fatal breaches if detected.\n\n`;
 
   filteredQualityChecks.forEach(check => {
     prompt += `- [${check.param_id || 'N/A'}] ${check.parameter} (Max: ${check.max_score || 2})\n`;

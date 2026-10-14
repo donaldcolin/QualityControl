@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { GoogleGenAI } = require('@google/genai');
 
-// ── Active model — change here to switch globally ─────────────────────────────
-const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+// ── Active model — change here or via .env to switch globally ──────────────
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 
 const geminiApiKey = process.env.GEMINI_API_KEY || '';
 let ai = null;
@@ -72,6 +72,9 @@ const workflows = require('./workflows');
 const safeParse = require('./safe_parse');
 const { callGeminiWithRetry } = require('./call_gemini');
 const cacheManager = require('./cache_manager');
+const spendTracker = require('./spend_tracker');
+
+const parameterQuestions = require('../../config/parameter_questions');
 
 // Helper pre-bound to the active ai instance
 function generateContentWithRetry(params, options) {
@@ -86,6 +89,8 @@ Object.assign(module.exports, {
   ...workflows,
   ...safeParse,
   ...cacheManager,
+  ...spendTracker,
+  ...parameterQuestions,
   callGeminiWithRetry,
   generateContentWithRetry
 });

@@ -9,6 +9,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import GoogleMeetViewer from './LeadDetails/media/GoogleMeetViewer';
+import SlideTimelineTab from './LeadDetails/tabs/SlideTimelineTab';
+import { getParamQuestion } from '../lib/parameterQuestions';
 
 function formatDuration(seconds) {
   if (!seconds) return '00:00';
@@ -50,7 +52,24 @@ function CallPlayer({ call }) {
   };
 
   useEffect(() => {
-    if (activeSegmentRef.current && segmentsContainerRef.current) {
+    const handleJump = (e) => {
+      if (e.detail?.start !== undefined && (!e.detail.callId || String(e.detail.callId) === String(call?.id))) {
+        const targetTime = Number(e.detail.start) || 0;
+        setCurrentTime(targetTime);
+        if (audioRef.current) {
+          try { audioRef.current.currentTime = targetTime; } catch(err) {}
+          if (audioRef.current.paused) {
+            audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
+          }
+        }
+      }
+    };
+    window.addEventListener('jump-to-time', handleJump);
+    return () => window.removeEventListener('jump-to-time', handleJump);
+  }, [call?.id]);
+
+  useEffect(() => {
+    if (activeSegmentRef.current) {
       activeSegmentRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [currentTime]);
@@ -815,12 +834,19 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                 )}
 
                 {/* RIGHT PANE: Summary / Insights / Quality */}
-                <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden">
-                  <Tabs defaultValue="quality" className="w-full flex-1 flex flex-col min-h-0">
+                <div className="flex flex-col h-full bg-white rounded-lg border shadow-sm overflow-hidden min-h-0">
+                  <Tabs 
+                    defaultValue={activeCall?.source === 'google_meet' ? "timeline" : "quality"} 
+                    key={activeCall?.id || (activeCall?.source === 'google_meet' ? 'video' : 'audio')}
+                    className="w-full flex-1 flex flex-col min-h-0"
+                  >
                     <TabsList className="justify-between bg-slate-100 p-1 h-12 rounded-lg mx-4 mt-4 mb-2">
                       <TabsTrigger value="summary" className="flex-1 rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900">Summary</TabsTrigger>
                       <TabsTrigger value="insights" className="flex-1 rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900">Insights</TabsTrigger>
                       <TabsTrigger value="quality" className="flex-1 rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900">Quality</TabsTrigger>
+                      {activeCall?.source === 'google_meet' && (
+                        <TabsTrigger value="timeline" className="flex-1 rounded-md px-4 py-2 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm text-slate-600 hover:text-slate-900">Timeline</TabsTrigger>
+                      )}
                     </TabsList>
 
                     <TabsContent value="quality" className="flex-1 overflow-hidden mt-0 p-0">
@@ -854,7 +880,16 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                               return (
                                 <div key={idx} className="space-y-3 pb-6 border-b border-dashed last:border-0">
                                   <div className="flex justify-between items-center">
-                                    <h4 className="font-bold text-sm text-slate-900">{param}</h4>
+                                    <div className="space-y-0.5">
+                                      <h4 className="font-bold text-sm text-slate-900">
+                                        {data.question || getParamQuestion(param)}
+                                      </h4>
+                                      {((data.question && data.question !== param) || (getParamQuestion(param) !== param)) && (
+                                        <span className="text-[11px] text-slate-400 font-medium tracking-tight block">
+                                          {param}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                   <div className="flex gap-2 items-center">
                                     <Badge className={cn("px-2 font-bold tabular-nums hover:opacity-90 shadow-none border-transparent", data.score === data.max_score ? "bg-emerald-100 text-emerald-700" : data.score > 0 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700")}>
@@ -868,7 +903,14 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                                     )}
                                   </div>
                                   <p className="text-sm text-slate-900 leading-relaxed">
-                                    {data.reason}
+                                    {data.reason ? (
+                                      data.reason.trim().toLowerCase() === 'compliant'
+                                        ? 'Clean execution — no policy violations detected.'
+                                        : data.reason
+                                            .replace(/^\s*\[?\s*\b\d+:\d{2}\b\s*\]?\s*[\-\:]*\s*/, '')
+                                            .replace(/^\[\s*\]\s*/, '')
+                                            .trim()
+                                    ) : ''}
                                   </p>
                                   <div className="flex gap-2 mt-2 items-center text-xs font-bold">
                                     <span className="text-slate-900 mr-2">Mark</span>
@@ -952,6 +994,10 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
                         </div>
                       </ScrollArea>
                     </TabsContent>
+                    
+                    {activeCall?.source === 'google_meet' && (
+                      <SlideTimelineTab activeCall={activeCall} />
+                    )}
                   </Tabs>
                 </div>
 

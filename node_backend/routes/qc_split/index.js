@@ -8,6 +8,7 @@ const parameters = require('./qc_parameters');
 const dataCapture = require('./qc_data_capture');
 const activities = require('./qc_activities');
 const integrations = require('./qc_integrations');
+const spend = require('./qc_spend');
 
 // Enforce authentication across all QC microservice endpoints
 router.use(requireAuth);
@@ -18,5 +19,6 @@ router.use(parameters);
 router.use(dataCapture);
 router.use(activities);
 router.use(integrations);
+router.use(spend);
 
 module.exports = router;

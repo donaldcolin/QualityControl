@@ -92,9 +92,13 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
   // Listen for jump-to-time events
   useEffect(() => {
     const handleJump = (e) => {
-      if (e.detail?.callId === call?.id && e.detail?.start !== undefined) {
-        scrollToTime(e.detail.start);
-      }
+      if (e.detail?.start === undefined) return;
+      if (e.detail.callId && String(e.detail.callId) !== String(call?.id)) return;
+
+      setActiveTab('dialogue');
+      setTimeout(() => {
+        scrollToTime(Number(e.detail.start) || 0);
+      }, 50);
     };
     window.addEventListener('jump-to-time', handleJump);
     return () => window.removeEventListener('jump-to-time', handleJump);
@@ -130,41 +134,47 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
   };
 
   return (
-    <div className={cn("flex flex-col overflow-hidden bg-white rounded-lg border border-slate-200", embedded ? "shrink-0 w-full" : "h-full")}>
+    <div className="flex flex-col h-full overflow-hidden bg-white rounded-lg border shadow-sm min-h-0">
       
       {/* ── Top Header ── */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-white shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center text-slate-700 shrink-0">
-            <Video className="w-3.5 h-3.5" />
+      <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center shadow-xs shrink-0">
+            <Video className="w-4 h-4" />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-xs text-slate-900">Google Meet 1:1</span>
-            <span className="font-mono text-xs text-slate-400">
-              {call?.duration_sec ? formatDuration(call.duration_sec) : '90:04'}
-            </span>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm text-slate-900">Google Meet 1:1</span>
+              <span className="text-xs font-mono font-medium text-slate-500 tabular-nums">
+                {call?.duration_sec ? formatDuration(call.duration_sec) : '00:00'}
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-500">Video Demo Session</span>
           </div>
         </div>
 
         {/* Camera Status */}
         {facialAnalytics && (
-          <div className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+          <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-white text-slate-700 border border-slate-200/80 shadow-2xs flex items-center gap-2">
+            <span className={cn(
+              "w-2 h-2 rounded-full",
+              (facialAnalytics.associate_camera_active_pct || 0) >= 50 ? "bg-emerald-500" : "bg-amber-500"
+            )} />
             <span>Camera {Math.round(facialAnalytics.associate_camera_active_pct)}%</span>
           </div>
         )}
       </div>
 
-      {/* ── Heading Toggles on Top (Click to Show) ── */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 bg-white shrink-0">
-        <div className="flex items-center gap-4">
+      {/* ── Heading Toggles on Top ── */}
+      <div className="px-5 py-2.5 border-b border-slate-100 bg-white/50 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveTab('dialogue')}
             className={cn(
-              "py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors cursor-pointer",
+              "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer",
               activeTab === 'dialogue'
-                ? "border-slate-900 text-slate-900"
-                : "border-transparent text-slate-400 hover:text-slate-700"
+                ? "bg-slate-900 text-white shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
             )}
           >
             Dialogue ({segments.length})
@@ -174,10 +184,10 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
             <button
               onClick={() => setActiveTab('slides')}
               className={cn(
-                "py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors cursor-pointer",
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer",
                 activeTab === 'slides'
-                  ? "border-slate-900 text-slate-900"
-                  : "border-transparent text-slate-400 hover:text-slate-700"
+                  ? "bg-slate-900 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               )}
             >
               Slides ({shownSlides.length})
@@ -187,12 +197,12 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
 
         {/* View-specific sub-controls */}
         {activeTab === 'dialogue' && (
-          <div className="inline-flex bg-slate-100 p-0.5 rounded text-[11px]">
+          <div className="inline-flex bg-slate-100 p-0.5 rounded-lg text-xs">
             <button
               onClick={() => setSpeakerFilter('all')}
               className={cn(
-                "px-2 py-0.5 rounded transition-colors cursor-pointer",
-                speakerFilter === 'all' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-600"
+                "px-2.5 py-1 rounded-md transition-colors cursor-pointer",
+                speakerFilter === 'all' ? "bg-white font-bold text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
               )}
             >
               All
@@ -200,8 +210,8 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
             <button
               onClick={() => setSpeakerFilter('advisor')}
               className={cn(
-                "px-2 py-0.5 rounded transition-colors cursor-pointer",
-                speakerFilter === 'advisor' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-600"
+                "px-2.5 py-1 rounded-md transition-colors cursor-pointer",
+                speakerFilter === 'advisor' ? "bg-white font-bold text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
               )}
             >
               Advisor
@@ -209,8 +219,8 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
             <button
               onClick={() => setSpeakerFilter('student')}
               className={cn(
-                "px-2 py-0.5 rounded transition-colors cursor-pointer",
-                speakerFilter === 'student' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-600"
+                "px-2.5 py-1 rounded-md transition-colors cursor-pointer",
+                speakerFilter === 'student' ? "bg-white font-bold text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
               )}
             >
               Student
@@ -219,12 +229,12 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
         )}
 
         {activeTab === 'slides' && rawSlides.length > 0 && (
-          <div className="inline-flex bg-slate-100 p-0.5 rounded text-[10px]">
+          <div className="inline-flex bg-slate-100 p-0.5 rounded-lg text-[11px]">
             <button
               onClick={() => setFilterMode('presented')}
               className={cn(
-                "px-2 py-0.5 rounded transition-colors cursor-pointer",
-                filterMode === 'presented' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                "px-2.5 py-1 rounded-md transition-colors cursor-pointer",
+                filterMode === 'presented' ? "bg-white font-bold text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
               )}
             >
               Shown ({shownSlides.length})
@@ -233,8 +243,8 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
               <button
                 onClick={() => setFilterMode('rushed')}
                 className={cn(
-                  "px-2 py-0.5 rounded transition-colors cursor-pointer",
-                  filterMode === 'rushed' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                  "px-2.5 py-1 rounded-md transition-colors cursor-pointer",
+                  filterMode === 'rushed' ? "bg-white font-bold text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
                 )}
               >
                 Rushed ({rushedSlides.length})
@@ -243,8 +253,8 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
             <button
               onClick={() => setFilterMode('all')}
               className={cn(
-                "px-2 py-0.5 rounded transition-colors cursor-pointer",
-                filterMode === 'all' ? "bg-white font-medium text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                "px-2.5 py-1 rounded-md transition-colors cursor-pointer",
+                filterMode === 'all' ? "bg-white font-bold text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"
               )}
             >
               All ({rawSlides.length})
@@ -259,64 +269,82 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
         {/* VIEW 1: DIALOGUE */}
         {activeTab === 'dialogue' && (
           <ScrollArea className="h-full" ref={scrollAreaRef}>
-            <div className="p-4 space-y-2.5">
+            <div className="p-5 flex flex-col space-y-4">
               {filteredSegments.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs">
-                  No dialogue matches.
-                </div>
+                <div className="text-center text-muted-foreground p-8">No dialogue matches.</div>
               ) : (
                 filteredSegments.map(({ seg, originalIdx }) => {
                   const isP1 = seg.speaker === p1Id || seg.speaker === 'Advisor' || seg.speaker?.includes('Advisor');
-                  const speakerName = isP1 ? 'Advisor' : 'Student';
+                  const participantName = seg.speaker || (isP1 ? 'Advisor' : 'Student');
                   const isHighlighted = highlightedSegmentIdx === originalIdx;
 
                   return (
                     <div
                       key={originalIdx}
                       ref={(el) => (segmentRefs.current[originalIdx] = el)}
+                      onClick={() => {
+                        scrollToTime(seg.start);
+                        if (seg.start !== undefined) {
+                          window.dispatchEvent(new CustomEvent('jump-to-time', {
+                            detail: { callId: call?.id, start: seg.start }
+                          }));
+                        }
+                      }}
                       className={cn(
-                        "rounded-md p-2.5 transition-colors text-xs leading-relaxed group border",
-                        isP1 ? "bg-white border-slate-200/90 text-slate-800" : "bg-slate-50/70 border-slate-200/60 text-slate-800",
-                        isHighlighted && "ring-1 ring-slate-900 bg-slate-100"
+                        "flex w-full cursor-pointer group",
+                        isP1 ? "justify-start" : "justify-end"
                       )}
                     >
-                      <div className="flex items-center justify-between text-[11px] mb-1">
-                        <span className="font-semibold text-slate-700">
-                          {speakerName}
-                        </span>
-                        
-                        <div className="flex items-center gap-1.5">
-                          {seg.start !== undefined && (
-                            <button
-                              onClick={() => scrollToTime(seg.start)}
-                              className="font-mono text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer"
-                            >
-                              {formatDuration(seg.start)}
-                            </button>
-                          )}
+                      <div className={cn(
+                        "max-w-[85%] rounded-2xl px-5 py-3 transition-colors",
+                        isP1 ? "bg-slate-100 rounded-tl-sm text-slate-900" : "bg-blue-50 text-slate-900 rounded-tr-sm",
+                        isHighlighted 
+                          ? "ring-2 ring-blue-500 shadow-md" 
+                          : (isP1 ? "hover:bg-slate-200" : "hover:bg-blue-100")
+                      )}>
+                        <div className="flex items-center justify-between gap-3 mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "font-bold text-[11px] uppercase tracking-wide",
+                              isP1 ? "text-slate-500" : "text-blue-600/70"
+                            )}>
+                              {participantName}
+                            </span>
+                            {seg.start !== undefined && (
+                              <span className="text-[10px] font-mono opacity-50 tabular-nums">
+                                {formatDuration(seg.start)}{seg.end !== undefined ? ` - ${formatDuration(seg.end)}` : ''}
+                              </span>
+                            )}
+                          </div>
+                          
                           <button
-                            onClick={() => handleCopyText(seg.text, originalIdx)}
-                            className="text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyText(seg.text, originalIdx);
+                            }}
+                            className="text-slate-400 hover:text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer"
                             title="Copy text"
                           >
                             {copiedTurnIdx === originalIdx ? (
-                              <Check className="w-3 h-3 text-slate-700" />
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
                             ) : (
-                              <Copy className="w-3 h-3" />
+                              <Copy className="w-3.5 h-3.5" />
                             )}
                           </button>
                         </div>
-                      </div>
 
-                      <div className="text-[13px] text-slate-800">
-                        {seg.text}
-                      </div>
-
-                      {seg.text_en && seg.text_en !== seg.text && (
-                        <div className="mt-1 text-slate-500 italic text-xs">
-                          "{seg.text_en}"
+                        <div className="text-sm leading-relaxed">
+                          {seg.text}
+                          {seg.text_en && seg.text_en !== seg.text && (
+                            <div className={cn(
+                              "mt-2 italic text-xs pt-2 border-t",
+                              isP1 ? "text-slate-500 border-slate-200" : "text-blue-700/60 border-blue-200/50"
+                            )}>
+                              "{seg.text_en}"
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   );
                 })
@@ -328,7 +356,7 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
         {/* VIEW 2: SLIDES */}
         {activeTab === 'slides' && (
           <ScrollArea className="h-full">
-            <div className="p-4 space-y-1.5">
+            <div className="p-5 flex flex-col space-y-3">
               {displaySlides.map((slide) => {
                 const isRushed = slide.rushed_warning || (slide.total_duration_seconds > 0 && slide.total_duration_seconds < 20);
                 const isSelected = activeSlideNumber === slide.slide_number;
@@ -339,25 +367,25 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
                     key={slide.slide_number}
                     onClick={() => handleSlideClick(slide)}
                     className={cn(
-                      "w-full text-left p-3 rounded-md transition-all cursor-pointer border flex items-center justify-between gap-3 text-xs",
+                      "w-full text-left p-3.5 rounded-xl transition-all cursor-pointer border flex items-center justify-between gap-3 text-sm",
                       !slide.is_shown 
-                        ? "bg-white border-dashed border-slate-200 opacity-50" 
-                        : "bg-white border-slate-200 hover:border-slate-400 hover:bg-slate-50/50",
-                      isSelected && "bg-slate-100 border-slate-900 ring-1 ring-slate-900"
+                        ? "bg-slate-50/40 border-dashed border-slate-200 opacity-60 hover:opacity-100" 
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50 hover:shadow-xs",
+                      isSelected && "bg-blue-50/60 border-blue-300 ring-2 ring-blue-500 shadow-sm"
                     )}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <span className="font-mono text-[11px] font-semibold text-slate-400 w-7 text-right shrink-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md shrink-0">
                         #{slide.slide_number}
                       </span>
                       <span className={cn(
-                        "truncate",
-                        !slide.is_shown ? "text-slate-400" : "text-slate-800 font-medium"
+                        "truncate font-medium",
+                        !slide.is_shown ? "text-slate-400" : "text-slate-900"
                       )}>
                         {title}
                       </span>
                       {isRushed && (
-                        <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 shrink-0 font-mono">
+                        <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 shrink-0 font-medium">
                           rushed (&lt;20s)
                         </span>
                       )}
@@ -366,16 +394,16 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
                     <div className="flex items-center gap-3 shrink-0">
                       {slide.is_shown ? (
                         <>
-                          <span className="font-mono text-[11px] text-slate-500">
+                          <span className="font-mono text-xs font-semibold text-slate-600">
                             {formatHumanDuration(slide.total_duration_seconds)}
                           </span>
-                          <span className="font-mono text-[10px] text-slate-400 flex items-center gap-0.5">
+                          <span className="font-mono text-xs text-slate-400 flex items-center gap-0.5">
                             {slide.intervals_formatted?.[0] || '00:00'}
-                            <ArrowUpRight className="w-3 h-3 opacity-60" />
+                            <ArrowUpRight className="w-3.5 h-3.5 opacity-60" />
                           </span>
                         </>
                       ) : (
-                        <span className="text-[11px] text-slate-300">Skipped</span>
+                        <span className="text-xs text-slate-400 italic">Skipped</span>
                       )}
                     </div>
                   </div>

@@ -1,4 +1,5 @@
 const cacheManager = require('./cache_manager');
+const spendTracker = require('./spend_tracker');
 
 /**
  * Invokes Gemini API generateContent with exponential backoff on transient errors (429, 503, RESOURCE_EXHAUSTED)
@@ -6,6 +7,8 @@ const cacheManager = require('./cache_manager');
  * @param {object} ai - The GoogleGenAI client instance
  * @param {object} params - Parameters passed to ai.models.generateContent({ model, contents, config })
  * @param {object} [options] - Retry options
+ * @param {string} [options.reason] - Human-readable business reason for auditing/spend tracking
+ * @param {string} [options.caller] - Caller identifier (e.g. Call ID)
  * @param {number} [options.maxRetries=3] - Maximum retry attempts
  * @param {number} [options.initialDelayMs=1500] - Base delay before first retry
  * @param {number} [options.factor=2] - Exponential multiplier
@@ -39,6 +42,22 @@ async function callGeminiWithRetry(ai, params, options = {}) {
         timeoutPromise
       ]);
       clearTimeout(timer);
+
+      // ── Real-Time Spend Tracking & Hourly Ledger ─────────────────────────
+      if (result && result.usageMetadata) {
+        try {
+          const spendEntry = spendTracker.recordSpend({
+            model: params.model,
+            usage: result.usageMetadata,
+            reason: options.reason || options.caller || params._reason || 'QC Evaluation',
+            metadata: options.metadata || {}
+          });
+          result._spend = spendEntry;
+        } catch (spendErr) {
+          console.warn(`[SpendTracker] Warning: Could not record spend: ${spendErr.message}`);
+        }
+      }
+
       return result;
     } catch (err) {
       if (timer) clearTimeout(timer);
