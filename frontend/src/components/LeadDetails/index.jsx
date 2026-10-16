@@ -165,7 +165,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
 
   const handleReEvaluate = async () => {
     // Only re-evaluate calls that are currently visible in the active tab (Audio vs Video)
-    const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
+    const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'ready_for_qc' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
     const currentlyVisibleCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
     
     // Also respect the dropdown if they selected a specific call, otherwise do all visible
@@ -177,8 +177,8 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
 
     setIsEvaluating(true);
     try {
-      // Trigger background evaluation for ALL targeted calls in parallel
-      await Promise.all(callsToEvaluate.map(c => evaluateCall(c.id)));
+      // Trigger background evaluation for ALL targeted calls in parallel (immediate=true for manual action)
+      await Promise.all(callsToEvaluate.map(c => evaluateCall(c.id, null, null, true)));
 
       // Poll until ALL calls' qc_status is no longer 'processing'
       let attempts = 0;
@@ -219,7 +219,7 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
     return <div className="flex flex-col items-center justify-center h-[60vh] gap-3 text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin" /><p>Loading Lead History...</p></div>;
   }
 
-  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
+  const allEvaluatedCalls = (lead?.calls || []).filter(c => c.qc_status === 'evaluated' || c.qc_status === 'completed' || c.qc_status === 'processing' || c.qc_status === 'pending' || c.qc_status === 'ready_for_qc' || c.qc_status === 'failed' || c.qc_status === 'rejected' || c.qc_status === 'fatal_audit_failure' || c.coaching_report);
   const evaluatedCalls = allEvaluatedCalls.filter(c => mediaType === 'audio' ? c.source !== 'google_meet' : c.source === 'google_meet');
 
   if (!lead || allEvaluatedCalls.length === 0) {
@@ -269,59 +269,75 @@ export default function LeadDetails({ leadId, onBack, embedded = false }) {
   }
 
   const sqlStatus = (() => {
-    const allFields = callsToDisplay.flatMap(c => c.insights_data?.data_capture?.extracted_fields || []);
+    const allFields = [
+      ...(lead?.data_capture?.extracted_fields || []),
+      ...(callsToDisplay.flatMap(c => c.insights_data?.data_capture?.extracted_fields || []))
+    ];
+    if (lead?.stream && !allFields.some(f => (f.field || '').toLowerCase().includes('stream'))) {
+      allFields.push({ field: 'Stream', value: lead.stream });
+    }
+    if (lead?.board && !allFields.some(f => (f.field || '').toLowerCase().includes('board'))) {
+      allFields.push({ field: 'Board', value: lead.board });
+    }
+
+    const isScienceOrMathStream = (str) => {
+      if (!str) return false;
+      const s = String(str).toLowerCase();
+      return (
+        s.includes('pcm') ||
+        s.includes('pcmc') ||
+        s.includes('pcmb') ||
+        s.includes('mpc') ||
+        s.includes('pcms') ||
+        s.includes('pmcs') ||
+        s.includes('science') ||
+        s.includes('bio-math') ||
+        s.includes('biomath') ||
+        s.includes('bio math') ||
+        s.includes('biology-math') ||
+        s.includes('biology math') ||
+        s.includes('biology-mathematics') ||
+        s.includes('biology mathematics') ||
+        s.includes('biology with math') ||
+        s.includes('biology and math') ||
+        s.includes('biology') ||
+        s.includes('bio') ||
+        s.includes('math') ||
+        s.includes('computer') ||
+        s.includes('cs') ||
+        s.includes('bpc') ||
+        s.includes('non-medical') ||
+        s.includes('non medical')
+      );
+    };
+
+    const is12th = (grade) => {
+      if (!grade) return false;
+      const g = String(grade).toLowerCase();
+      return g.includes('12') || g.includes('twelfth') || g.includes('xii') || g.includes('plus two') || g.includes('+2');
+    };
 
     const gradeFields = allFields.filter(f => f.field.toLowerCase().includes('grade') || f.field.toLowerCase().includes('class'));
     const streamFields = allFields.filter(f => f.field.toLowerCase().includes('stream') || f.field.toLowerCase().includes('group') || f.field.toLowerCase().includes('subject'));
 
     const notMentionedKeywords = ['not mentioned', 'n/a', 'none', 'null', 'unknown', ''];
-
     const validGrade = gradeFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
     const validStream = streamFields.find(f => !notMentionedKeywords.includes(String(f.value).toLowerCase().trim()));
 
     if (validGrade && validStream) {
-      const gradeVal = String(validGrade.value).toLowerCase();
-      const streamVal = String(validStream.value).toLowerCase();
-      const is12 = gradeVal.includes('12') || gradeVal.includes('twelfth');
-      const isPCM = 
-        streamVal.includes('pcm') ||
-        streamVal.includes('pcmc') ||
-        streamVal.includes('pcmb') ||
-        streamVal.includes('mpc') ||
-        streamVal.includes('science') ||
-        streamVal.includes('bio-math') ||
-        streamVal.includes('biomath') ||
-        streamVal.includes('bio math') ||
-        streamVal.includes('bio') ||
-        streamVal.includes('math') ||
-        streamVal.includes('computer science') ||
-        streamVal.includes('computer') ||
-        streamVal.includes('cs') ||
-        streamVal.includes('bpc');
+      const is12 = is12th(validGrade.value);
+      const isPCM = isScienceOrMathStream(validStream.value);
       return (is12 && isPCM) ? 'SQL' : 'No SQL';
     }
 
-    // Fallback for V3 Video Calls
+    // Fallback for V3 Video Calls or Phone Calls with quality_data
     for (const call of callsToDisplay) {
       const qData = call.quality_data || {};
-      const classParam = qData['Class, Stream, Board and Location Captured'];
+      const classParam = qData['Class, Stream, Board and Location Captured'] || qData['DP-04'];
       if (classParam && classParam.reason) {
         const reason = classParam.reason.toLowerCase();
-        const is12 = reason.includes('12') || reason.includes('twelfth');
-        const isPCM = 
-          reason.includes('pcm') ||
-          reason.includes('pcmc') ||
-          reason.includes('pcmb') ||
-          reason.includes('mpc') ||
-          reason.includes('science') ||
-          reason.includes('bio-math') ||
-          reason.includes('biomath') ||
-          reason.includes('bio math') ||
-          reason.includes('bio') ||
-          reason.includes('math') ||
-          reason.includes('computer') ||
-          reason.includes('cs') ||
-          reason.includes('bpc');
+        const is12 = is12th(reason);
+        const isPCM = isScienceOrMathStream(reason);
         if (is12 || isPCM) {
           return (is12 && isPCM) ? 'SQL' : 'No SQL';
         }

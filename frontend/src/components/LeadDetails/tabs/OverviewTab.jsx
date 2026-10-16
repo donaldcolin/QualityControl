@@ -206,7 +206,24 @@ export default function OverviewTab({ lead, callsToDisplay, evaluatedCalls, acti
                   {/* Data Capture */}
                   {(() => {
                     const uniqueFields = {};
-                    const allMissing = new Set();
+                    const allMissing = new Set(lead?.data_capture?.missing_mandatory_fields || []);
+
+                    // 1. Seed from lead-level aggregated data_capture
+                    (lead?.data_capture?.extracted_fields || []).forEach(f => {
+                      if (f && f.field && f.value && f.value !== 'N/A' && f.value !== 'Not mentioned') {
+                        uniqueFields[f.field] = f;
+                      }
+                    });
+
+                    // 2. Also incorporate direct stream/board columns if available
+                    if (lead?.stream && !uniqueFields['Stream']) {
+                      uniqueFields['Stream'] = { field: 'Stream', value: lead.stream, confidence: 'High' };
+                    }
+                    if (lead?.board && !uniqueFields['Board']) {
+                      uniqueFields['Board'] = { field: 'Board', value: lead.board, confidence: 'High' };
+                    }
+
+                    // 3. Merge from individual calls
                     callsToDisplay.forEach(c => {
                       const cDc = c.insights_data?.data_capture;
                       if (!cDc) return;

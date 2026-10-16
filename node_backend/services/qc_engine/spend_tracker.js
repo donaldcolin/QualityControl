@@ -6,6 +6,11 @@ const LEDGER_FILE_PATH = path.join(__dirname, '..', '..', 'config', 'gemini_spen
 
 // Official Gemini Model Rates (USD per 1 Million tokens)
 const MODEL_PRICING = {
+  'gemini-3.1-flash-lite': {
+    cachedInputPer1M: 0.025,
+    uncachedInputPer1M: 0.25,
+    outputPer1M: 1.50
+  },
   'gemini-3.5-flash-lite': {
     cachedInputPer1M: 0.03,
     uncachedInputPer1M: 0.15,

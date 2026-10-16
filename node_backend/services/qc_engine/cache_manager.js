@@ -191,7 +191,7 @@ ${getMeetRubricText()}
 5. Course/College Interested In: Which course/college is the customer planning to join?
 6. Email ID: What is the customer's email ID?
 7. JEE Coaching: Is the student taking JEE coaching?
-8. Stream: Which stream or subject group does the student belong to (e.g. PCM, PCB, Commerce, Arts)?
+8. Stream: Which stream or subject group does the student belong to (e.g. PCM, Bio-Maths / PCMB (Science with Maths), Computer Science / PCMC, PCB, Commerce, Arts)? Note: Bio-Maths is a Science stream qualifying for B.Tech CSE.
 9. Grade: What grade or class is the student currently in (e.g. 11th, 12th, dropper)?
 10. Laptop Access: Does the student own or have access to a laptop or desktop computer to attend exams and classes?
 `;
@@ -235,8 +235,13 @@ function saveStateToDisk(state) {
 /**
  * Checks if a given cache state is valid and has at least bufferMinutes of remaining lifetime.
  */
-function isCacheFresh(state, model, bufferMinutes = 30) {
-  if (!state || !state.cacheName || state.model !== model) return false;
+function isCacheFresh(state, model, bufferMinutes = 5) {
+  if (!state || !state.cacheName) return false;
+  if (model) {
+    const normState = (state.model || '').replace(/^models\//, '');
+    const normReq = (model || '').replace(/^models\//, '');
+    if (normState !== normReq) return false;
+  }
   if (!state.expireTime) return false;
 
   const expireTimeMs = new Date(state.expireTime).getTime();
@@ -244,6 +249,19 @@ function isCacheFresh(state, model, bufferMinutes = 30) {
   const bufferMs = bufferMinutes * 60 * 1000;
 
   return expireTimeMs > (nowMs + bufferMs);
+}
+
+function setInMemoryCache(cacheName, expireTime, model) {
+  if (cacheName) {
+    _cachedState = {
+      model: model || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+      cacheName,
+      expireTime: typeof expireTime === 'number' ? new Date(expireTime).toISOString() : expireTime,
+      createdAt: new Date().toISOString()
+    };
+  } else {
+    _cachedState = null;
+  }
 }
 
 /**
@@ -255,75 +273,15 @@ function isCacheFresh(state, model, bufferMinutes = 30) {
  * @returns {Promise<string|null>} - Cache resource name (e.g. 'cachedContents/xyz') or null if disabled
  */
 async function getActiveCache(ai, model) {
-  if (!isCachingEnabled()) {
-    return null;
-  }
-  if (!ai || !ai.caches) {
-    console.warn('[CacheManager] ai.caches is not available on GoogleGenAI client');
-    return null;
-  }
-
-  // 1. Check in-memory / disk state
+  // 1. Check in-memory state (set by on-demand batch or disk)
   let state = _cachedState || loadStateFromDisk();
   if (state && isCacheFresh(state, model)) {
     return state.cacheName;
   }
 
-  // 2. Concurrency Lock: If another request is currently creating a cache, await it
-  if (_inFlightCreationPromise) {
-    return await _inFlightCreationPromise;
-  }
-
-  // 3. Initiate cache creation with mutex
-  _inFlightCreationPromise = (async () => {
-    try {
-      // Re-check state inside lock
-      state = _cachedState || loadStateFromDisk();
-      if (state && isCacheFresh(state, model)) {
-        return state.cacheName;
-      }
-
-      console.log(`⚡ [CacheManager] Generating Gemini Context Cache for model: ${model}...`);
-      const staticContext = getMasterStaticContext();
-      const oldCacheName = state?.cacheName;
-
-      // Create new cache with 24h TTL
-      const newCache = await ai.caches.create({
-        model,
-        config: {
-          contents: [{ role: 'user', parts: [{ text: staticContext }] }],
-          ttl: '86400s' // 24 hours
-        }
-      });
-
-      console.log(`✅ [CacheManager] Cache created: ${newCache.name} (expires: ${newCache.expireTime})`);
-
-      const newState = {
-        model,
-        cacheName: newCache.name,
-        expireTime: newCache.expireTime,
-        createdAt: new Date().toISOString()
-      };
-      saveStateToDisk(newState);
-
-      // Asynchronously cleanup the old expired/evicted cache
-      if (oldCacheName && oldCacheName !== newCache.name) {
-        ai.caches.delete({ name: oldCacheName }).catch(err => {
-          // Non-fatal cleanup warning
-          console.warn(`[CacheManager] Old cache cleanup warning: ${err.message}`);
-        });
-      }
-
-      return newCache.name;
-    } catch (err) {
-      console.error(`❌ [CacheManager] Failed to create Gemini context cache:`, err.message);
-      return null;
-    } finally {
-      _inFlightCreationPromise = null;
-    }
-  })();
-
-  return await _inFlightCreationPromise;
+  // 2. In Phase 2 Shift-Batch architecture, caches are strictly on-demand.
+  // We do not spin up 24-hour standing caches outside of active batches to eliminate idle storage fees.
+  return null;
 }
 
 /**
@@ -346,5 +304,6 @@ module.exports = {
   getMasterStaticContext,
   isCachingEnabled,
   getActiveCache,
-  invalidateCache
+  invalidateCache,
+  setInMemoryCache
 };

@@ -1,6 +1,11 @@
 
 const { getParameterQuestion } = require('../../config/parameter_questions');
 
+const CANONICAL_DATA_CAPTURE_FIELDS = [
+  'Competitors Mentioned', 'Customer Location', 'JEE/Other Exams', 'Decision Maker',
+  'Course/College Interested In', 'Email ID', 'JEE Coaching', 'Stream', 'Grade', 'Laptop Access'
+];
+
 function getInsightsSchema(dataCaptureQuestions, source = 'phone_call') {
   const isVideo = source === 'google_meet';
 
@@ -77,14 +82,18 @@ function getInsightsSchema(dataCaptureQuestions, source = 'phone_call') {
           items: {
             type: 'object',
             properties: {
-              field: { type: 'string', description: 'The name of the canonical field captured' },
+              field: { 
+                type: 'string', 
+                enum: CANONICAL_DATA_CAPTURE_FIELDS,
+                description: 'The exact canonical field name captured (e.g. Stream, Grade, Customer Location, Decision Maker)' 
+              },
               value: { type: 'string', description: 'The value captured' },
               confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
               timestamp: { type: 'string', description: 'Timestamp MM:SS in transcript' }
             },
             required: ['field', 'value', 'confidence', 'timestamp']
           },
-          description: 'Extracted facts for canonical fields. Return [] if none mentioned.'
+          description: 'Extracted facts for canonical fields. Return [] only if genuinely no fields were mentioned.'
         }
       },
       required: ['extracted_fields'],
@@ -274,7 +283,8 @@ function getOmniSchema(dataCaptureQuestions, filteredQualityChecks, params, sour
       next_steps: insights.properties.next_steps,
       quality: qual_coach.properties.quality,
       coaching_report: qual_coach.properties.coaching_report
-    }
+    },
+    required: ['insights', 'summary', 'quality', 'coaching_report']
   };
 }
 
@@ -299,16 +309,21 @@ function getLeanOmniSchema(dataCaptureQuestions, filteredQualityChecks, params, 
                 items: {
                   type: 'object',
                   properties: {
-                    field: { type: 'string', description: 'Field name' },
+                    field: { 
+                      type: 'string', 
+                      enum: CANONICAL_DATA_CAPTURE_FIELDS,
+                      description: 'Exact canonical field name (e.g. Stream, Grade, Customer Location, Decision Maker)' 
+                    },
                     value: { type: 'string', description: 'Captured value' },
                     confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
                     timestamp: { type: 'string', description: 'MM:SS' }
                   },
                   required: ['field', 'value', 'confidence', 'timestamp']
                 },
-                description: 'Genuinely captured fields. Return [] if none.'
+                description: 'Genuinely captured fields. Return [] only if none mentioned.'
               }
             },
+            required: ['extracted_fields'],
             description: 'Canonical data capture.'
           }
         },
@@ -443,11 +458,6 @@ function expandBant(rawBant) {
   }
   return expanded;
 }
-
-const CANONICAL_DATA_CAPTURE_FIELDS = [
-  'Competitors Mentioned', 'Customer Location', 'JEE/Other Exams', 'Decision Maker',
-  'Course/College Interested In', 'Email ID', 'JEE Coaching', 'Stream', 'Grade', 'Laptop Access'
-];
 
 function populateMissingDataCaptureFields(dataCapture) {
   if (!dataCapture) {

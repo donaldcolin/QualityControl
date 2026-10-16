@@ -241,10 +241,44 @@ export async function bumpQueueItem(id) {
 
 // ── QC Engine & Evaluation ─────────────────────────────────────────────────
 
-export const evaluateCall = async (call_id, transcript = null, prospect_id = null) => {
+export const getQcMode = async () => {
+  return apiRequest('/qc/mode');
+};
+
+export const setQcMode = async (mode) => {
+  return apiRequest('/qc/mode', {
+    method: 'POST',
+    body: JSON.stringify({ mode })
+  });
+};
+
+export const getBatchQCStatus = async () => {
+  return apiRequest('/qc/batch/status');
+};
+
+export const startBatchQC = async (concurrency = 4, targetCallIds = null) => {
+  return apiRequest('/qc/batch/start', {
+    method: 'POST',
+    body: JSON.stringify({ concurrency, targetCallIds })
+  });
+};
+
+export const stopBatchQC = async () => {
+  return apiRequest('/qc/batch/stop', {
+    method: 'POST'
+  });
+};
+
+export const purgeQCCache = async () => {
+  return apiRequest('/qc/batch/purge_cache', {
+    method: 'POST'
+  });
+};
+
+export const evaluateCall = async (call_id, transcript = null, prospect_id = null, immediate = false) => {
   return apiRequest('/qc/evaluate_call', {
     method: 'POST',
-    body: JSON.stringify({ call_id, transcript, prospect_id })
+    body: JSON.stringify({ call_id, transcript, prospect_id, immediate })
   });
 };
 

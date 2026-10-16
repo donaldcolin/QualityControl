@@ -91,3 +91,6 @@ asr_backend/tmp_output/
 *.csv
 !node_backend/config/university_fee_structure.csv
 .gemini_cache_state.json
+node_backend/config/gemini_spend_ledger.jsonl
+node_backend/real_comparison_results.json
+

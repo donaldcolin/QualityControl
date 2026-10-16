@@ -6,6 +6,7 @@ cleanup() {
     echo ""
     echo "Stopping all services..."
     # Kill all child processes of this script
+    kill $NODE_PID $VITE_PID $ASR_PID 2>/dev/null
     pkill -P $$ 2>/dev/null
     exit
 }
@@ -14,7 +15,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "Starting Node Backend (port 3000)..."
-cd node_backend && node --watch server.js &
+cd node_backend && node --watch-path=routes --watch-path=services --watch-path=config --watch-path=server.js server.js &
 NODE_PID=$!
 
 echo "Starting Frontend (port 5173)..."

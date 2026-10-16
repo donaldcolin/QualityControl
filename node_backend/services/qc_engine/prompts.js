@@ -456,7 +456,24 @@ CRITICAL INSTRUCTION FOR ALL OUTPUTS: The transcript may contain regional langua
 function buildOmniPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState, filteredQualityChecks, params, videoTimeline = null) {
   const insightsP = buildInsightsPrompt(transcriptText, source, dataCaptureQuestions, pastCalls, leadState);
   const qualP = buildQualityCoachingPrompt(transcriptText, source, filteredQualityChecks, params, leadState, videoTimeline); 
-  return insightsP + "\n\n=== QUALITY & COACHING INSTRUCTIONS ===\n" + qualP;
+
+  const dataCaptureFooter = `\n\n=== CRITICAL MANDATORY INSTRUCTIONS: DATA CAPTURE & JSON STRUCTURE ===
+1. MANDATORY DATA CAPTURE: You MUST extract every fact mentioned in the call for the 10 canonical fields into 'insights.data_capture.extracted_fields':
+   - 'Grade': Current standard/class (e.g. 12th Std, 11th Std, Dropper).
+   - 'Stream': Student's academic stream (e.g. Bio-Maths, Computer Science, PCM, PCMB, MPC, Science).
+     NOTE: "Bio-Maths" (PCMB) includes Physics, Chemistry & Maths, is a Science stream, and fully qualifies for B.Tech CSE!
+   - 'Customer Location': Student or parent's city/town/district/school.
+   - 'Decision Maker': Who decides (Father, Mother, Both Parents, Student).
+   - 'Course/College Interested In': Target degree (e.g. B.Tech Computer Science).
+   - 'Email ID': Email address if mentioned or verified.
+   - 'JEE Coaching': Whether attending JEE/CET coaching (Yes/No).
+   - 'JEE/Other Exams': Entrance exams being attempted (JEE, CET, etc.).
+   - 'Laptop Access': Availability of a personal laptop/computer (Yes/No).
+   - 'Competitors Mentioned': Competing colleges/universities or other options discussed.
+   Do NOT leave 'extracted_fields' empty if any of these facts were stated in the transcript!
+2. COMPLETE OUTPUT: You MUST output all top-level keys in JSON: 'insights', 'summary', 'next_steps', 'quality', and 'coaching_report'.`;
+
+  return insightsP + "\n\n=== QUALITY & COACHING INSTRUCTIONS ===\n" + qualP + dataCaptureFooter;
 }
 
 /**
@@ -501,18 +518,18 @@ function buildDynamicOmniPrompt(transcriptText, source, dataCaptureQuestions, pa
   }
 
   // 4. Data Capture Instruction (Referencing cached questions)
-  prompt += `=== DATA CAPTURE INSTRUCTION ===\n`;
-  prompt += `Thoroughly scan the transcript and extract EVERY fact mentioned, confirmed, or discussed in THIS call for the 10 canonical fields:
-1. 'Competitors Mentioned': Competitors, other colleges, or alternatives discussed.
-2. 'Customer Location': City or district (e.g. Chandigarh).
-3. 'JEE/Other Exams': Specific entrance exams mentioned (e.g. JEE, CET, etc.).
-4. 'Decision Maker': Who makes the decision (e.g. Mother, Father, Both).
+  prompt += `=== MANDATORY DATA CAPTURE INSTRUCTION ===\n`;
+  prompt += `Thoroughly scan the transcript and extract EVERY fact mentioned, confirmed, or discussed in THIS call for the 10 canonical fields into 'insights.data_capture.extracted_fields':
+1. 'Grade': Current standard/class (e.g. 12th Std, 11th Std, Dropper).
+2. 'Stream': Student stream/subjects (e.g. Bio-Maths, Computer Science, PCM, PCMB, MPC, Science). NOTE: Bio-Maths (PCMB) is a Science stream with Physics, Chemistry & Maths and qualifies for B.Tech CSE!
+3. 'Customer Location': City, district, or school location (e.g. Trichy, Chandigarh, Chennai).
+4. 'Decision Maker': Who makes the decision (e.g. Mother, Father, Both Parents, Student).
 5. 'Course/College Interested In': Target degree (e.g. B.Tech Computer Science).
 6. 'Email ID': Customer's email address.
 7. 'JEE Coaching': Whether taking coaching (Yes/No).
-8. 'Stream': Student stream/subjects (e.g. Computer Science, PCM).
-9. 'Grade': Current standard/class (e.g. 12th Std).
-10. 'Laptop Access': Whether laptop/desktop is available (Yes/No).
+8. 'JEE/Other Exams': Specific entrance exams mentioned (e.g. JEE, CET, etc.).
+9. 'Laptop Access': Whether laptop/desktop is available (Yes/No).
+10. 'Competitors Mentioned': Competitors, other colleges, or alternatives discussed.
 CRITICAL: You MUST extract every field that was stated or confirmed in this call transcript with its exact value, confidence ('High'/'Medium'/'Low'), and timestamp MM:SS. Do NOT omit fields merely because they were mentioned in a previous call summary — if the associate verified or discussed it in THIS call, extract it!\n\n`;
 
   // 5. Quality Parameters Rubric (Definitions & guides are in cached context)
@@ -575,7 +592,8 @@ CRITICAL: You MUST extract every field that was stated or confirmed in this call
 
   // 7. Output Tasks & Language rules
   prompt += `=== OUTPUT INSTRUCTIONS ===\n`;
-  prompt += `1. Provide insights (intent score 0-100, high/low intent factors with evidence, objections with how handled, comprehensive BANT analysis with status and rich contextual details for budget, authority, needs, and timeline, and extracted_fields for data capture).\n`;
+  prompt += `1. Provide insights (intent score 0-100, high/low intent factors with evidence, objections with how handled, comprehensive BANT analysis with status and rich contextual details for budget, authority, needs, and timeline).
+     MANDATORY DATA CAPTURE: You MUST extract every piece of student/parent information stated in this call into 'insights.data_capture.extracted_fields' (Grade, Stream, Customer Location, Decision Maker, etc.). Note: 'Bio-Maths' (PCMB) is a Science stream qualifying for B.Tech CSE. Do not omit facts stated in the transcript!\n`;
   prompt += `2. QUALITY ARRAY: You MUST evaluate EVERY parameter listed above in the rubric (all 46 items) using compact pipe-separated format: ["PARAM_ID|SCORE|THIRD_PERSON_REASON", ...]. SCORE is 2 (Done), 1 (Partially Done), 0 (Needs Improvement), or -1 (Not Applicable). Do NOT omit parameters; evaluate all 46. Keep reason under 12 words.\n`;
   prompt += `3. Provide coaching report: EXACTLY 3 high-impact, deeply contextualized golden rewrites (detailed situational diagnosis in 'why_it_failed' + rich, realistic conversational script in 'golden_rewrite'). In contrast, keep category_scores (5 categories) strictly 1 concise sentence each (<15 words for well, wrong, and tip). Quality reasons remain strictly 1 line (<12 words).\n`;
   prompt += `4. SYNTAX RULE: Output compact, minified JSON without unnecessary indentation spaces or redundant linebreaks.\n`;
@@ -654,10 +672,20 @@ function buildLeanDynamicOmniPrompt(transcriptText, source, triageResult, pastCa
     prompt += '\n';
   }
 
-  // 4. Data Capture Instruction (Referencing cached questions)
-  prompt += `=== DATA CAPTURE INSTRUCTION ===\n`;
-  prompt += `Extract any NEW facts for the 10 canonical fields defined in your cached Master Knowledge Base (Competitors Mentioned, Customer Location, JEE/Other Exams, Decision Maker, Course/College Interested In, Email ID, JEE Coaching, Stream, Grade, Laptop Access).\n`;
-  prompt += `CRITICAL: If NO fields were mentioned, return "extracted_fields": []. NEVER output "Not mentioned" or placeholder objects.\n\n`;
+  // 4. Data Capture Instruction
+  prompt += `=== MANDATORY DATA CAPTURE INSTRUCTION ===\n`;
+  prompt += `You MUST extract any facts mentioned in this call for the 10 canonical fields into 'insights.data_capture.extracted_fields':\n`;
+  prompt += `- 'Grade': Current standard/class (e.g. 12th Std, 11th Std).\n`;
+  prompt += `- 'Stream': Student stream (e.g. Bio-Maths, PCMB, Computer Science, PCM, MPC, Science). NOTE: Bio-Maths is a Science stream with Maths and qualifies for B.Tech CSE.\n`;
+  prompt += `- 'Customer Location': City or district.\n`;
+  prompt += `- 'Decision Maker': Who decides (Father, Mother, Student, Both Parents).\n`;
+  prompt += `- 'Course/College Interested In': Preferred degree (e.g. B.Tech Computer Science).\n`;
+  prompt += `- 'Email ID': Email address if mentioned.\n`;
+  prompt += `- 'JEE Coaching': Taking coaching (Yes/No).\n`;
+  prompt += `- 'JEE/Other Exams': Entrance exams mentioned.\n`;
+  prompt += `- 'Laptop Access': Availability of laptop/desktop (Yes/No).\n`;
+  prompt += `- 'Competitors Mentioned': Competitors or alternatives discussed.\n`;
+  prompt += `Do NOT omit fields that were stated or confirmed in this call.\n\n`;
 
   // 5. Quality Parameters Checklist (Audit by Exception)
   prompt += `=== QUALITY PARAMETERS TO EVALUATE (AUDIT BY EXCEPTION) ===\n`;

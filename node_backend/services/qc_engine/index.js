@@ -72,6 +72,7 @@ const workflows = require('./workflows');
 const safeParse = require('./safe_parse');
 const { callGeminiWithRetry } = require('./call_gemini');
 const cacheManager = require('./cache_manager');
+const onDemandCache = require('./on_demand_cache');
 const spendTracker = require('./spend_tracker');
 
 const parameterQuestions = require('../../config/parameter_questions');
@@ -89,6 +90,8 @@ Object.assign(module.exports, {
   ...workflows,
   ...safeParse,
   ...cacheManager,
+  ...onDemandCache,
+  onDemandCache,
   ...spendTracker,
   ...parameterQuestions,
   callGeminiWithRetry,

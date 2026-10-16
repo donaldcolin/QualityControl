@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const { startDiskSweeperDaemon, stopDiskSweeperDaemon } = require('./services/disk_sweeper');
 const { startQueueWatchdogDaemon, stopQueueWatchdogDaemon } = require('./services/queue_watchdog');
+const { startAutopilotDaemon, stopAutopilotDaemon } = require('./services/qc_autopilot');
 
 // ── PRE-FLIGHT BOOT ENVIRONMENT VALIDATION ──────────────────────────────────
 validateEnvironment();
@@ -82,6 +83,7 @@ const server = app.listen(PORT, () => {
   // Start 24/7 background daemons
   startDiskSweeperDaemon();
   startQueueWatchdogDaemon();
+  startAutopilotDaemon();
 });
 
 // ── GRACEFUL SHUTDOWN HANDLERS ────────────────────────────────────────────
@@ -89,6 +91,7 @@ function gracefulShutdown(signal) {
   console.log(`\n🛑 [Shutdown] Received ${signal}. Closing server gracefully...`);
   stopDiskSweeperDaemon();
   stopQueueWatchdogDaemon();
+  stopAutopilotDaemon();
 
   server.close(() => {
     console.log('✅ [Shutdown] HTTP connections closed cleanly. Exiting process.');

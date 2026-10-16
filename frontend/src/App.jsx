@@ -9,6 +9,7 @@ import MeetSyncView from './components/MeetSyncView';
 import ConversationInsights from './components/ConversationInsights';
 import ParametersManager from './components/ParametersManager';
 import Sidebar from './components/Sidebar';
+import QCModeToggle from './components/QCModeToggle';
 import { PlaySquare, X } from 'lucide-react';
 import { cn } from './lib/utils';
 import { Button } from '@/components/ui/button';
@@ -68,6 +69,24 @@ function AppContent() {
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-muted/10 relative">
 
+        {/* TOP STATUS BAR */}
+        <header className="h-14 border-b bg-background/60 backdrop-blur-md px-6 flex items-center justify-between z-10 shrink-0">
+          <div className="flex items-center gap-3">
+            <h1 className="text-sm font-semibold capitalize tracking-tight text-foreground/90">
+              {currentView === 'teamqc' && 'Team Quality Control'}
+              {currentView === 'queue' && 'Processing Queue'}
+              {currentView === 'meet_sync' && 'Google Meet Sync'}
+              {currentView === 'insights_owners' && 'Conversation Insights'}
+              {currentView === 'leads' && 'Leads Dashboard'}
+              {currentView === 'parameters' && 'QC Parameters'}
+              {currentView === 'lead_details' && 'Lead Details'}
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <QCModeToggle />
+          </div>
+        </header>
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-thin">
           <ErrorBoundary>

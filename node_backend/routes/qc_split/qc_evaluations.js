@@ -6,9 +6,11 @@ const supabase = require('../../config/supabase');
 const qcEngine = require('../../services/qc_engine');
 const meetSync = require('../../services/meet_sync');
 const { lsqParams } = require('../../config/lsq');
+
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { getExecutionMode } = require('./qc_mode');
 
 const FATAL_COMPLIANCE_PARAMETERS = [
   'Investment Shown to Become Partly Self-Funding',
@@ -25,7 +27,7 @@ const FATAL_COMPLIANCE_PARAMETERS = [
 
 
 router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
-  const { call_id, transcript, prospect_id, source, timeline } = req.body;
+  const { call_id, transcript, prospect_id, source, timeline, immediate, force } = req.body;
 
   if (!call_id && !transcript) {
     return res.status(400).json({ error: 'Either call_id or transcript is required' });
@@ -35,6 +37,39 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
   let activeCallId = call_id;
   let effectiveSource = source || 'phone_call';
 
+  const currentMode = getExecutionMode();
+  const shouldRunImmediate = currentMode === 'dev' || immediate === true || force === true;
+
+  if (!shouldRunImmediate) {
+    // PROD MODE: Queue call for batch evaluation without calling Gemini on-the-fly
+    if (activeCallId) {
+      await supabase.from('calls').update({ qc_status: 'ready_for_qc' }).eq('id', activeCallId);
+    } else if (transcript) {
+      const { data: newCall, error: insertError } = await supabase
+        .from('calls')
+        .insert({
+          id: uuidv4(),
+          qc_status: 'ready_for_qc',
+          duration_sec: 0,
+          prospect_id: prospect_id || null,
+          source: effectiveSource
+        })
+        .select('id')
+        .single();
+      if (newCall) activeCallId = newCall.id;
+    }
+
+    console.log(`📦 [QC Prod Batch Queue] Call ${activeCallId} set to 'ready_for_qc' (Mode: ${currentMode}). Awaiting batch run.`);
+    return res.status(200).json({
+      success: true,
+      status: 'queued_for_batch',
+      mode: 'prod',
+      call_id: activeCallId,
+      message: 'Call queued for shift batch evaluation with context caching.'
+    });
+  }
+
+  // DEV MODE (or manual immediate trigger): Start evaluation immediately!
   if (activeCallId) {
     await supabase.from('calls').update({ qc_status: 'processing' }).eq('id', activeCallId);
   } else if (transcript) {
@@ -62,17 +97,33 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
   res.status(202).json({
     success: true,
     status: 'Evaluation started in background',
+    mode: currentMode,
     call_id: activeCallId
   });
 
   // Execute heavy LLM operations in the background
-  Promise.resolve().then(async () => {
-    console.log(`🔄 [QC Background] Starting evaluation for call: ${activeCallId}, source: ${effectiveSource}`);
-    try {
-      let transcriptText = transcript;
-      let callIdToUpdate = activeCallId;
-      let activeProspectId = prospect_id;
-      let activeCallData = null;
+  Promise.resolve().then(() => {
+    return executeEvaluationCore({
+      call_id: activeCallId,
+      transcript,
+      prospect_id,
+      source: effectiveSource,
+      timeline
+    });
+  }).catch(err => {
+    console.error(`[QC Evaluation] Unhandled async notice: ${err.message}`);
+  });
+});
+
+async function executeEvaluationCore({ call_id, transcript, prospect_id, source, timeline, cacheName }) {
+  let activeCallId = call_id;
+  let effectiveSource = source || 'phone_call';
+  console.log(`🔄 [QC Background] Starting evaluation for call: ${activeCallId}, source: ${effectiveSource}${cacheName ? ` (Batch Cache: ${cacheName})` : ' (Direct/Uncached)'}`);
+  try {
+    let transcriptText = transcript;
+    let callIdToUpdate = activeCallId;
+    let activeProspectId = prospect_id;
+    let activeCallData = null;
 
     // 1. Get transcript and prospect_id from call if not provided directly
     if (call_id) {
@@ -192,7 +243,15 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         const { params } = await qcEngine.getParametersForSource(effectiveSource);
         if (params.length > 0) {
           // Check for active Gemini Context Cache (BD Playbook, Fees, Placements, Rules)
-          activeCacheName = await qcEngine.getActiveCache(qcEngine.ai, qcEngine.GEMINI_MODEL);
+          if (cacheName) {
+            activeCacheName = cacheName;
+          } else if (qcEngine.onDemandCache && typeof qcEngine.onDemandCache.getCacheStatus === 'function' && qcEngine.onDemandCache.getCacheStatus().isAlive) {
+            activeCacheName = qcEngine.onDemandCache.getCacheStatus().cacheName;
+          } else if (typeof qcEngine.getActiveCache === 'function') {
+            activeCacheName = await qcEngine.getActiveCache(qcEngine.ai, qcEngine.GEMINI_MODEL);
+          } else if (qcEngine.cacheManager && typeof qcEngine.cacheManager.getActiveCache === 'function') {
+            activeCacheName = await qcEngine.cacheManager.getActiveCache(qcEngine.ai, qcEngine.GEMINI_MODEL);
+          }
 
           const omniSchema = isT1
             ? qcEngine.getLeanOmniSchema(dataCaptureQuestions, filteredQualityChecks, params, triage.sub_tier)
@@ -853,6 +912,10 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
       };
       const mergedHistory = [...existingHistory, callSnapshot];
 
+      // Extract stream, board from mergedDataCapture to update direct columns on 'leads' table
+      const capturedStream = Array.from(fieldMap.values()).find(f => (f.field || '').toLowerCase().includes('stream'))?.value;
+      const capturedBoard = Array.from(fieldMap.values()).find(f => (f.field || '').toLowerCase().includes('board'))?.value;
+
       // ── Build final lead update payload ────────────────────────────────
       const leadUpdate = {
         intent_score: mergedIntentScore,
@@ -865,6 +928,8 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
         call_history_snapshot: mergedHistory,
         updated_at: new Date().toISOString()
       };
+      if (capturedStream) leadUpdate.stream = capturedStream;
+      if (capturedBoard) leadUpdate.board = capturedBoard;
 
       if (existingLead) {
         await supabase
@@ -907,6 +972,7 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     }
 
     console.log(`✅ Background evaluation complete for call: ${callIdToUpdate}`);
+    return { success: true, callId: callIdToUpdate, qualityScore: callQualityScore };
   } catch (err) {
     console.error(`❌ ASYNC EVALUATION ERROR for call ${activeCallId}:`, err.message);
     console.error(err.stack);
@@ -914,9 +980,9 @@ router.post('/qc/evaluate_call', requireAuth, requireRole(['admin', 'ai_worker']
     if (failId) {
       await supabase.from('calls').update({ qc_status: 'failed' }).eq('id', failId);
     }
+    throw err;
   }
-  }); // End Promise.resolve().then()
-});
+}
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -1071,5 +1137,7 @@ router.get('/dashboard_kpis', async (req, res) => {
     res.status(500).json({ error: 'Failed to calculate dashboard KPIs' });
   }
 });
+
+router.executeEvaluationCore = executeEvaluationCore;
 
 module.exports = router;

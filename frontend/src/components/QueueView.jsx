@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import QCModeToggle from './QCModeToggle';
+import BatchQCControl from './BatchQCControl';
 
 export default function QueueView({ onRunStart }) {
   const [queue, setQueue] = useState([]);
@@ -38,6 +40,7 @@ export default function QueueView({ onRunStart }) {
 
   const getStatusBadge = (status) => {
     if (status === 'completed') return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-emerald-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Completed</Badge>;
+    if (status === 'ready_for_qc') return <Badge variant="outline" className="bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-200"><Clock className="w-3 h-3 mr-1" /> Ready for Batch QC</Badge>;
     if (status === 'failed') return <Badge variant="destructive" className="bg-destructive/10 text-destructive hover:bg-destructive/20 border-destructive/20"><XCircle className="w-3 h-3 mr-1" /> Failed</Badge>;
     if (status === 'pending' || status === 'pending_manual_review') return <Badge variant="outline" className="bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-200"><Clock className="w-3 h-3 mr-1" /> {status}</Badge>;
     
@@ -103,16 +106,22 @@ export default function QueueView({ onRunStart }) {
             Live monitor of audio files being processed by the AI pipeline.
           </p>
         </div>
-        <Button 
-          variant="outline"
-          size="sm"
-          onClick={() => { setLoading(true); fetchData(); }}
-          className="gap-2"
-        >
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-3">
+          <QCModeToggle />
+          <Button 
+            variant="outline"
+            size="sm"
+            onClick={() => { setLoading(true); fetchData(); }}
+            className="gap-2"
+          >
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {/* 2-HOUR BATCH QC & AUTOPILOT CONTROLLER */}
+      <BatchQCControl onBatchComplete={fetchData} />
 
       <Card className="flex-1 flex flex-col min-h-0 shadow-sm">
         <CardContent className="p-0 flex flex-col flex-1 min-h-0">
