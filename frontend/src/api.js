@@ -1,11 +1,13 @@
 const API_BASE = '/api';
 const QC_API_BASE = '/api';
 
-const DEFAULT_AUTH_SECRET = 'internal_qc_worker_secret_2026';
+// Read-only key (GET only). The admin key is never in the bundle: set it once in your own browser with
+// localStorage.setItem('qc_auth_token', '<INTERNAL_WORKER_SECRET>')
+const DEFAULT_AUTH_SECRET = import.meta.env.VITE_VIEWER_TOKEN || '';
 
 /**
  * Retrieves the active authorization token.
- * Checks localStorage for user session token first, falling back to internal worker secret.
+ * Checks localStorage for the admin token first, falling back to the read-only viewer key.
  */
 export function getAuthToken() {
   if (typeof window !== 'undefined') {

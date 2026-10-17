@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const supabase = require('../config/supabase');
 
 const INTERNAL_WORKER_SECRET = process.env.INTERNAL_WORKER_SECRET;
+const VIEWER_SECRET = process.env.VIEWER_SECRET; // shipped in the frontend bundle: read-only by design
 const USER_CACHE_TTL_MS = 60 * 1000;
 const _userCache = new Map(); // token -> { user, expires }
 
@@ -36,8 +37,9 @@ async function verifySupabaseToken(token) {
 /**
  * Zero-Trust Authentication Middleware.
  * Validates either:
- *   1. Internal worker service secret (python worker, internal loopback calls)
- *   2. Supabase session token (logged-in users)
+ *   1. Internal worker service secret (admin: python worker, loopback calls, the admin's browser)
+ *   2. Viewer secret (the public frontend bundle / LeadSquared embed): GET requests only
+ *   3. Supabase session token (logged-in users)
  */
 async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -54,6 +56,14 @@ async function requireAuth(req, res, next) {
       email: 'worker@internal.local',
       app_metadata: { role: 'ai_worker' }
     };
+    return next();
+  }
+
+  if (VIEWER_SECRET && timingSafeCompare(token, VIEWER_SECRET)) {
+    if (req.method !== 'GET') {
+      return res.status(403).json({ error: 'Read-only access: this action needs the admin key' });
+    }
+    req.user = { id: 'viewer', app_metadata: { role: 'viewer' } };
     return next();
   }
 
