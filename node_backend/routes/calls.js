@@ -143,12 +143,26 @@ router.post('/:call_id/send_to_asr', async (req, res) => {
     const { v4: uuidv4 } = require('uuid');
     const queue_id = uuidv4();
     
+    let resolvedLang = callRow.language;
+    if ((!resolvedLang || resolvedLang === 'hi') && callRow.emp_number) {
+      const { data: assoc } = await supabase
+        .from('qc_associates')
+        .select('emp_tags')
+        .eq('emp_number', callRow.emp_number)
+        .maybeSingle();
+      if (assoc && assoc.emp_tags) {
+        const match = assoc.emp_tags.match(/\|lang:([a-z]{2})/i);
+        if (match) resolvedLang = match[1].toLowerCase();
+      }
+    }
+    if (!resolvedLang) resolvedLang = 'hi';
+
     // We insert a new queue item linked to this call_id
     const { error: insertErr } = await supabase.from('callizer_queue').insert({
       id: queue_id,
       call_id: callRow.id, // using call_id as activity_id
       audio_url: callRow.audio_url || '',
-      language: callRow.language || 'hi',
+      language: resolvedLang,
       status: 'pending',
       emp_number: callRow.emp_number || '',
       client_number: callRow.client_number || '',

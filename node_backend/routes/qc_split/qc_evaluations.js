@@ -999,13 +999,21 @@ router.post('/activities/push_demo_to_qc', async (req, res) => {
     }
 
     // 1. Upsert lead so it appears in the QC Leads Dashboard immediately
-    if (prospect_id) {
-      let resolvedOwnerName = 'Unassigned';
-      if (emp_number) {
-        const { data: assoc } = await supabase.from('qc_associates').select('emp_name').eq('emp_number', emp_number).maybeSingle();
-        if (assoc && assoc.emp_name) resolvedOwnerName = assoc.emp_name;
+    let resolvedOwnerName = 'Unassigned';
+    let resolvedLang = language;
+    if (emp_number) {
+      const { data: assoc } = await supabase.from('qc_associates').select('emp_name, emp_tags').eq('emp_number', emp_number).maybeSingle();
+      if (assoc && assoc.emp_name) resolvedOwnerName = assoc.emp_name;
+      if (assoc && assoc.emp_tags) {
+        const match = assoc.emp_tags.match(/\|lang:([a-z]{2})/i);
+        if (match && (!resolvedLang || resolvedLang === 'hi')) {
+          resolvedLang = match[1].toLowerCase();
+        }
       }
+    }
+    if (!resolvedLang) resolvedLang = 'hi';
 
+    if (prospect_id) {
       await supabase.from('leads').upsert({
         id: prospect_id,
         name: lead_name || 'Unknown',
@@ -1034,7 +1042,7 @@ router.post('/activities/push_demo_to_qc', async (req, res) => {
     // 3. Queue the video demo into the new ASR pipeline!
     const queueRes = await axios.post(`http://localhost:${port}/api/upload_drive_demo`, {
       drive_link: driveLink,
-      language: language || 'hi', 
+      language: resolvedLang, 
       prospect_id: prospect_id
     }, loopbackConfig);
 

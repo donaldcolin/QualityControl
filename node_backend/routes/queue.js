@@ -8,6 +8,16 @@ const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const { extractAudioFromDrive } = require('../services/drive_audio_extractor');
 const { requireAuth } = require('../middleware/auth');
+const {
+  governAndIngestCall,
+  playGate,
+  pauseGate,
+  stepGate,
+  clearQueue,
+  toggleKillswitch,
+  getGovernorStatus,
+  notifyPythonWorker: notifyGovernorWorker
+} = require('../services/queue_governor/intake_governor');
 
 // Enforce authentication on all queue endpoints
 router.use(requireAuth);
@@ -45,6 +55,7 @@ router.get('/queue', async (req, res) => {
     const { data, error } = await supabase
       .from('callizer_queue')
       .select('*')
+      .order('priority', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
     
     if (error) throw error;
@@ -68,6 +79,119 @@ router.get('/queue', async (req, res) => {
     res.status(500).json({ error: "Failed to fetch queue" });
   }
 });
+
+// ==========================================
+// 🛡️ AUTONOMOUS INTAKE GOVERNOR ENDPOINTS
+// (MUST be defined BEFORE :queue_id wildcard)
+// ==========================================
+
+router.get('/queue/governor/status', async (req, res) => {
+  try {
+    const status = await getGovernorStatus();
+    res.json(status);
+  } catch (err) {
+    console.error("Governor status error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/queue/gate/play', async (req, res) => {
+  try {
+    const result = await playGate();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/queue/gate/pause', async (req, res) => {
+  try {
+    const result = await pauseGate();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/queue/gate/step', async (req, res) => {
+  try {
+    const result = await stepGate();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/queue/gate/clear', async (req, res) => {
+  try {
+    const types = req.body?.types || ['completed', 'rejected'];
+    const result = await clearQueue(types);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/queue/governor/killswitch', (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const result = toggleKillswitch(enabled);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Auto-Scanner Control Routes ──────────────────────────────────────────
+const { getAutoScannerStatus, pauseScanner, resumeScanner, runScanCycle } = require('../services/auto_scanner');
+
+router.get('/queue/scanner/status', (req, res) => {
+  res.json(getAutoScannerStatus());
+});
+
+router.post('/queue/scanner/pause', (req, res) => {
+  pauseScanner();
+  res.json({ success: true, status: 'paused' });
+});
+
+router.post('/queue/scanner/resume', (req, res) => {
+  resumeScanner();
+  res.json({ success: true, status: 'running' });
+});
+
+router.post('/queue/scanner/trigger', async (req, res) => {
+  try {
+    const result = await runScanCycle();
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/queue/:queue_id/retry', async (req, res) => {
+  try {
+    const queue_id = req.params.queue_id;
+    const { error } = await supabase
+      .from('callizer_queue')
+      .update({
+        status: 'pending',
+        attempt_count: 0,
+        errors: '[]',
+        is_gated_admitted: true
+      })
+      .eq('id', queue_id);
+
+    if (error) throw error;
+    notifyPythonWorker(queue_id);
+    res.json({ success: true, message: "Item queued for retry" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// 📋 QUEUE ITEM ROUTES (wildcard :queue_id)
+// ==========================================
 
 router.get('/queue/:queue_id', async (req, res) => {
   try {
@@ -140,9 +264,9 @@ router.post('/queue/:queue_id/send_to_qc', async (req, res) => {
     const queue_id = req.params.queue_id;
     const { data: row, error: fetchErr } = await supabase.from('callizer_queue').select('status').eq('id', queue_id).maybeSingle();
     if (fetchErr || !row) return res.status(404).json({ error: "Not found" });
-    if (row.status !== 'pending_manual_review' && row.status !== 'pending') return res.status(400).json({ error: `Invalid status: ${row.status}` });
+    if (row.status !== 'pending_manual_review' && row.status !== 'pending' && row.status !== 'paused') return res.status(400).json({ error: `Invalid status: ${row.status}` });
 
-    const { error: updateErr } = await supabase.from('callizer_queue').update({ status: 'pending' }).eq('id', queue_id);
+    const { error: updateErr } = await supabase.from('callizer_queue').update({ status: 'pending', is_gated_admitted: true }).eq('id', queue_id);
     if (updateErr) throw updateErr;
 
     notifyPythonWorker(queue_id);
@@ -153,6 +277,8 @@ router.post('/queue/:queue_id/send_to_qc', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Governor & gate routes already defined above (before :queue_id wildcard)
 
 router.post('/upload_run', upload.array('files'), async (req, res) => {
   try {
@@ -165,32 +291,38 @@ router.post('/upload_run', upload.array('files'), async (req, res) => {
 
     const batchId = uuidv4();
     const queueIds = [];
+    const skippedItems = [];
 
     for (const file of files) {
-      const queue_id = uuidv4();
       const absolutePath = path.resolve(file.path);
-      
-      const { error: insertErr } = await supabase.from('callizer_queue').insert({
-        id: queue_id,
-        call_id: file.originalname,
-        audio_url: absolutePath,
+      const ingestRes = await governAndIngestCall({
+        source: 'upload',
+        callId: file.originalname,
+        audioUrl: absolutePath,
+        fileSizeBytes: file.size,
+        durationSec: 0,
+        callType: 'Local Upload',
         language: language || 'hi',
-        status: 'pending',
-        emp_number: '',
-        client_number: '',
-        call_type: 'Local Upload',
-        duration: 0,
-        errors: '[]'
+        priority: 2
       });
 
-      if (insertErr) throw insertErr;
-      queueIds.push(queue_id);
-
-      notifyPythonWorker(queue_id);
+      if (ingestRes.admitted) {
+        queueIds.push(ingestRes.queueId);
+      } else {
+        skippedItems.push({
+          filename: file.originalname,
+          reason: ingestRes.reason,
+          status: ingestRes.status
+        });
+      }
     }
 
     saveBatch(batchId, queueIds);
-    res.json({ batch_id: batchId });
+    res.json({
+      batch_id: batchId,
+      total_admitted: queueIds.length,
+      skipped: skippedItems
+    });
   } catch (err) {
     console.error("Upload run error:", err);
     res.status(500).json({ error: err.message });
@@ -205,46 +337,71 @@ router.post('/upload_drive_demo', async (req, res) => {
       return res.status(400).json({ error: "Missing drive_link" });
     }
 
+    // Governor safety checks (killswitch + dedup + rate limit)
+    const { getEmergencyKillswitch } = require('../services/queue_governor/intake_governor');
+    if (getEmergencyKillswitch()) {
+      return res.status(503).json({ error: "Emergency killswitch is active. Intake halted." });
+    }
+
+    const { computeAudioFingerprint, checkDuplicate } = require('../services/queue_governor/dedup_engine');
+    const dedupHash = computeAudioFingerprint({
+      source: 'google_meet',
+      externalId: drive_link,
+      audioUrl: drive_link
+    });
+    const dupCheck = await checkDuplicate(dedupHash);
+    if (dupCheck.isDuplicate) {
+      return res.status(409).json({ 
+        error: "Duplicate video demo already exists in queue.",
+        existingItem: dupCheck.existingItem 
+      });
+    }
+
     const queue_id = uuidv4();
     
-    // 1. Insert into Queue immediately so UI sees it as Downloading
+    // Insert into Queue immediately as Priority 1 (Urgent Demo)
     const { error: insertErr } = await supabase.from('callizer_queue').insert({
       id: queue_id,
-      call_id: `Video Demo - ${prospect_id || queue_id}`,
+      call_id: `Video Demo - ${prospect_id || queue_id.slice(0, 8)}`,
       audio_url: 'Downloading from Google Drive...',
       language: language || 'hi',
       status: 'Downloading Video...',
+      priority: 1, // Priority 1 Express Pass
+      source_type: 'google_meet',
+      dedup_hash: dedupHash,
       emp_number: '',
       client_number: '',
       prospect_id: prospect_id || null,
       call_type: 'Video Demo',
       duration: 0,
-      errors: '[]'
+      errors: '[]',
+      is_gated_admitted: true
     });
 
     if (insertErr) {
       return res.status(500).json({ error: insertErr.message });
     }
 
-    // Send response immediately so UI doesn't hang while downloading 2GB video
-    res.json({ queue_id, status: "queued" });
+    // Send response immediately so UI doesn't hang
+    res.json({ queue_id, status: "queued", priority: 1 });
 
-    // Download in background
+    // Download & extract in background
     (async () => {
         try {
             // 2. Download and Extract Audio to local mp3
             const localAudioPath = await extractAudioFromDrive(drive_link, queue_id);
             
-            // 3. Update the Queue item to pending with the local audio path
+            // 3. Update Queue item to pending (P1 Express Pass)
             await supabase.from('callizer_queue').update({
                 audio_url: localAudioPath,
-                status: 'pending' // Python worker will pick it up now
+                status: 'pending',
+                is_gated_admitted: true
             }).eq('id', queue_id);
 
             // 4. Notify Python Worker with timeout
             notifyPythonWorker(queue_id);
             
-            console.log(`[Drive] Successfully queued Video Demo ${queue_id}`);
+            console.log(`[Drive] Successfully queued Urgent Video Demo ${queue_id} (Priority 1)`);
         } catch (err) {
             console.error(`[Drive] Failed to process ${queue_id}:`, err);
             try {
@@ -293,32 +450,40 @@ router.post('/run', async (req, res) => {
 
     const batchId = uuidv4();
     const queueIds = [];
+    const skippedItems = [];
 
     for (const filename of files) {
-      const queue_id = uuidv4();
       const absolutePath = path.resolve(path.join(folder_path, filename));
-      
-      const { error: insertErr } = await supabase.from('callizer_queue').insert({
-        id: queue_id,
-        call_id: filename,
-        audio_url: absolutePath,
+      const fileStat = fs.statSync(absolutePath);
+
+      const ingestRes = await governAndIngestCall({
+        source: 'local_folder',
+        callId: filename,
+        audioUrl: absolutePath,
+        fileSizeBytes: fileStat.size,
+        durationSec: 0,
+        callType: 'Local Folder',
         language: language || 'hi',
-        status: 'pending',
-        emp_number: '',
-        client_number: '',
-        call_type: 'Local Folder',
-        duration: 0,
-        errors: '[]'
+        priority: 2
       });
 
-      if (insertErr) throw insertErr;
-      queueIds.push(queue_id);
-
-      notifyPythonWorker(queue_id);
+      if (ingestRes.admitted) {
+        queueIds.push(ingestRes.queueId);
+      } else {
+        skippedItems.push({
+          filename,
+          reason: ingestRes.reason,
+          status: ingestRes.status
+        });
+      }
     }
 
     saveBatch(batchId, queueIds);
-    res.json({ batch_id: batchId });
+    res.json({
+      batch_id: batchId,
+      total_admitted: queueIds.length,
+      skipped: skippedItems
+    });
   } catch (err) {
     console.error("Folder run error:", err);
     res.status(500).json({ error: err.message });

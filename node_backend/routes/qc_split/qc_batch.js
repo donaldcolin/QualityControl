@@ -9,7 +9,7 @@ const { purgeCacheEarly, getCacheStatus } = require('../../services/qc_engine/on
  * POST /qc/batch/start
  * Launches 2-hour batch QC on all calls in 'ready_for_qc' status.
  */
-router.post('/qc/batch/start', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
+router.post('/qc/batch/start', requireAuth, requireRole(['admin', 'ai_worker', 'authenticated']), async (req, res) => {
   try {
     const { concurrency, targetCallIds } = req.body || {};
     const result = await startBatchQC({
@@ -49,7 +49,7 @@ router.get('/qc/batch/status', async (req, res) => {
  * POST /qc/batch/stop
  * Emergency halt for running batch.
  */
-router.post('/qc/batch/stop', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
+router.post('/qc/batch/stop', requireAuth, requireRole(['admin', 'ai_worker', 'authenticated']), async (req, res) => {
   try {
     const result = await stopBatchQC();
     res.json(result);
@@ -63,7 +63,7 @@ router.post('/qc/batch/stop', requireAuth, requireRole(['admin', 'ai_worker']), 
  * POST /qc/batch/purge_cache
  * Manual admin purge to immediately delete any alive Gemini context cache.
  */
-router.post('/qc/batch/purge_cache', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
+router.post('/qc/batch/purge_cache', requireAuth, requireRole(['admin', 'ai_worker', 'authenticated']), async (req, res) => {
   try {
     const result = await purgeCacheEarly();
     res.json({ success: true, ...result });
@@ -77,7 +77,7 @@ router.post('/qc/batch/purge_cache', requireAuth, requireRole(['admin', 'ai_work
  * POST /qc/batch/autopilot/trigger
  * Manually invokes the autopilot check cycle (for tests / manual cron hooks).
  */
-router.post('/qc/batch/autopilot/trigger', requireAuth, requireRole(['admin', 'ai_worker']), async (req, res) => {
+router.post('/qc/batch/autopilot/trigger', requireAuth, requireRole(['admin', 'ai_worker', 'authenticated']), async (req, res) => {
   try {
     await checkAndAutoTrigger();
     res.json({

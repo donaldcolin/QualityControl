@@ -133,17 +133,27 @@ async function pushActivityToQCQueue({
   }
 
   // Upsert lead so it's immediately tracked on the QC Leads Dashboard
-  if (prospect_id) {
-    let resolvedOwnerName = 'Unassigned';
-    if (emp_number) {
-      const { data: assoc } = await supabase
-        .from('qc_associates')
-        .select('emp_name')
-        .eq('emp_number', emp_number)
-        .maybeSingle();
-      if (assoc && assoc.emp_name) resolvedOwnerName = assoc.emp_name;
+  let resolvedOwnerName = 'Unassigned';
+  let resolvedLang = language;
+  if (emp_number) {
+    const { data: assoc } = await supabase
+      .from('qc_associates')
+      .select('emp_name, emp_tags')
+      .eq('emp_number', emp_number)
+      .maybeSingle();
+    if (assoc && assoc.emp_name) resolvedOwnerName = assoc.emp_name;
+    if (assoc && assoc.emp_tags) {
+      const match = assoc.emp_tags.match(/\|lang:([a-z]{2})/i);
+      if (match) {
+        if (!resolvedLang || resolvedLang === 'hi') {
+          resolvedLang = match[1].toLowerCase();
+        }
+      }
     }
+  }
+  if (!resolvedLang) resolvedLang = 'hi';
 
+  if (prospect_id) {
     await supabase.from('leads').upsert({
       id: prospect_id,
       name: lead_name || 'Unknown',
@@ -169,39 +179,71 @@ async function pushActivityToQCQueue({
 
   const queue_id = uuidv4();
 
-  const queuePayload = {
-    id: queue_id,
-    call_id: activity_id,
-    audio_url: resource_url,
-    language: language || 'hi',
-    status: 'pending',
-    emp_number: emp_number || '',
-    client_number: client_number || '',
-    call_type: type || '',
-    duration: parseFloat(duration) || 0,
-    prospect_id: prospect_id || '',
-    errors: '[]'
-  };
+  // Route through the intake governor for proper priority, dedup, gating, and killswitch
+  try {
+    const { governAndIngestCall } = require('./queue_governor/intake_governor');
+    const ingestRes = await governAndIngestCall({
+      source: 'phone_call',
+      callId: activity_id,
+      audioUrl: resource_url,
+      durationSec: parseFloat(duration) || 0,
+      callType: type || 'Outbound',
+      prospectId: prospect_id || '',
+      language: resolvedLang,
+      empNumber: emp_number || '',
+      clientNumber: client_number || '',
+      callDate: call_date
+    });
 
-  if (call_date) {
-    try {
-      queuePayload.call_date = new Date(call_date).toISOString();
-    } catch (e) {
-      console.warn("Invalid call_date format:", call_date);
+    if (!ingestRes.admitted) {
+      return { 
+        status: ingestRes.status, 
+        reason: ingestRes.reason,
+        queue_id: ingestRes.queueId || null
+      };
     }
+
+    return { status: "queued", queue_id: ingestRes.queueId };
+  } catch (govErr) {
+    // Fallback: direct insert if governor fails (keeps system resilient)
+    console.warn(`[LeadService] Governor fallback for ${activity_id}: ${govErr.message}`);
+    const queuePayload = {
+      id: queue_id,
+      call_id: activity_id,
+      audio_url: resource_url,
+      language: resolvedLang,
+      status: 'pending',
+      priority: 2,
+      source_type: 'phone_call',
+      is_gated_admitted: true,
+      emp_number: emp_number || '',
+      client_number: client_number || '',
+      call_type: type || '',
+      duration: parseFloat(duration) || 0,
+      prospect_id: prospect_id || '',
+      errors: '[]'
+    };
+
+    if (call_date) {
+      try {
+        queuePayload.call_date = new Date(call_date).toISOString();
+      } catch (e) {
+        console.warn("Invalid call_date format:", call_date);
+      }
+    }
+
+    let { error: insertErr } = await supabase.from('callizer_queue').insert(queuePayload);
+    if (insertErr && insertErr.message && insertErr.message.includes('call_date')) {
+      console.warn("⚠️ [Queue] 'call_date' column missing in callizer_queue. Retrying without call_date.");
+      delete queuePayload.call_date;
+      const retry = await supabase.from('callizer_queue').insert(queuePayload);
+      insertErr = retry.error;
+    }
+
+    if (insertErr) throw insertErr;
+
+    return { status: "queued", queue_id };
   }
-
-  let { error: insertErr } = await supabase.from('callizer_queue').insert(queuePayload);
-  if (insertErr && insertErr.message && insertErr.message.includes('call_date')) {
-    console.warn("⚠️ [Queue] 'call_date' column missing in callizer_queue. Retrying without call_date. (Run v3_call_date_migration.sql in Supabase)");
-    delete queuePayload.call_date;
-    const retry = await supabase.from('callizer_queue').insert(queuePayload);
-    insertErr = retry.error;
-  }
-
-  if (insertErr) throw insertErr;
-
-  return { status: "queued", queue_id };
 }
 
 module.exports = {

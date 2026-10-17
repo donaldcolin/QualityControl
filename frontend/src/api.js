@@ -239,6 +239,58 @@ export async function bumpQueueItem(id) {
   return apiRequest(`/queue/${id}/bump`, { method: 'POST' });
 }
 
+export async function retryQueueItem(id) {
+  return apiRequest(`/queue/${id}/retry`, { method: 'POST' });
+}
+
+export const getGovernorStatus = async () => {
+  return apiRequest('/queue/governor/status');
+};
+
+export const playQueueGate = async () => {
+  return apiRequest('/queue/gate/play', { method: 'POST' });
+};
+
+export const pauseQueueGate = async () => {
+  return apiRequest('/queue/gate/pause', { method: 'POST' });
+};
+
+export const stepQueueGate = async () => {
+  return apiRequest('/queue/gate/step', { method: 'POST' });
+};
+
+export const clearQueueGate = async (types = ['completed', 'rejected']) => {
+  return apiRequest('/queue/gate/clear', {
+    method: 'POST',
+    body: JSON.stringify({ types })
+  });
+};
+
+export const toggleGovernorKillswitch = async (enabled) => {
+  return apiRequest('/queue/governor/killswitch', {
+    method: 'POST',
+    body: JSON.stringify({ enabled })
+  });
+};
+
+// ── Auto-Scanner Control ─────────────────────────────────────────────────
+
+export const getScannerStatus = async () => {
+  return apiRequest('/queue/scanner/status');
+};
+
+export const pauseScanner = async () => {
+  return apiRequest('/queue/scanner/pause', { method: 'POST' });
+};
+
+export const resumeScanner = async () => {
+  return apiRequest('/queue/scanner/resume', { method: 'POST' });
+};
+
+export const triggerScan = async () => {
+  return apiRequest('/queue/scanner/trigger', { method: 'POST' });
+};
+
 // ── QC Engine & Evaluation ─────────────────────────────────────────────────
 
 export const getQcMode = async () => {

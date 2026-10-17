@@ -46,6 +46,10 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
         if cancel_event and cancel_event.is_set():
             raise LeaseLostException(f"Worker lease lost before/during {stage}")
         
+    downloads_dir = Path("../storage/temp_audio")
+    is_downloaded_temp_file = False
+    call_id = queue_id  # fallback until we read the real call_id
+        
     try:
         # Fetch queue item
         resp = supabase.table("callizer_queue").select("*").eq("id", queue_id).execute()
@@ -56,7 +60,34 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
         row = resp.data[0]
         call_id = row["call_id"]
         audio_url = row["audio_url"]
-        language = row["language"]
+        language = row.get("language")
+        emp_number = row.get("emp_number")
+
+        # Fallback / Override: If associate has an explicit language tag in qc_associates,
+        # ensure we respect it (e.g. '|lang:ta' -> Tamil).
+        if emp_number:
+            try:
+                assoc_resp = supabase.table("qc_associates").select("emp_tags, emp_name").eq("emp_number", emp_number).limit(1).execute()
+                if assoc_resp.data and assoc_resp.data[0].get("emp_tags"):
+                    tags = assoc_resp.data[0]["emp_tags"]
+                    assoc_name = assoc_resp.data[0].get("emp_name", "")
+                    import re
+                    match = re.search(r'\|lang:([a-z]{2})', tags, re.IGNORECASE)
+                    if match:
+                        assoc_lang = match.group(1).lower()
+                        if assoc_lang and (not language or language == 'hi' or language != assoc_lang):
+                            logger.info(f"[{queue_id}] Associate {assoc_name} has language tag '{assoc_lang}'. Overriding queue language '{language}' -> '{assoc_lang}'")
+                            language = assoc_lang
+                            try:
+                                supabase.table("callizer_queue").update({"language": assoc_lang}).eq("id", queue_id).execute()
+                            except Exception:
+                                pass
+            except Exception as e:
+                logger.warning(f"[{queue_id}] Failed to check associate language tag: {e}")
+
+        if not language:
+            language = "hi"
+
         call_type = row.get("call_type", "")
         call_date = row.get("call_date")
         # If it's explicitly a Video Demo or it's a locally uploaded MP4/MKV video, treat it as a google_meet demo
@@ -305,10 +336,27 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
     except Exception as e:
         logger.error(f"Error processing queue_id {queue_id}: {e}", exc_info=True)
         if supabase:
-            supabase.table("callizer_queue").update({
-                "status": "failed", 
-                "errors": json.dumps([str(e)])
-            }).eq("id", queue_id).execute()
+            attempts = 1
+            try:
+                curr_item = supabase.table("callizer_queue").select("attempt_count").eq("id", queue_id).limit(1).execute()
+                if curr_item.data and curr_item.data[0].get("attempt_count") is not None:
+                    attempts = int(curr_item.data[0].get("attempt_count"))
+            except Exception as att_err:
+                logger.warning(f"Could not read attempt_count: {att_err}")
+
+            if attempts >= 3:
+                logger.error(f"🚨 [{queue_id}] Poison pill detected (failed {attempts} times). Quarantining to Dead-Letter Queue (DLQ).")
+                supabase.table("callizer_queue").update({
+                    "status": "dead_letter",
+                    "error_category": "FATAL_ASR_FAILURE",
+                    "retry_stage": "pipeline_execution",
+                    "errors": json.dumps([str(e)])
+                }).eq("id", queue_id).execute()
+            else:
+                supabase.table("callizer_queue").update({
+                    "status": "failed", 
+                    "errors": json.dumps([str(e)])
+                }).eq("id", queue_id).execute()
     finally:
         # 1. GUARANTEED DISK CLEANUP OF TEMPORARY MEDIA
         try:
@@ -336,8 +384,71 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
         # 2. Free up GPU/MPS and RAM memory
         import gc
         gc.collect()
+        try:
+            import torch
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            elif torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+
+def get_macos_thermal_state() -> str:
+    """
+    Checks macOS thermal pressure via pmset.
+    Returns: 'nominal', 'fair', 'serious', or 'critical'
+    """
+    try:
+        import subprocess, re
+        res = subprocess.run(["pmset", "-g", "therm"], capture_output=True, text=True, timeout=2)
+        out = res.stdout.lower()
+        if "critical" in out:
+            return "critical"
+        if "warning level" in out and "serious" in out:
+            return "serious"
+        if "cpu_speed_limit" in out:
+            m = re.search(r"cpu_speed_limit\s*=\s*(\d+)", out)
+            if m:
+                limit = int(m.group(1))
+                if limit < 60:
+                    return "critical"
+                elif limit < 85:
+                    return "serious"
+                elif limit < 95:
+                    return "fair"
+        return "nominal"
+    except Exception:
+        return "nominal"
+
+
+def adaptive_thermal_cooldown():
+    """
+    Adaptive Thermal Pacing for M1 MacBook Air (Fanless SoC).
+    Sleeps 2s to 12s based on macOS thermal pressure and purges PyTorch MPS memory.
+    """
+    thermal_state = get_macos_thermal_state()
+    if thermal_state == "nominal":
+        cooldown = 2   # Fast turnaround when cool
+    elif thermal_state == "fair":
+        cooldown = 5   # Moderate pacing
+    elif thermal_state == "serious":
+        cooldown = 12  # Extended cool-off to avoid throttle
+    else:
+        cooldown = 20  # Emergency cooldown
+
+    logger.info(f"🌡️ [Adaptive Thermal Guard] State: {thermal_state.upper()} -> Cooling SoC for {cooldown}s...")
+    
+    import gc
+    gc.collect()
+    try:
         import torch
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
         elif torch.cuda.is_available():
             torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+    import time
+    time.sleep(cooldown)

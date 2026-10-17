@@ -68,6 +68,12 @@ router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) =
 
       try {
         for (const assoc of (associates || [])) {
+          let assocLang = 'hi';
+          if (assoc.emp_tags) {
+            const match = assoc.emp_tags.match(/\|lang:([a-z]{2})/i);
+            if (match) assocLang = match[1].toLowerCase();
+          }
+
           try {
             const leads = await getLeadsForAssociate(assoc.emp_number, 1, 50);
             totalLeadsFound += leads.length;
@@ -87,7 +93,7 @@ router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) =
                         prospect_id: act.prospect_id,
                         emp_number: assoc.emp_number,
                         client_number: lead.phone,
-                        language: 'hi',
+                        language: assocLang,
                         call_date: act.created_on
                       });
                       if (pushRes && pushRes.status === 'queued') {

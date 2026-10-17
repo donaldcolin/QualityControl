@@ -109,6 +109,11 @@ export default function BatchQCControl({ onBatchComplete }) {
   const readyCount = modeData?.counts?.ready_for_qc || 0;
   const isProd = modeData?.mode === 'prod';
 
+  // DEV Mode: Do not show Batch QC Control at all (instant on-the-fly evaluations in dev)
+  if (!isProd && !batch.isRunning) {
+    return null;
+  }
+
   const progressPercent = batch.total > 0
     ? Math.round(((batch.completed + batch.failed) / batch.total) * 100)
     : 0;

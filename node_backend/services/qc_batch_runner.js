@@ -148,8 +148,9 @@ async function startBatchQC(options = {}) {
             });
 
             _batchStatus.completed++;
-            // Estimated spend: ₹0.67 per evaluated call (cached token pricing)
-            _batchStatus.estimatedSpendINR = parseFloat((_batchStatus.completed * 0.67).toFixed(2));
+            // Real-world spend from gemini_spend_ledger.jsonl:
+            // T1 calls ~₹0.16, T2 calls ~₹0.45 - ₹0.53 (Blended average: ₹0.33 / call)
+            _batchStatus.estimatedSpendINR = parseFloat((_batchStatus.completed * 0.33).toFixed(2));
           } catch (evalErr) {
             console.error(`[BatchWorker ${workerId}] Error evaluating call ${call.id}:`, evalErr.message);
             _batchStatus.failed++;

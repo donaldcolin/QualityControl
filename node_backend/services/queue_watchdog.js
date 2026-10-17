@@ -14,7 +14,7 @@ async function sweepStaleQueueJobs(timeoutMs = STALE_TIMEOUT_MS) {
   let failedDownloads = 0;
   let resetLeases = 0;
 
-  const TERMINAL_STATUSES = ['completed', 'failed', 'fatal_audit_failure', 'rejected'];
+  const TERMINAL_STATUSES = ['completed', 'failed', 'fatal_audit_failure', 'rejected', 'paused', 'buffered', 'dead_letter'];
   const MAX_ATTEMPTS = 3;
 
   try {
@@ -94,12 +94,13 @@ async function sweepStaleQueueJobs(timeoutMs = STALE_TIMEOUT_MS) {
             await supabase
               .from('callizer_queue')
               .update({
-                status: 'failed',
+                status: 'dead_letter',
+                error_category: 'WATCHDOG_QUARANTINE',
                 errors: JSON.stringify(existingErrors)
               })
               .eq('id', item.id);
 
-            console.warn(`🛑 [Queue Watchdog] Job ${item.id} exceeded max retries (${attempts}). Marked as failed.`);
+            console.warn(`🛑 [Queue Watchdog] Job ${item.id} exceeded max retries (${attempts}). Quarantined to DLQ.`);
             failedDownloads++;
           } else {
             // Reclaim job and return to pending queue

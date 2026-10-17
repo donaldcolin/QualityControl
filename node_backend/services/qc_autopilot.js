@@ -69,14 +69,25 @@ async function checkAndAutoTrigger() {
     // Condition 3: ASR is completely done (0 active jobs) AND calls are ready
     _quietCounter++;
 
-    // Wait for 2 consecutive ticks (e.g. ~30-60s) to guarantee no more files are being dropped into queue
-    if (_quietCounter >= 2) {
-      console.log(`🤖 [Autopilot] Auto-detected: ASR queue is clean (0 active) and ${readyCalls} call(s) are ready for QC.`);
-      console.log(`🚀 [Autopilot] Auto-triggering 2-Hour Batch QC with automatic post-run cache termination...`);
+    // Wait for 2 consecutive quiet ticks (~60s) AND at least 2 calls ready
+    // This prevents premature QC firing in the gap between individual ASR jobs
+    const MIN_QUIET_TICKS = 2;
+    const MIN_READY_CALLS = 2;
+
+    if (_quietCounter >= MIN_QUIET_TICKS && readyCalls >= MIN_READY_CALLS) {
+      console.log(`🤖 [Autopilot] Auto-detected: ASR queue clean for ${_quietCounter} ticks, ${readyCalls} call(s) ready for QC.`);
+      console.log(`🚀 [Autopilot] Auto-triggering Batch QC with context caching...`);
       _quietCounter = 0;
       _lastAutoTriggerTime = new Date().toISOString();
 
       await startBatchQC({ concurrency: 4 });
+    } else if (_quietCounter >= MIN_QUIET_TICKS && readyCalls < MIN_READY_CALLS) {
+      // Only 1 call ready after long quiet — run it without batch overhead
+      console.log(`🤖 [Autopilot] Only ${readyCalls} call(s) ready — running single-call QC (no batch caching).`);
+      _quietCounter = 0;
+      _lastAutoTriggerTime = new Date().toISOString();
+
+      await startBatchQC({ concurrency: 1 });
     }
   } catch (err) {
     console.warn(`[Autopilot] Tick check warning: ${err.message}`);

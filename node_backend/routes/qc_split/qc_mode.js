@@ -46,7 +46,7 @@ router.get('/qc/mode', async (req, res) => {
  * Body: { mode: 'dev' | 'prod' }
  * Dynamically toggles execution mode without restarting the server.
  */
-router.post('/qc/mode', (req, res) => {
+router.post('/qc/mode', async (req, res) => {
   const { mode } = req.body;
   if (!mode || (mode !== 'dev' && mode !== 'prod')) {
     return res.status(400).json({ 
@@ -74,12 +74,38 @@ router.post('/qc/mode', (req, res) => {
     console.warn(`[QCMode] Notice updating .env: ${err.message}`);
   }
 
+  // When switching to PROD: auto-admit all paused/buffered items so the autonomous worker picks them up
+  let admittedCount = 0;
+  if (mode === 'prod' && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('callizer_queue')
+        .update({ status: 'pending', is_gated_admitted: true })
+        .in('status', ['paused', 'buffered'])
+        .select('id');
+
+      if (!error && data) {
+        admittedCount = data.length;
+        if (admittedCount > 0) {
+          console.log(`🔀 [QC Mode] Auto-admitted ${admittedCount} paused items into PROD pipeline.`);
+          // Wake up Python worker
+          const axios = require('axios');
+          axios.post('http://localhost:8000/api/process_audio', { queue_id: 'mode_switch_wake' }, { timeout: 3000 })
+            .catch(() => {});
+        }
+      }
+    } catch (admitErr) {
+      console.warn(`[QCMode] Auto-admit notice: ${admitErr.message}`);
+    }
+  }
+
   console.log(`🔀 [QC Mode] Switched execution mode to: ${mode.toUpperCase()}`);
 
   res.json({
     success: true,
     mode: _currentMode,
-    message: `QC Execution Mode successfully set to ${mode.toUpperCase()}`
+    admittedCount,
+    message: `QC Execution Mode successfully set to ${mode.toUpperCase()}${admittedCount > 0 ? `. Auto-admitted ${admittedCount} paused items.` : ''}`
   });
 });
 
