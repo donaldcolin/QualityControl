@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC, pushDemoToQC, searchLeadsByPhone, getDriveTranscript } from '../api';
+import { getAssociates, syncAssociates, addAssociate, removeAssociate, getLeadsForAssociate, getActivitiesForLead, pushActivityToQC, pushDemoToQC, scanLead, searchLeadsByPhone, getDriveTranscript } from '../api';
 import { RefreshCw, Trash2, Plus, PhoneCall, Headphones, Clock, ArrowRight, Play, Users, Search, User, CheckCircle2, ExternalLink, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from '@/components/ui/button';
@@ -203,6 +203,29 @@ export default function TeamQC({ onPushToQueue }) {
       setActivities([]);
     } finally {
       setLoadingActivities(false);
+    }
+  };
+
+  const [syncingLead, setSyncingLead] = useState(false);
+
+  const handleSyncLead = async () => {
+    setSyncingLead(true);
+    const t = toast.loading('Scanning lead activities & demos...');
+    try {
+      const res = await scanLead({
+        prospect_id: selectedLead,
+        phone: selectedLeadObj?.phone,
+        name: selectedLeadObj?.name,
+        source: selectedLeadObj?.source,
+        owner_id: selectedEmp
+      });
+      if (res.error) throw new Error(res.error);
+      toast.success(`Synced Lead: ${res.calls_queued} calls, ${res.demos_queued} demos queued!`, { id: t });
+      selectLead(selectedLead);
+    } catch (err) {
+      toast.error(err.message || 'Lead sync failed', { id: t });
+    } finally {
+      setSyncingLead(false);
     }
   };
 
@@ -549,6 +572,11 @@ export default function TeamQC({ onPushToQueue }) {
               </CardDescription>
             </div>
             {selectedLeadObj && (
+              <div className="flex gap-2 shrink-0">
+              <Button size="sm" className="gap-2 h-8 text-xs" onClick={handleSyncLead} disabled={syncingLead}>
+                <RefreshCw className={cn("w-3.5 h-3.5", syncingLead && "animate-spin")} />
+                Sync All Calls & Demos
+              </Button>
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -558,6 +586,7 @@ export default function TeamQC({ onPushToQueue }) {
                 <ExternalLink className="w-3.5 h-3.5" />
                 View in LSQ
               </Button>
+              </div>
             )}
           </CardHeader>
 

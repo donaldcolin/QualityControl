@@ -1,4 +1,6 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Header
+from urllib.parse import urlparse
+import hmac
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import worker.queue_processor as worker
@@ -37,13 +39,16 @@ from datetime import datetime, timezone, timedelta
 # Generate a unique ID for this specific Mac/worker instance
 WORKER_ID = str(uuid.uuid4())
 
+def node_auth_headers() -> dict:
+    return {"Authorization": f"Bearer {os.environ.get('INTERNAL_WORKER_SECRET', '')}"}
+
 def get_current_qc_mode() -> str:
     """
     Fetches active mode ('dev' or 'prod') from Node backend.
     Defaults to 'dev' (M1 MacBook Air safe profile) if unreachable.
     """
     try:
-        r = requests.get("http://localhost:3000/api/qc/mode", timeout=2)
+        r = requests.get("http://localhost:3000/api/qc/mode", headers=node_auth_headers(), timeout=2)
         if r.status_code == 200:
             return r.json().get("mode", "dev")
     except Exception:
@@ -177,17 +182,28 @@ class MeetWebhookRequest(BaseModel):
     recording_url: str
     host_email: str
 
+ALLOWED_RECORDING_HOSTS = ("drive.google.com", "docs.google.com", ".googleusercontent.com", ".googleapis.com")
+
 @app.post("/api/webhook/meet")
-def meet_webhook(req: MeetWebhookRequest):
+def meet_webhook(req: MeetWebhookRequest, x_webhook_secret: str = Header(default="")):
     """
     Ingests a Google Meet recording directly into Priority 1 (Urgent Demo).
+    Callers must send X-Webhook-Secret matching MEET_WEBHOOK_SECRET.
     """
+    expected = os.environ.get("MEET_WEBHOOK_SECRET", "")
+    if not expected or not hmac.compare_digest(x_webhook_secret.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    url = urlparse(req.recording_url)
+    host = (url.hostname or "").lower()
+    if url.scheme != "https" or not any(host == h.lstrip(".") or host.endswith(h) for h in ALLOWED_RECORDING_HOSTS):
+        raise HTTPException(status_code=400, detail="recording_url must be an https Google Drive/Storage link")
     if not worker.supabase:
         raise HTTPException(status_code=500, detail="Database not connected")
 
     # Governor safety: check killswitch via Node backend
     try:
-        ks_resp = requests.get("http://localhost:3000/api/queue/governor/status", timeout=2)
+        ks_resp = requests.get("http://localhost:3000/api/queue/governor/status", headers=node_auth_headers(), timeout=2)
         if ks_resp.status_code == 200 and ks_resp.json().get("emergencyKillswitch"):
             raise HTTPException(status_code=503, detail="Emergency killswitch is active. Intake halted.")
     except requests.exceptions.ConnectionError:

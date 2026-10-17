@@ -303,7 +303,7 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
         
         try:
             logger.info(f"[{queue_id}] Triggering QC Evaluation on Port 3000...")
-            worker_token = os.environ.get("INTERNAL_WORKER_SECRET", "internal_qc_worker_secret_2026")
+            worker_token = os.environ.get("INTERNAL_WORKER_SECRET", "")
             qc_resp = requests.post(
                 "http://localhost:3000/api/qc/evaluate_call",
                 headers={"Authorization": f"Bearer {worker_token}"},

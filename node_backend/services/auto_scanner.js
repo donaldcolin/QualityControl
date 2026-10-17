@@ -1,6 +1,6 @@
 const supabase = require('../config/supabase');
 const { getExecutionMode } = require('../routes/qc_split/qc_mode');
-const { getLeadsForAssociate, getActivitiesForLead, pushActivityToQCQueue } = require('./lead_service');
+const { getTeamLeadsSince, syncSingleLeadEntirely } = require('./lead_service');
 
 let _scannerTimer = null;
 let _isScanning = false;
@@ -9,10 +9,17 @@ let _lastScanResult = null;
 let _scanCount = 0;
 
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
-const MAX_QUEUE_PER_CYCLE = 3; // Don't flood ASR — queue at most 3 new calls per cycle
+const MAX_LEADS_PER_CYCLE = 3; // Complete at most 3 leads per cycle
+const MAX_QUEUE_PER_CYCLE = MAX_LEADS_PER_CYCLE; // active-queue depth guard
+const LEAD_PACING_MS = 300;
+const INITIAL_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
+// High-watermark: LSQ ModifiedOn ("yyyy-MM-dd HH:mm:ss", UTC) of the last lead fully processed.
+let _lastScannedTimestamp = null;
+const toLsqTime = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
 
 /**
- * Runs one full scan cycle: Associates → Leads → Activities → Queue
+ * Runs one scan cycle: recently modified leads (high-watermark) → each lead fully synced, one at a time.
  * Only executes in PROD mode. Respects pause state and per-cycle cap.
  */
 async function runScanCycle() {
@@ -44,108 +51,51 @@ async function runScanCycle() {
   const startTime = Date.now();
 
   let queued = 0;
+  let demos = 0;
   let skipped = 0;
   let errors = 0;
   let leadsScanned = 0;
 
   try {
-    const { data: associates, error: assocErr } = await supabase
-      .from('qc_associates')
-      .select('emp_number, emp_name, emp_tags');
+    const since = _lastScannedTimestamp || toLsqTime(new Date(Date.now() - INITIAL_LOOKBACK_MS));
+    const { leads, scannedUpTo } = await getTeamLeadsSince(since, MAX_LEADS_PER_CYCLE);
+    console.log(`🔄 [AutoScanner] Cycle #${cycleId} started — ${leads.length} team leads modified since ${since}`);
+    let allDone = true;
 
-    if (assocErr || !associates || associates.length === 0) {
-      console.warn(`[AutoScanner] Cycle #${cycleId}: No associates found.`);
-      return { skipped: true, reason: 'No associates' };
-    }
-
-    console.log(`🔄 [AutoScanner] Cycle #${cycleId} started — scanning ${associates.length} associates (max ${MAX_QUEUE_PER_CYCLE} per cycle)...`);
-
-    for (const assoc of associates) {
-      // Stop early if we hit the per-cycle cap or got paused mid-scan
-      if (queued >= MAX_QUEUE_PER_CYCLE || _isPaused) break;
-
-      // Extract associate language (e.g. |lang:ta -> 'ta', fallback 'hi')
-      let assocLang = 'hi';
-      if (assoc.emp_tags) {
-        const match = assoc.emp_tags.match(/\|lang:([a-z]{2})/i);
-        if (match) assocLang = match[1].toLowerCase();
-      }
-
+    for (const [i, lead] of leads.entries()) {
+      if (_isPaused) break;
       try {
-        const leads = await getLeadsForAssociate(assoc.emp_number, 1, 50);
-
-        for (const lead of leads) {
-          if (queued >= MAX_QUEUE_PER_CYCLE || _isPaused) break;
-          leadsScanned++;
-
-          try {
-            const activities = await getActivitiesForLead(lead.prospect_id);
-
-            for (const act of activities) {
-              if (queued >= MAX_QUEUE_PER_CYCLE || _isPaused) break;
-              if (!act.resource_url || !act.duration || act.duration <= 60) continue;
-
-              try {
-                const result = await pushActivityToQCQueue({
-                  activity_id: act.activity_id,
-                  resource_url: act.resource_url,
-                  duration: act.duration,
-                  type: act.type,
-                  prospect_id: act.prospect_id,
-                  emp_number: assoc.emp_number,
-                  client_number: lead.phone || '',
-                  language: assocLang,
-                  lead_name: lead.name,
-                  lead_source: lead.lead_source,
-                  call_date: act.created_on
-                });
-
-                if (result && result.status === 'queued') {
-                  queued++;
-                  console.log(`📥 [AutoScanner] Queued call ${act.activity_id} for ${assoc.emp_name} [${assocLang.toUpperCase()}]`);
-                }
-              } catch (pushErr) {
-                if (pushErr.isAlreadyQueued || pushErr.message?.includes('Already queued') || pushErr.message?.includes('duplicate')) {
-                  skipped++;
-                } else {
-                  errors++;
-                  if (errors <= 3) {
-                    console.warn(`[AutoScanner] Push error: ${pushErr.message}`);
-                  }
-                }
-              }
-            }
-          } catch (leadErr) {
-            if (!(leadErr.code === 'ECONNABORTED' || leadErr.message?.includes('timeout'))) {
-              errors++;
-            }
-          }
-        }
-      } catch (assocErr) {
-        if (!(assocErr.code === 'ECONNABORTED' || assocErr.message?.includes('timeout'))) {
-          errors++;
-        }
+        const r = await syncSingleLeadEntirely(lead);
+        leadsScanned++;
+        queued += r.calls_queued;
+        demos += r.demos_queued;
+        skipped += r.calls_skipped + r.demos_skipped;
+        console.log(`[AutoScanner] Processed Lead ${i + 1}/${leads.length} (${lead.name}): ${r.calls_queued} calls, ${r.demos_queued} demo queued. Advancing to next lead...`);
+        _lastScannedTimestamp = lead.modified_on || _lastScannedTimestamp;
+      } catch (leadErr) {
+        errors++;
+        console.warn(`[AutoScanner] Lead ${lead.prospect_id} failed: ${leadErr.message}. Will retry next cycle.`);
+        allDone = false;
+        break; // keep the watermark behind the failed lead; don't skip past it
       }
+      await new Promise(r => setTimeout(r, LEAD_PACING_MS));
     }
+    // Every team lead done (or none found): skip past the non-team leads examined too.
+    if (allDone && !_isPaused) _lastScannedTimestamp = scannedUpTo;
 
     const durationSec = Math.round((Date.now() - startTime) / 1000);
     _lastScanResult = {
       cycle: cycleId,
       timestamp: new Date().toISOString(),
       durationSec,
-      associates: associates.length,
       leadsScanned,
       queued,
+      demos,
       skipped,
-      errors
+      errors,
+      watermark: _lastScannedTimestamp
     };
-
-    if (queued > 0) {
-      console.log(`✅ [AutoScanner] Cycle #${cycleId} done in ${durationSec}s — Queued: ${queued}/${MAX_QUEUE_PER_CYCLE}, Skipped: ${skipped}`);
-    } else {
-      console.log(`✅ [AutoScanner] Cycle #${cycleId} done in ${durationSec}s — No new calls (${skipped} already queued).`);
-    }
-
+    console.log(`✅ [AutoScanner] Cycle #${cycleId} done in ${durationSec}s — ${leadsScanned} leads, ${queued} calls, ${demos} demos queued (${skipped} skipped).`);
     return _lastScanResult;
   } catch (fatalErr) {
     console.error(`❌ [AutoScanner] Cycle #${cycleId} fatal error:`, fatalErr.message);
@@ -162,7 +112,7 @@ async function runScanCycle() {
 function startAutoScannerDaemon(intervalMs = DEFAULT_INTERVAL_MS) {
   if (_scannerTimer) return;
 
-  console.log(`🔍 [AutoScanner] Starting PROD auto-scanner daemon (Interval: ${Math.round(intervalMs / 60000)}m, Max per cycle: ${MAX_QUEUE_PER_CYCLE})`);
+  console.log(`🔍 [AutoScanner] Starting PROD auto-scanner daemon (Interval: ${Math.round(intervalMs / 60000)}m, Max leads per cycle: ${MAX_LEADS_PER_CYCLE})`);
 
   // First scan after 60s boot delay
   setTimeout(() => {
@@ -200,7 +150,8 @@ function getAutoScannerStatus() {
     isPaused: _isPaused,
     isScanning: _isScanning,
     totalCycles: _scanCount,
-    maxPerCycle: MAX_QUEUE_PER_CYCLE,
+    maxPerCycle: MAX_LEADS_PER_CYCLE,
+    watermark: _lastScannedTimestamp,
     lastResult: _lastScanResult
   };
 }

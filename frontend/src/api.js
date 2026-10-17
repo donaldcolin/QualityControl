@@ -227,6 +227,13 @@ export const pushDemoToQC = async (data) => {
   });
 };
 
+export const scanLead = async (data) => {
+  return apiRequest('/orchestrate/scan_lead', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+};
+
 export const getQueueItemStatus = async (queueId) => {
   return apiRequest(`/queue/${queueId}`);
 };

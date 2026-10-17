@@ -44,10 +44,6 @@ function validateEnvironment() {
     }
   }
 
-  if (!process.env.SUPABASE_JWT_SECRET && isProd) {
-    errors.push("SUPABASE_JWT_SECRET is required in production to cryptographically verify client JWT signatures.");
-  }
-
   // 2. Ensure Required Storage Directories Exist
   const storageRoot = path.resolve(__dirname, '..', '..', 'storage');
   const requiredDirs = [

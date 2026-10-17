@@ -7,7 +7,8 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const { extractAudioFromDrive } = require('../services/drive_audio_extractor');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const adminOnly = requireRole(['admin', 'ai_worker']);
 const {
   governAndIngestCall,
   playGate,
@@ -95,7 +96,7 @@ router.get('/queue/governor/status', async (req, res) => {
   }
 });
 
-router.post('/queue/gate/play', async (req, res) => {
+router.post('/queue/gate/play', adminOnly, async (req, res) => {
   try {
     const result = await playGate();
     res.json(result);
@@ -104,7 +105,7 @@ router.post('/queue/gate/play', async (req, res) => {
   }
 });
 
-router.post('/queue/gate/pause', async (req, res) => {
+router.post('/queue/gate/pause', adminOnly, async (req, res) => {
   try {
     const result = await pauseGate();
     res.json(result);
@@ -113,7 +114,7 @@ router.post('/queue/gate/pause', async (req, res) => {
   }
 });
 
-router.post('/queue/gate/step', async (req, res) => {
+router.post('/queue/gate/step', adminOnly, async (req, res) => {
   try {
     const result = await stepGate();
     res.json(result);
@@ -122,7 +123,7 @@ router.post('/queue/gate/step', async (req, res) => {
   }
 });
 
-router.post('/queue/gate/clear', async (req, res) => {
+router.post('/queue/gate/clear', adminOnly, async (req, res) => {
   try {
     const types = req.body?.types || ['completed', 'rejected'];
     const result = await clearQueue(types);
@@ -132,7 +133,7 @@ router.post('/queue/gate/clear', async (req, res) => {
   }
 });
 
-router.post('/queue/governor/killswitch', (req, res) => {
+router.post('/queue/governor/killswitch', adminOnly, (req, res) => {
   try {
     const { enabled } = req.body;
     const result = toggleKillswitch(enabled);
@@ -149,17 +150,17 @@ router.get('/queue/scanner/status', (req, res) => {
   res.json(getAutoScannerStatus());
 });
 
-router.post('/queue/scanner/pause', (req, res) => {
+router.post('/queue/scanner/pause', adminOnly, (req, res) => {
   pauseScanner();
   res.json({ success: true, status: 'paused' });
 });
 
-router.post('/queue/scanner/resume', (req, res) => {
+router.post('/queue/scanner/resume', adminOnly, (req, res) => {
   resumeScanner();
   res.json({ success: true, status: 'running' });
 });
 
-router.post('/queue/scanner/trigger', async (req, res) => {
+router.post('/queue/scanner/trigger', adminOnly, async (req, res) => {
   try {
     const result = await runScanCycle();
     res.json({ success: true, result });

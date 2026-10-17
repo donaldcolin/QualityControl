@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
-const supabase = require('../config/supabase');
-const { getLeadsForAssociate, getActivitiesForLead, pushActivityToQCQueue } = require('../services/lead_service');
+const { getTeamLeadsSince, syncSingleLeadEntirely } = require('../services/lead_service');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -20,8 +19,21 @@ router.get('/scan_status', (req, res) => {
   res.json(currentScan);
 });
 
-// POST trigger non-blocking scan all (Admin or AI Worker)
-router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) => {
+// POST sync one lead's full journey (all calls + demo) on demand
+router.post('/scan_lead', requireRole(['admin', 'ai_worker']), async (req, res) => {
+  const { prospect_id, phone, name, owner_id, source } = req.body;
+  if (!prospect_id) return res.status(400).json({ error: 'prospect_id is required' });
+  try {
+    const result = await syncSingleLeadEntirely({ prospect_id, phone, name: name || 'Lead', owner_id, source });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Scan Lead Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST trigger non-blocking scan of recently modified leads, one lead at a time (Admin or AI Worker)
+router.post('/scan_all', requireRole(['admin', 'ai_worker']), (req, res) => {
   if (currentScan.running) {
     return res.status(409).json({
       error: 'A background scan is already in progress',
@@ -30,123 +42,53 @@ router.post('/scan_all', requireRole(['admin', 'ai_worker']), async (req, res) =
     });
   }
 
-  try {
-    const { data: associates, error: assocErr } = await supabase.from('qc_associates').select('*');
-    if (assocErr) throw assocErr;
+  const days = Math.min(Number(req.body?.days) || 7, 90);
+  const maxLeads = Math.min(Number(req.body?.max_leads) || 100, 500);
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
 
-    const scanId = uuidv4();
-    currentScan = {
-      running: true,
-      scan_id: scanId,
-      started_at: new Date().toISOString(),
-      summary: {
-        associates_total: (associates || []).length,
-        associates_scanned: 0,
-        leads_found: 0,
-        calls_queued: 0,
-        calls_skipped: 0,
-        crm_timeouts: 0
-      },
-      last_error: null
-    };
+  const scanId = uuidv4();
+  currentScan = {
+    running: true,
+    scan_id: scanId,
+    started_at: new Date().toISOString(),
+    summary: { leads_scanned: 0, calls_queued: 0, demos_queued: 0, skipped: 0, errors: 0, crm_timeouts: 0 },
+    last_error: null
+  };
+  // 202 immediately so Nginx/Client never suffers a 504 Gateway Timeout
+  res.status(202).json({ success: true, status: 'Scan started in background', scan_id: scanId });
 
-    // Return 202 Accepted immediately so Nginx/Client never suffers a 504 Gateway Timeout
-    res.status(202).json({
-      success: true,
-      status: 'Scan started in background',
-      scan_id: scanId,
-      associates_count: (associates || []).length
-    });
-
-    // Run heavy scanning in decoupled background task
-    setImmediate(async () => {
-      console.log(`🚀 [Orchestrator] Starting background scan ${scanId} for ${(associates || []).length} associates...`);
-      let totalLeadsFound = 0;
-      let totalCallsQueued = 0;
-      let totalCallsSkipped = 0;
-      let totalTimeouts = 0;
-
-      try {
-        for (const assoc of (associates || [])) {
-          let assocLang = 'hi';
-          if (assoc.emp_tags) {
-            const match = assoc.emp_tags.match(/\|lang:([a-z]{2})/i);
-            if (match) assocLang = match[1].toLowerCase();
-          }
-
+  setImmediate(async () => {
+    const sum = currentScan.summary;
+    try {
+      for (let cursor = since; sum.leads_scanned + sum.errors < maxLeads;) {
+        const { leads, scannedUpTo } = await getTeamLeadsSince(cursor, maxLeads - sum.leads_scanned - sum.errors);
+        if (!leads.length && scannedUpTo === cursor) break; // nothing newer in LSQ
+        cursor = scannedUpTo;
+        for (const lead of leads) {
+          if (sum.leads_scanned + sum.errors >= maxLeads) break;
           try {
-            const leads = await getLeadsForAssociate(assoc.emp_number, 1, 50);
-            totalLeadsFound += leads.length;
-
-            for (const lead of leads) {
-              try {
-                const activities = await getActivitiesForLead(lead.prospect_id);
-
-                for (const act of activities) {
-                  if (act.resource_url && act.duration > 60) {
-                    try {
-                      const pushRes = await pushActivityToQCQueue({
-                        activity_id: act.activity_id,
-                        resource_url: act.resource_url,
-                        duration: act.duration,
-                        type: act.type,
-                        prospect_id: act.prospect_id,
-                        emp_number: assoc.emp_number,
-                        client_number: lead.phone,
-                        language: assocLang,
-                        call_date: act.created_on
-                      });
-                      if (pushRes && pushRes.status === 'queued') {
-                        totalCallsQueued++;
-                      }
-                    } catch (pushErr) {
-                      if (pushErr.isAlreadyQueued || pushErr.message?.includes("Already queued")) {
-                        totalCallsSkipped++;
-                      } else {
-                        console.error("Push Error for Activity:", act.activity_id, pushErr.message);
-                      }
-                    }
-                  }
-                }
-              } catch (leadErr) {
-                if (leadErr.code === 'ECONNABORTED' || leadErr.message?.includes('timeout')) {
-                  totalTimeouts++;
-                  console.warn(`⚠️ [Orchestrator] LSQ Timeout fetching activities for lead ${lead.prospect_id}`);
-                } else {
-                  console.error(`[Orchestrator] Failed fetching activities for lead ${lead.prospect_id}:`, leadErr.message);
-                }
-              }
-            }
-          } catch (assocErr) {
-            if (assocErr.code === 'ECONNABORTED' || assocErr.message?.includes('timeout')) {
-              totalTimeouts++;
-              console.warn(`⚠️ [Orchestrator] LSQ Timeout fetching leads for associate ${assoc.emp_number}`);
-            } else {
-              console.error(`[Orchestrator] Failed fetching leads for associate ${assoc.emp_number}:`, assocErr.message);
-            }
+            const r = await syncSingleLeadEntirely(lead);
+            sum.leads_scanned++;
+            sum.calls_queued += r.calls_queued;
+            sum.demos_queued += r.demos_queued;
+            sum.skipped += r.calls_skipped + r.demos_skipped;
+          } catch (leadErr) {
+            sum.errors++;
+            if (leadErr.code === 'ECONNABORTED' || leadErr.message?.includes('timeout')) sum.crm_timeouts++;
+            console.warn(`[Orchestrator] Lead ${lead.prospect_id} failed: ${leadErr.message}`);
           }
-
-          currentScan.summary.associates_scanned++;
-          currentScan.summary.leads_found = totalLeadsFound;
-          currentScan.summary.calls_queued = totalCallsQueued;
-          currentScan.summary.calls_skipped = totalCallsSkipped;
-          currentScan.summary.crm_timeouts = totalTimeouts;
+          await new Promise(r => setTimeout(r, 300));
         }
-
-        console.log(`✅ [Orchestrator] Background scan ${scanId} finished. Queued: ${totalCallsQueued}, Skipped: ${totalCallsSkipped}`);
-      } catch (fatalErr) {
-        console.error(`❌ [Orchestrator] Background scan ${scanId} failed:`, fatalErr);
-        currentScan.last_error = fatalErr.message;
-      } finally {
-        currentScan.running = false;
-        currentScan.completed_at = new Date().toISOString();
       }
-    });
-
-  } catch (err) {
-    console.error("Scan All Error:", err);
-    res.status(500).json({ error: err.message });
-  }
+      console.log(`✅ [Orchestrator] Scan ${scanId} finished: ${sum.leads_scanned} leads, ${sum.calls_queued} calls, ${sum.demos_queued} demos.`);
+    } catch (fatalErr) {
+      console.error(`❌ [Orchestrator] Scan ${scanId} failed:`, fatalErr);
+      currentScan.last_error = fatalErr.message;
+    } finally {
+      currentScan.running = false;
+      currentScan.completed_at = new Date().toISOString();
+    }
+  });
 });
 
 module.exports = router;

@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
 const supabase = require('../config/supabase');
-const { lsqParams, lsqUrl } = require('../config/lsq');
+const { lsqParams, lsqUrl, lsqClient } = require('../config/lsq');
 const { getLeadsForAssociate } = require('../services/lead_service');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
@@ -17,7 +16,7 @@ router.get('/sync', async (req, res) => {
       return res.status(400).json({ error: "LeadSquared API keys not set in .env" });
     }
 
-    const lsqRes = await axios.get(lsqUrl('UserManagement.svc/Users.Get'), { timeout: 10000 });
+    const lsqRes = await lsqClient.get(lsqUrl('UserManagement.svc/Users.Get'));
 
     let data = [];
     if (lsqRes.data && Array.isArray(lsqRes.data)) {

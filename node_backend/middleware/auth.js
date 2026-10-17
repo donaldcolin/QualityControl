@@ -1,9 +1,9 @@
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
+const supabase = require('../config/supabase');
 
-const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 const INTERNAL_WORKER_SECRET = process.env.INTERNAL_WORKER_SECRET;
-const isProd = process.env.NODE_ENV === 'production';
+const USER_CACHE_TTL_MS = 60 * 1000;
+const _userCache = new Map(); // token -> { user, expires }
 
 /**
  * Constant-time comparison between two string secrets to prevent timing attacks.
@@ -17,12 +17,29 @@ function timingSafeCompare(provided, expected) {
 }
 
 /**
+ * Verifies a Supabase session token with Supabase Auth (works for both legacy HS256
+ * and asymmetric signing keys). Results are cached briefly so UI polling stays cheap.
+ */
+async function verifySupabaseToken(token) {
+  const now = Date.now();
+  const hit = _userCache.get(token);
+  if (hit && hit.expires > now) return hit.user;
+
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return null;
+
+  if (_userCache.size > 1000) _userCache.clear();
+  _userCache.set(token, { user: data.user, expires: now + USER_CACHE_TTL_MS });
+  return data.user;
+}
+
+/**
  * Zero-Trust Authentication Middleware.
  * Validates either:
- *   1. Internal worker service secret (for python worker, microservices, internal orchestration)
- *   2. Supabase Bearer JWT token (for authenticated user sessions)
+ *   1. Internal worker service secret (python worker, internal loopback calls)
+ *   2. Supabase session token (logged-in users)
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -31,12 +48,7 @@ function requireAuth(req, res, next) {
 
   const token = authHeader.slice(7).trim();
 
-  // 1. Check against Internal Worker Secret strictly from environment
-  const isWorkerToken = Boolean(
-    INTERNAL_WORKER_SECRET && timingSafeCompare(token, INTERNAL_WORKER_SECRET)
-  );
-
-  if (isWorkerToken) {
+  if (INTERNAL_WORKER_SECRET && timingSafeCompare(token, INTERNAL_WORKER_SECRET)) {
     req.user = {
       id: 'internal_worker',
       email: 'worker@internal.local',
@@ -45,36 +57,23 @@ function requireAuth(req, res, next) {
     return next();
   }
 
-  // 2. Validate Supabase JWT for user sessions
   try {
-    if (SUPABASE_JWT_SECRET) {
-      const decoded = jwt.verify(token, SUPABASE_JWT_SECRET);
-      req.user = decoded;
-      return next();
-    } else {
-      if (isProd) {
-        return res.status(401).json({ error: 'Production authentication failed: SUPABASE_JWT_SECRET must be configured' });
-      }
-      // Development-only fallback: decode claims when SUPABASE_JWT_SECRET is not yet provisioned
-      const decoded = jwt.decode(token);
-      if (decoded && typeof decoded === 'object') {
-        req.user = decoded;
-        return next();
-      }
-      return res.status(401).json({ error: 'Invalid token structure' });
-    }
+    const user = await verifySupabaseToken(token);
+    if (!user) return res.status(401).json({ error: 'Invalid or expired token' });
+    req.user = user;
+    return next();
   } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired token', details: err.message });
+    return res.status(401).json({ error: 'Token verification failed' });
   }
 }
 
 /**
  * Middleware factory for Role-Based Access Control (RBAC).
- * Enforces that req.user has an allowed role.
+ * Role comes from app_metadata.role, which only the service role can set.
  */
 function requireRole(allowedRoles) {
   return (req, res, next) => {
-    const userRole = req.user?.app_metadata?.role || req.user?.role || 'user';
+    const userRole = req.user?.app_metadata?.role || 'user';
     if (!allowedRoles.includes(userRole)) {
       return res.status(403).json({ error: `Forbidden: requires one of [${allowedRoles.join(', ')}]` });
     }

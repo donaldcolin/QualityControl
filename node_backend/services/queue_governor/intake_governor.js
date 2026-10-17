@@ -337,8 +337,12 @@ async function stepGate() {
 /**
  * Clear Completed, Rejected, or Dead-Letter items
  */
-async function clearQueue(types = ['completed', 'rejected']) {
+const CLEARABLE_STATUSES = ['completed', 'rejected'];
+
+async function clearQueue(types = CLEARABLE_STATUSES) {
   if (!supabase) return { success: true };
+  types = (Array.isArray(types) ? types : []).filter(t => CLEARABLE_STATUSES.includes(t));
+  if (types.length === 0) return { success: false, error: `Only ${CLEARABLE_STATUSES.join(', ')} items can be cleared` };
 
   try {
     const { error } = await supabase

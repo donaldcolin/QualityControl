@@ -3,6 +3,7 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const supabase = require('../../config/supabase');
+const { requireRole } = require('../../middleware/auth');
 
 let _currentMode = process.env.QC_MODE || 'dev';
 
@@ -46,7 +47,7 @@ router.get('/qc/mode', async (req, res) => {
  * Body: { mode: 'dev' | 'prod' }
  * Dynamically toggles execution mode without restarting the server.
  */
-router.post('/qc/mode', async (req, res) => {
+router.post('/qc/mode', requireRole(['admin', 'ai_worker']), async (req, res) => {
   const { mode } = req.body;
   if (!mode || (mode !== 'dev' && mode !== 'prod')) {
     return res.status(400).json({ 

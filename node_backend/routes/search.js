@@ -1,7 +1,6 @@
 const express = require('express');
-const axios = require('axios');
 const router = express.Router();
-const { lsqUrl } = require('../config/lsq');
+const { lsqUrl, lsqClient } = require('../config/lsq');
 const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -13,7 +12,7 @@ router.get('/:phone', async (req, res) => {
     let leads = [];
 
     const trySearch = async (phoneStr) => {
-      const res = await axios.post(lsqUrl('LeadManagement.svc/Leads.Get'), {
+      const res = await lsqClient.post(lsqUrl('LeadManagement.svc/Leads.Get'), {
         Parameter: { LookupName: "Phone", LookupValue: phoneStr, SqlType: "nvarchar" },
         Columns: { Include_CSV: "ProspectID,FirstName,LastName,Phone,Source,ProspectStage,OwnerId" },
         Paging: { PageIndex: 1, PageSize: 5 }
