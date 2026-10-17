@@ -11,6 +11,7 @@ Optimizations over baseline:
 
 import argparse
 import json
+import re
 import subprocess
 import os
 import logging
@@ -163,15 +164,12 @@ _LANG_MAP = {
 }
 
 
-# Mutex lock to serialize model forward passes and device transfers across worker threads
-_model_inference_lock = threading.Lock()
-
-
 def transcribe(model, device: str, wav, sr: int, lang: str,
                start: float = None, end: float = None) -> str:
     """
-    Transcribe a pre-loaded wav tensor (or a time-slice of it) using CTC decoding.
-    Thread-safe: serializes model execution to prevent concurrent in-place device mutations.
+    Transcribe a pre-loaded CPU wav tensor (or a time-slice of it) using CTC decoding.
+    IndicConformer is ONNX Runtime on CPU (sessions are thread-safe and release the GIL), so
+    worker threads run in parallel. Do not add a lock here: it halved throughput (Oct 11 regression).
     """
     import torch
     lang_code = _LANG_MAP.get(lang, lang)
@@ -186,19 +184,8 @@ def transcribe(model, device: str, wav, sr: int, lang: str,
     if wav.shape[-1] < sr * 0.1:  # less than 100ms
         return ""
 
-    with _model_inference_lock:
-        wav = wav.to(device)
-
-        try:
-            with torch.inference_mode():
-                return model(wav, lang_code, "ctc")
-        except NotImplementedError:
-            # Some ops aren't implemented for MPS yet — fall back to CPU
-            model_cpu = model.to("cpu")
-            with torch.inference_mode():
-                result = model_cpu(wav.to("cpu"), lang_code, "ctc")
-            model.to(device)
-            return result
+    with torch.inference_mode():
+        return model(wav, lang_code, "ctc")
 
 
 def _transcribe_segment(model, device, wav, sr, lang, idx, turn):
@@ -359,7 +346,7 @@ def diarize(wav, sr, hf_token: str, device: str = "cpu", num_speakers=2):
 # ── Main Pipeline ─────────────────────────────────────────────────────────
 
 # Auto-detect: use more threads on machines with more RAM
-_CONCURRENT_WORKERS = 4  # Increased for better RTF on Apple Silicon
+_CONCURRENT_WORKERS = 6  # Benchmarked on M1 Air: 6 is ~17% faster than 4 with identical text; 8 is slower (core contention)
 
 
 def map_meeting_roles(speakers):
@@ -486,6 +473,36 @@ def map_meeting_roles(speakers):
     return speakers, assigned_roles
 
 
+# The agent introduces the company; customers almost never say it. "கல்வியல்" (= education) is deliberately excluded.
+_BRAND_PATTERN = re.compile(
+    r"kalvium|kalviyam|கல்வியம்|காலவியம்|कल्वियम|काल्वियम|कल्पियम|कल्वीयम|ಕಲ್ವಿಯಂ|ಕಲ್ವಿಯಮ್|కల్వియం|కల్వియమ్|കൽവിയം",
+    re.IGNORECASE,
+)
+
+
+def map_phone_roles(speakers):
+    """
+    Agent = the speaker who says the brand ("Kalvium") most; if nobody does (or it's a tie),
+    the speaker who talks the most. Returns (speakers, raw->role map, method).
+    """
+    talk, brand = {}, {}
+    for turn in speakers:
+        spk = turn["speaker"]
+        talk[spk] = talk.get(spk, 0.0) + turn["end"] - turn["start"]
+        brand[spk] = brand.get(spk, 0) + len(_BRAND_PATTERN.findall(turn.get("text") or ""))
+
+    ranked = sorted(talk, key=lambda s: (brand[s], talk[s]), reverse=True)
+    top_brand = [s for s in talk if brand[s] == max(brand.values())]
+    method = "brand_mention" if brand[ranked[0]] > 0 and len(top_brand) == 1 else "talk_time"
+    if method == "talk_time":
+        ranked = sorted(talk, key=talk.get, reverse=True)
+
+    roles = {spk: "Agent" if i == 0 else "Customer" if i == 1 else f"Speaker_{i + 1}" for i, spk in enumerate(ranked)}
+    for turn in speakers:
+        turn["speaker"] = roles[turn["speaker"]]
+    return speakers, roles, method
+
+
 def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str, out_dir: Path, status_callback=None, call_type: str = "phone", num_speakers=2):
     """
     Full pipeline for one file: convert → load → trim → diarize → merge → transcribe.
@@ -578,15 +595,8 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
             speaker_map = {} # Reset and fallback
 
     if not speaker_map and call_type != "google_meet":
-        for turn in speakers:
-            raw_label = turn["speaker"]
-            if raw_label not in speaker_map:
-                if len(speaker_map) == 0:
-                    speaker_map[raw_label] = "Agent"
-                elif len(speaker_map) == 1:
-                    speaker_map[raw_label] = "Customer"
-                else:
-                    speaker_map[raw_label] = f"Speaker_{len(speaker_map) + 1}"
+        # Phone roles need the transcript (who says "Kalvium"), so they are assigned after Step 7.
+        role_assignment_method = "pending_phone"
 
     if speaker_map:
         for turn in speakers:
@@ -600,7 +610,7 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
     # ── Step 7: Transcribe (concurrently) ──
     _update(f"Transcribing {total} segments...")
     
-    transcription_wav = trimmed_wav.to(device)
+    transcription_wav = trimmed_wav.cpu()  # the ONNX model's preprocessor runs on CPU
 
     with ThreadPoolExecutor(max_workers=_CONCURRENT_WORKERS) as executor:
         futures = {}
@@ -618,7 +628,10 @@ def process_file(model, device: str, audio_path: Path, lang: str, hf_token: str,
 
     # ── Step 7b: Semantic Role Assignment for Google Meet Video Demos ──
     roles_detected = {}
-    if call_type == "google_meet":
+    if role_assignment_method == "pending_phone":
+        speakers, roles_detected, role_assignment_method = map_phone_roles(speakers)
+        logger.info(f"Assigned phone roles for {audio_path.name} ({role_assignment_method}): {roles_detected}")
+    elif call_type == "google_meet":
         _update("Running multi-stakeholder semantic role mapping...")
         speakers, roles_detected = map_meeting_roles(speakers)
         role_assignment_method = "semantic_multistakeholder"
