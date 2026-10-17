@@ -4,6 +4,7 @@ import json
 import logging
 import requests
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -226,8 +227,28 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
                     PDF_PATH = os.path.join(WORKSPACE, "storage", "reference_slides", "Kalvium_ B.Tech CSE to excel in career & life AY27.pdf")
                     SLIDES_DIR = os.path.join(WORKSPACE, "storage", "reference_slides", "images")
                     
+                    # The analyzer tells the associate's tile from the customer's by the Meet name label,
+                    # so it needs the associate's name (demo rows usually have no emp_number: use the lead owner).
+                    associate_name = None
+                    try:
+                        if emp_number:
+                            r = supabase.table("qc_associates").select("emp_name").eq("emp_number", emp_number).limit(1).execute()
+                            associate_name = r.data[0].get("emp_name") if r.data else None
+                        if not associate_name and row.get("prospect_id"):
+                            r = supabase.table("leads").select("owner").eq("id", row["prospect_id"]).limit(1).execute()
+                            owner = r.data[0].get("owner") if r.data else None
+                            associate_name = owner if owner and owner != "Unassigned" else None
+                    except Exception as e:
+                        logger.warning(f"[{queue_id}] Could not resolve associate name for video analysis: {e}")
+                    if not associate_name:
+                        logger.warning(f"[{queue_id}] No associate name known: camera ownership will be 'unknown'.")
+
+                    t0 = time.perf_counter()
                     slide_data = video_analyzer.extract_slides_from_pdf(PDF_PATH, SLIDES_DIR)
-                    timeline, face_timeline, camera_pct = video_analyzer.analyze_video(str(temp_mp4_path), slide_data, interval_seconds=10)
+                    t1 = time.perf_counter()
+                    timeline, face_timeline, facial = video_analyzer.analyze_video(
+                        str(temp_mp4_path), slide_data, interval_seconds=10, associate_name=associate_name)
+                    t2 = time.perf_counter()
                     
                     clean_slide_names = {
                         18: "Placement Statistics & Outcomes",
@@ -245,10 +266,11 @@ def process_queue_item(queue_id: str, cancel_event: threading.Event = None):
                         timeline, face_timeline, slide_data, 
                         slide_names_config=clean_slide_names, 
                         debounce_sec=5, 
-                        camera_pct=camera_pct, 
+                        facial=facial, 
                         output_path=str(json_report_path)
                     )
-                    logger.info(f"[{queue_id}] Video analysis complete. Timeline saved to {json_report_path}")
+                    logger.info(f"[{queue_id}] Video analysis complete in {time.perf_counter() - t0:.1f}s "
+                                f"(slides {t1 - t0:.1f}s, video {t2 - t1:.1f}s). Associate: {associate_name}. Timeline saved to {json_report_path}")
                     
                     # Clean up the large temp video file now that vision analysis is done (only if it was a drive temp file)
                     if is_temp:

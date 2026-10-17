@@ -7,8 +7,6 @@ const CANONICAL_DATA_CAPTURE_FIELDS = [
 ];
 
 function getInsightsSchema(dataCaptureQuestions, source = 'phone_call') {
-  const isVideo = source === 'google_meet';
-
   const insightsProps = {
     intent_score: { type: 'number', description: 'Buying intent score 0-100' },
     high_intent_factors: {
@@ -108,24 +106,7 @@ function getInsightsSchema(dataCaptureQuestions, source = 'phone_call') {
 
   const insightsRequired = ['intent_score', 'high_intent_factors', 'low_intent_factors', 'objections', 'bant', 'data_capture', 'conversation_topics'];
 
-  if (isVideo) {
-    insightsProps.actual_meeting_start_time = { type: 'string', description: 'The exact timestamp when attendees first appeared on camera (from video timeline) or when the actual conversation began, ignoring pre-meeting silence. Format: MM:SS' };
-    insightsProps.attendee_timeline = {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          start_time: { type: 'string', description: 'Start time of presence (e.g. 05:00 or 00:05:00)' },
-          end_time: { type: 'string', description: 'End time of presence (e.g. 30:00 or 00:30:00)' },
-          person: { type: 'string', description: 'The role or name of the attendee (e.g. Student, Mother)' },
-          status: { type: 'string', description: 'Whether they were present, joined late, or left early' }
-        },
-        required: ['start_time', 'end_time', 'person', 'status']
-      },
-      description: 'Chronological timeline mapping who was present when, fusing video face counts with audio speaker roles'
-    };
-    insightsRequired.push('attendee_timeline');
-  }
+  // Meet attendee presence is computed from timestamps in services/qc_engine/attendance.js, not by the LLM.
 
   return {
     type: 'object',

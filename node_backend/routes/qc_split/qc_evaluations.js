@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { getExecutionMode } = require('./qc_mode');
+const { buildAttendeeTimeline } = require('../../services/qc_engine/attendance');
 
 const FATAL_COMPLIANCE_PARAMETERS = [
   'Investment Shown to Become Partly Self-Funding',
@@ -124,6 +125,7 @@ async function executeEvaluationCore({ call_id, transcript, prospect_id, source,
     let callIdToUpdate = activeCallId;
     let activeProspectId = prospect_id;
     let activeCallData = null;
+    let callSegments = null;
 
     // 1. Get transcript and prospect_id from call if not provided directly
     if (call_id) {
@@ -147,6 +149,7 @@ async function executeEvaluationCore({ call_id, transcript, prospect_id, source,
       if (!transcript) {
         if (call.segments) {
           const segments = typeof call.segments === 'string' ? JSON.parse(call.segments) : call.segments;
+          callSegments = segments;
           transcriptText = segments.map(s => `${s.speaker}: ${s.text_en || s.text}`).join('\n');
         } else if (call.transcript) {
           transcriptText = call.transcript;
@@ -643,6 +646,15 @@ async function executeEvaluationCore({ call_id, transcript, prospect_id, source,
       if (insightsResult.insights && insightsResult.insights.data_capture) {
         insightsResult.insights.data_capture = qcEngine.populateMissingDataCaptureFields(insightsResult.insights.data_capture);
       }
+    }
+
+    // 4b. Attendee presence for Meet demos: computed from real timestamps (the LLM never sees any)
+    if (effectiveSource === 'google_meet' && insightsResult.insights) {
+      if (!callSegments && activeCallData?.segments) {
+        callSegments = typeof activeCallData.segments === 'string' ? JSON.parse(activeCallData.segments) : activeCallData.segments;
+      }
+      const presence = buildAttendeeTimeline(callSegments, videoTimeline, activeCallData?.duration_sec);
+      if (presence) Object.assign(insightsResult.insights, presence);
     }
 
     // 5. Compute overall quality score from merged result

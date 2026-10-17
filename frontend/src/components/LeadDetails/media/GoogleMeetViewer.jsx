@@ -158,9 +158,14 @@ export default function GoogleMeetViewer({ call, embedded = false }) {
           <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-white text-slate-700 border border-slate-200/80 shadow-2xs flex items-center gap-2">
             <span className={cn(
               "w-2 h-2 rounded-full",
-              (facialAnalytics.associate_camera_active_pct || 0) >= 50 ? "bg-emerald-500" : "bg-amber-500"
+              facialAnalytics.associate_camera_active_pct == null ? "bg-slate-400"
+                : facialAnalytics.associate_camera_active_pct >= 50 ? "bg-emerald-500" : "bg-amber-500"
             )} />
-            <span>Camera {Math.round(facialAnalytics.associate_camera_active_pct)}%</span>
+            <span>
+              {facialAnalytics.associate_camera_active_pct == null
+                ? 'Camera not visible'
+                : `Camera ${Math.round(facialAnalytics.associate_camera_active_pct)}%`}
+            </span>
           </div>
         )}
       </div>

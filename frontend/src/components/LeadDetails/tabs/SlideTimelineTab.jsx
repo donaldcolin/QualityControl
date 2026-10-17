@@ -26,6 +26,7 @@ const SlideTimelineTab = ({ activeCall }) => {
 
   const visualTimeline = activeCall?.visual_timeline || activeCall?.insights_data?.visual_timeline;
   const facialAnalytics = visualTimeline?.facial_analytics;
+  const cameraUnknown = facialAnalytics?.associate_camera_active_pct == null;
   const slides = visualTimeline?.slides;
 
   const rawSlides = useMemo(() => Array.isArray(slides) ? slides : [], [slides]);
@@ -107,19 +108,23 @@ const SlideTimelineTab = ({ activeCall }) => {
               </div>
               <span className={cn(
                 "text-[10px] font-bold px-2 py-0.5 rounded-full border",
-                facialAnalytics?.trust_metric_passed
-                  ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                  : "bg-amber-100 text-amber-800 border-amber-200"
+                cameraUnknown
+                  ? "bg-slate-100 text-slate-600 border-slate-200"
+                  : facialAnalytics?.trust_metric_passed
+                    ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                    : "bg-amber-100 text-amber-800 border-amber-200"
               )}>
-                {facialAnalytics?.trust_metric_passed ? 'Verified' : 'Low (<50%)'}
+                {cameraUnknown ? 'Not visible' : facialAnalytics?.trust_metric_passed ? 'Verified' : 'Low (<50%)'}
               </span>
             </div>
             <div className="mt-2">
               <div className="text-2xl font-black text-slate-900 tracking-tight">
-                {Math.round(facialAnalytics?.associate_camera_active_pct || 0)}%
+                {cameraUnknown ? '—' : `${Math.round(facialAnalytics.associate_camera_active_pct)}%`}
               </div>
               <div className="text-[11px] font-medium text-slate-500 mt-0.5">
-                Camera Active
+                {facialAnalytics?.associate_visible_pct != null
+                  ? `Advisor camera on (tile shown ${Math.round(facialAnalytics.associate_visible_pct)}% of call)`
+                  : 'Camera Active'}
               </div>
             </div>
           </div>

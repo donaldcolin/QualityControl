@@ -89,21 +89,32 @@ function formatVisualTimeline(videoTimeline) {
 
   // 1. Facial & Webcam Analytics
   if (tl.facial_analytics) {
-    const camPct = tl.facial_analytics.associate_camera_active_pct != null
-      ? `${Number(tl.facial_analytics.associate_camera_active_pct).toFixed(1)}%`
-      : 'N/A';
-    const passed = tl.facial_analytics.trust_metric_passed ? 'PASSED (>=50%)' : 'FAILED (<50%)';
-    out += `Webcam Face Presence:\n`;
-    out += `- Advisor Camera Active: ${camPct} of call (${passed})\n\n`;
+    const fa = tl.facial_analytics;
+    const pct = v => (v != null ? `${Number(v).toFixed(1)}%` : null);
+    out += `Webcam Presence (from the Meet tile name labels; the on-screen tile follows the active speaker):\n`;
+    if (fa.associate_camera_active_pct != null) {
+      const passed = fa.trust_metric_passed ? 'PASSED (>=50%)' : 'FAILED (<50%)';
+      out += `- Advisor camera ON ${pct(fa.associate_camera_active_pct)} of the time the advisor's tile was on screen (tile visible ${pct(fa.associate_visible_pct)} of the call) — ${passed}\n`;
+    } else {
+      out += `- Advisor camera: NOT MEASURABLE (advisor's tile never shown in the recording). Do not penalise or credit camera usage.\n`;
+    }
+    if (fa.customer_camera_active_pct != null) {
+      out += `- Customer camera ON ${pct(fa.customer_camera_active_pct)} of the time their tile was on screen; up to ${fa.max_people_on_customer_camera || 0} people visible on the customer's camera\n`;
+    }
+    out += '\n';
   }
 
-  // 1b. Face Count Timeline (Sensor Fusion)
+  // 1b. Camera Timeline (Sensor Fusion)
   if (Array.isArray(tl.face_timeline) && tl.face_timeline.length > 0) {
-    out += `Attendee Face Count Timeline (Extracted from Video frames):\n`;
+    out += `Camera Timeline (Extracted from Video frames):\n`;
     tl.face_timeline.forEach(event => {
       const s = Math.floor(event.start_time / 60) + ':' + ('0' + (event.start_time % 60)).slice(-2);
       const e = Math.floor(event.end_time / 60) + ':' + ('0' + (event.end_time % 60)).slice(-2);
-      out += `  • [${s} - ${e}] -> ${event.faces_detected} Faces Detected in Video Feed\n`;
+      const who = event.owner === 'associate' ? 'Advisor' : event.owner === 'customer' ? 'Customer' : 'Unknown participant';
+      const cam = event.camera_on === false ? 'camera OFF' : `camera ON, ${event.faces_detected} face(s)`;
+      out += event.owner !== undefined
+        ? `  • [${s} - ${e}] -> ${who} on screen, ${cam}\n`
+        : `  • [${s} - ${e}] -> ${event.faces_detected} Faces Detected in Video Feed\n`; // timelines made before owner tracking
     });
     out += '\n';
   }
@@ -243,18 +254,8 @@ function buildInsightsPrompt(transcript, source, dataCaptureQuestions, pastCalls
   }
   prompt += `10. Suggest concrete NEXT STEPS with short action titles and due dates.\n\n`;
 
-  prompt += `11. CONSTRUCT AN ATTENDEE TIMELINE (SENSOR FUSION):\n`;
   if (videoTimeline) {
-    prompt += `    - Cross-reference the speakers in the Audio Transcript with the Visual Face Timeline provided below.\n`;
-    prompt += `    - Visual Face Timeline reveals EXACTLY when new people entered or left the video frame.\n`;
-    prompt += `    - CRITICAL GOOGLE MEET UI QUIRK: In Google Meet, webcams are often hidden when the Associate is talking (Active Speaker View).\n`;
-    prompt += `    - If the face count temporarily drops to 0, or rapidly fluctuates between 1 and 2, DO NOT assume people left!\n`;
-    prompt += `    - Assume attendees are still present unless they explicitly state they are leaving, or if the face count stays reduced for a prolonged period (e.g. 5+ minutes).\n`;
-    prompt += `    - Example: If face count goes from 1 to 2 at 05:00, and SPEAKER_01 says 'I am his mother' at 05:12, then the Mother joined at 05:00.\n`;
-    prompt += `    - Determine the 'actual_meeting_start_time' by finding the exact timestamp when the face count first changes from 0 to 1 (or 2) and stays there, ignoring the initial period where the camera was off.\n`;
-    prompt += `    - Visual Timeline: \n${formatVisualTimeline(videoTimeline)}\n\n`;
-  } else {
-    prompt += `    - Infer the timeline of who was present (Student, Parent, etc.) based purely on when their distinct voices spoke in the transcript.\n\n`;
+    prompt += `VIDEO EVIDENCE (computer vision, use for presentation and camera-related coaching):\n${formatVisualTimeline(videoTimeline)}\n\n`;
   }
 
   prompt += `Be specific and cite evidence from the transcript wherever possible.\n`;

@@ -8,8 +8,8 @@ function runFfmpegAsync(inputPath, outputPath, timeoutMs = 10 * 60 * 1000) {
         const args = [
             '-err_detect', 'ignore_err',
             '-i', inputPath,
-            '-q:a', '0',
             '-map', 'a',
+            '-c:a', 'pcm_s16le', // 16 kHz mono WAV: what the ASR wants, so no MP3 encode + decode round trip
             '-ac', '1',
             '-ar', '16000',
             '-y', outputPath
@@ -65,6 +65,75 @@ if (fs.existsSync(GOOGLE_KEY_FILE)) {
     drive = google.drive({ version: 'v3', auth });
 }
 
+// Parallel Range requests speed up big Meet recordings when Drive throttles each connection.
+// DRIVE_DOWNLOAD_PARTS=1 restores the single-stream download.
+const DOWNLOAD_PARTS = Math.max(1, parseInt(process.env.DRIVE_DOWNLOAD_PARTS || '4', 10) || 1);
+const MIN_PARALLEL_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Streams bytes [start, end] (or the whole file when range is null) into destPath at offset start.
+ * Resolves with the number of bytes written; rejects if Drive ignores the Range header.
+ */
+async function downloadRange(fileId, destPath, range) {
+    const response = await drive.files.get(
+        { fileId, alt: 'media', acknowledgeAbuse: true, supportsAllDrives: true },
+        { responseType: 'stream', headers: range ? { Range: `bytes=${range[0]}-${range[1]}` } : {} }
+    );
+    if (range && response.status !== 206) {
+        response.data.destroy();
+        throw new Error(`Drive ignored Range request (HTTP ${response.status})`);
+    }
+    const dest = fs.createWriteStream(destPath, range ? { flags: 'r+', start: range[0] } : {});
+    let written = 0;
+    response.data.on('data', chunk => { written += chunk.length; });
+    await new Promise((resolve, reject) => {
+        response.data.pipe(dest);
+        dest.on('finish', resolve);
+        dest.on('error', reject);
+        response.data.on('error', reject);
+    });
+    return written;
+}
+
+/**
+ * Downloads a Drive file to destPath, in DOWNLOAD_PARTS parallel ranges when it is big enough.
+ * Any failure in the parallel path falls back to one plain stream. Returns the number of parts used.
+ */
+async function downloadDriveFile(fileId, destPath) {
+    let size = 0;
+    if (DOWNLOAD_PARTS > 1) {
+        try {
+            const { data } = await drive.files.get({ fileId, fields: 'size', supportsAllDrives: true });
+            size = Number(data.size) || 0;
+        } catch (err) {
+            console.warn(`[Drive] Could not read file size (${err.message}); using a single stream.`);
+        }
+    }
+
+    if (DOWNLOAD_PARTS > 1 && size >= MIN_PARALLEL_BYTES) {
+        try {
+            fs.writeFileSync(destPath, '');
+            fs.truncateSync(destPath, size); // pre-size so each part writes at its own offset
+            const partSize = Math.ceil(size / DOWNLOAD_PARTS);
+            const ranges = [];
+            for (let start = 0; start < size; start += partSize) ranges.push([start, Math.min(size, start + partSize) - 1]);
+            // allSettled: never fall back while another part is still writing into the file
+            const results = await Promise.allSettled(ranges.map(r => downloadRange(fileId, destPath, r)));
+            ranges.forEach((r, i) => {
+                const res = results[i];
+                if (res.status === 'rejected') throw new Error(`Part ${i + 1} failed: ${res.reason?.message}`);
+                if (res.value !== r[1] - r[0] + 1) throw new Error(`Part ${i + 1} incomplete: ${res.value} of ${r[1] - r[0] + 1} bytes`);
+            });
+            return ranges.length;
+        } catch (err) {
+            console.warn(`[Drive] Parallel download failed (${err.message}); retrying as a single stream.`);
+        }
+    }
+
+    await downloadRange(fileId, destPath, null);
+    return 1;
+}
+
 async function extractAudioFromDrive(driveLink, queueId) {
     if (!drive) {
         throw new Error("Google Drive credentials not configured");
@@ -83,30 +152,19 @@ async function extractAudioFromDrive(driveLink, queueId) {
         fs.mkdirSync(storageDir, { recursive: true });
     }
 
-    const audioPath = path.join(storageDir, `${queueId}.mp3`);
+    const audioPath = path.join(storageDir, `${queueId}.wav`);
     const tempVideoPath = path.join(storageDir, `${queueId}_temp.mp4`);
 
     try {
         console.log(`[Drive] Streaming video to extract audio...`);
+        const downloadStart = Date.now();
         
-        // Download the file stream from drive
-        const response = await drive.files.get(
-            { fileId: fileId, alt: 'media', acknowledgeAbuse: true, supportsAllDrives: true },
-            { responseType: 'stream' }
-        );
-
-        // Pipe directly to a temp video file first
-        const dest = fs.createWriteStream(tempVideoPath);
-        
-        await new Promise((resolve, reject) => {
-            response.data.pipe(dest);
-            dest.on('finish', () => resolve());
-            dest.on('error', err => reject(err));
-            response.data.on('error', err => reject(err));
-        });
+        const parts = await downloadDriveFile(fileId, tempVideoPath);
 
         const stat = fs.statSync(tempVideoPath);
-        console.log(`[Drive] Download complete. Video file size: ${stat.size} bytes. Extracting Audio...`);
+        const downloadSec = (Date.now() - downloadStart) / 1000;
+        console.log(`[Drive] Download complete (${parts} part${parts > 1 ? 's' : ''}): ${(stat.size / 1e6).toFixed(0)} MB in ${downloadSec.toFixed(1)}s (${(stat.size / 1e6 / downloadSec).toFixed(1)} MB/s). Extracting Audio...`);
+        const ffmpegStart = Date.now();
 
         // Extract Audio using ffmpeg
         try {
@@ -116,7 +174,7 @@ async function extractAudioFromDrive(driveLink, queueId) {
             throw ffmpegErr;
         }
         
-        console.log(`[Drive] Audio extraction complete: ${audioPath}`);
+        console.log(`[Drive] Audio extraction complete in ${((Date.now() - ffmpegStart) / 1000).toFixed(1)}s: ${audioPath}`);
 
         // DO NOT delete the heavy video file yet!
         // The Python ASR worker will run OpenCV OCR on it for Google Meet slide analysis,
@@ -134,4 +192,4 @@ async function extractAudioFromDrive(driveLink, queueId) {
     }
 }
 
-module.exports = { extractAudioFromDrive };
+module.exports = { extractAudioFromDrive, downloadDriveFile };
