@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "spend": "node scripts/check_spend.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest"
   },
   "keywords": [],
   "author": "",
@@ -21,10 +21,12 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "googleapis": "^178.1.1",
-    "jest": "^30.5.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
-    "supertest": "^7.2.2",
     "uuid": "^14.0.1"
+  },
+  "devDependencies": {
+    "jest": "^30.5.2",
+    "supertest": "^7.2.2"
   }
 }
