@@ -94,3 +94,10 @@ asr_backend/tmp_output/
 node_backend/config/gemini_spend_ledger.jsonl
 node_backend/real_comparison_results.json
 
+
+# Runtime data written by the app (keep out of git)
+node_backend/config/gemini_spend_ledger.jsonl
+node_backend/config/processed_files.json
+node_backend/config/.gemini_cache_state.json
+node_backend/latest_audit_result.json
+asr_backend/scratch.py
