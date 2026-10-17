@@ -31,7 +31,7 @@ async function checkAndAutoTrigger() {
     const { data: activeQueueItems, error: qErr } = await supabase
       .from('callizer_queue')
       .select('id, status')
-      .not('status', 'in', '("completed","failed")')
+      .not('status', 'in', '("completed","failed","dead_letter","rejected","paused")')
       .limit(10);
 
     if (qErr) {

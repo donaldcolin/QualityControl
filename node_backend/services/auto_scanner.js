@@ -16,6 +16,8 @@ const INITIAL_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 // High-watermark: LSQ ModifiedOn ("yyyy-MM-dd HH:mm:ss", UTC) of the last lead fully processed.
 let _lastScannedTimestamp = null;
+const MAX_LEAD_FAILURES = 3;
+const _leadFailures = new Map(); // prospect_id -> consecutive failures
 const toLsqTime = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
 
 /**
@@ -72,9 +74,19 @@ async function runScanCycle() {
         skipped += r.calls_skipped + r.demos_skipped;
         console.log(`[AutoScanner] Processed Lead ${i + 1}/${leads.length} (${lead.name}): ${r.calls_queued} calls, ${r.demos_queued} demo queued. Advancing to next lead...`);
         _lastScannedTimestamp = lead.modified_on || _lastScannedTimestamp;
+        _leadFailures.delete(lead.prospect_id);
       } catch (leadErr) {
         errors++;
-        console.warn(`[AutoScanner] Lead ${lead.prospect_id} failed: ${leadErr.message}. Will retry next cycle.`);
+        const failures = (_leadFailures.get(lead.prospect_id) || 0) + 1;
+        if (failures >= MAX_LEAD_FAILURES) {
+          // A lead that always fails must not block every lead after it
+          console.error(`[AutoScanner] Skipping lead ${lead.prospect_id} after ${failures} failures: ${leadErr.message}`);
+          _leadFailures.delete(lead.prospect_id);
+          _lastScannedTimestamp = lead.modified_on || _lastScannedTimestamp;
+          continue;
+        }
+        _leadFailures.set(lead.prospect_id, failures);
+        console.warn(`[AutoScanner] Lead ${lead.prospect_id} failed (${failures}/${MAX_LEAD_FAILURES}): ${leadErr.message}. Will retry next cycle.`);
         allDone = false;
         break; // keep the watermark behind the failed lead; don't skip past it
       }

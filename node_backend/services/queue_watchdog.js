@@ -59,7 +59,7 @@ async function sweepStaleQueueJobs(timeoutMs = STALE_TIMEOUT_MS) {
     const { data: inFlightJobs, error: inFlightErr } = await supabase
       .from('callizer_queue')
       .select('id, call_id, status, worker_id, lease_expires_at, claimed_at, created_at, attempt_count, errors')
-      .neq('status', 'pending');
+      .not('status', 'in', `(${['pending', ...TERMINAL_STATUSES].map(s => `"${s}"`).join(',')})`);
 
     if (inFlightErr) {
       console.warn('⚠️ [Queue Watchdog] Error checking in-flight jobs:', inFlightErr.message);

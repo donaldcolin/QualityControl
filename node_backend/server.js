@@ -17,6 +17,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (err) => {
   console.error('💥 [CRITICAL] Uncaught Process Exception:', err.stack || err);
+  process.exit(1); // state is unknown after an uncaught exception; pm2 restarts a clean process
 });
 
 const app = express();
